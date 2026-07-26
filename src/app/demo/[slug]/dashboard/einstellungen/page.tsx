@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { rueckrufGruende } from "@config/rueckruf-gruende";
+import { kleinreparaturen, selbsthilfeKatalog } from "@config/kleinreparaturen";
 import { Seitenkopf } from "@/components/dashboard/Anzeigen";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -112,6 +113,47 @@ export default async function EinstellungenSeite({
                   </li>
                 ))}
             </ul>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Kleinreparaturen</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Liegt eine Reparatur unter diesem Betrag und lässt sie sich gefahrlos
+              selbst beheben, bietet der Assistent dem Mieter eine Anleitung an. Nimmt
+              er sie an, entfällt der Einsatz.
+            </p>
+            <ul className="divide-y divide-border text-sm">
+              <li className="flex items-center justify-between py-2">
+                <span>Höchstbetrag je Einzelfall</span>
+                <span className="tabellenziffern font-medium">
+                  {mandant.einstellungen?.kleinreparatur_grenze_euro ??
+                    kleinreparaturen.grenzeEuro}{" "}
+                  €
+                </span>
+              </li>
+              <li className="flex items-center justify-between py-2">
+                <span>Jahresobergrenze</span>
+                <span className="tabellenziffern font-medium">
+                  {Math.round(kleinreparaturen.jahresgrenzeAnteil * 100)} % der
+                  Jahreskaltmiete
+                </span>
+              </li>
+              <li className="flex items-center justify-between py-2">
+                <span>Anleitungen hinterlegt</span>
+                <span className="tabellenziffern font-medium">
+                  {Object.keys(selbsthilfeKatalog).length} Fälle
+                </span>
+              </li>
+            </ul>
+            <p className="border-t border-border pt-3 text-[11px] leading-relaxed text-muted-foreground">
+              Die Kleinreparaturklausel überträgt nur die Kosten, nicht die Pflicht zu
+              reparieren. Der Assistent bietet die Anleitung deshalb ausdrücklich an und
+              fordert nie dazu auf.
+            </p>
           </CardContent>
         </Card>
 

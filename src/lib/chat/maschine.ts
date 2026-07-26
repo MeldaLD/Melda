@@ -30,6 +30,12 @@
 import { chatRahmen } from "@config/chat-rahmen";
 import { demoKonfiguration } from "@config/demo";
 import { szenarioAusText, szenarioNach, type Szenario } from "@config/scenarios";
+import {
+  istKleinreparatur,
+  kleinreparaturen,
+  selbsthilfeFuer,
+  videoLink,
+} from "@config/kleinreparaturen";
 import { grundNach, zeitwunschNach } from "@config/rueckruf-gruende";
 
 import type { HandwerkerVorlage } from "@/lib/daten/typen";
@@ -65,6 +71,7 @@ export function anfangszustand(): ChatZustand {
     zweitfotoFehlversuche: 0,
     gewaehlterTermin: null,
     rueckruf: null,
+    selbsthilfeAngeboten: false,
   };
 }
 
@@ -99,21 +106,9 @@ function meldungErgaenzen(
   return meldungen;
 }
 
-/**
- * Der gemeinsame Abschluss aller Szenarien: Klassifizierung, Weiterleitung,
- * Terminfrage. Wird sowohl nach dem zweiten Foto erreicht als auch dann, wenn
- * der Mieter keines schickt.
- */
-function weiterleiten(
-  zustand: ChatZustand,
-  szenario: Szenario,
-  umgebung: Umgebung,
-): SchrittErgebnis {
-  const betrieb = betriebFuer(umgebung, szenario.gewerk);
-  const notfall = szenario.prioritaet === "notfall";
-  const ausgabe: Ausgabe[] = [];
-
-  ausgabe.push({
+/** Die Einstufungskarte – sieht der Mieter in jedem Fall. */
+function klassifizierung(szenario: Szenario): Ausgabe {
+  return {
     nachricht: {
       text: "Ich habe die Meldung eingeordnet:",
       karte: {
@@ -124,7 +119,78 @@ function weiterleiten(
       },
     },
     tippdauer: tippenKurz,
-  });
+  };
+}
+
+/**
+ * Nach der Einstufung: Fällt der Fall unter die Kleinreparaturklausel und
+ * gibt es einen gefahrlosen Selbsthilfe-Tipp, wird er angeboten.
+ *
+ * Für den Mieter heißt das: keine Kosten. Für die Verwaltung: kein
+ * Handwerkereinsatz. Das ist einer der wenigen Punkte, an denen beide Seiten
+ * gewinnen – und deshalb im Verkaufsgespräch stark.
+ *
+ * Angeboten wird nur, niemals aufgefordert: Die Klausel überträgt die Kosten,
+ * nicht die Pflicht zu reparieren. Siehe config/kleinreparaturen.ts
+ */
+function selbsthilfeMoeglich(szenario: Szenario): boolean {
+  if (szenario.prioritaet === "notfall") return false;
+  if (!selbsthilfeFuer(szenario.id)) return false;
+  if (szenario.kostenschaetzungEuro < kleinreparaturen.mindestbetragFuerTippEuro) {
+    return false;
+  }
+  return istKleinreparatur(szenario.kostenschaetzungEuro, kleinreparaturen.grenzeEuro);
+}
+
+function selbsthilfeAnbieten(
+  zustand: ChatZustand,
+  szenario: Szenario,
+): SchrittErgebnis {
+  const tipp = selbsthilfeFuer(szenario.id)!;
+
+  return {
+    zustand: {
+      ...zustand,
+      phase: "selbsthilfe",
+      angebot: { art: "selbsthilfe" },
+      meldungen: meldungErgaenzen(zustand, {}, "Als Kleinreparatur eingestuft"),
+    },
+    ausgabe: [
+      klassifizierung(szenario),
+      {
+        nachricht: {
+          text: chatRahmen.kleinreparaturHinweis(
+            szenario.kostenschaetzungEuro,
+            kleinreparaturen.grenzeEuro,
+          ),
+          karte: {
+            art: "kleinreparatur",
+            kostenEuro: szenario.kostenschaetzungEuro,
+            grenzeEuro: kleinreparaturen.grenzeEuro,
+          },
+        },
+        tippdauer: tippenLang,
+      },
+      sagen(chatRahmen.selbsthilfeFrage(tipp.dauerMinuten), tippenKurz),
+    ],
+  };
+}
+
+/**
+ * Der gemeinsame Abschluss: Weiterleitung und Terminfrage. Wird erreicht,
+ * wenn keine Selbsthilfe in Frage kommt oder der Mieter sie ablehnt.
+ */
+function beauftragen(
+  zustand: ChatZustand,
+  szenario: Szenario,
+  umgebung: Umgebung,
+  mitKlassifizierung = true,
+): SchrittErgebnis {
+  const betrieb = betriebFuer(umgebung, szenario.gewerk);
+  const notfall = szenario.prioritaet === "notfall";
+  const ausgabe: Ausgabe[] = [];
+
+  if (mitKlassifizierung) ausgabe.push(klassifizierung(szenario));
 
   ausgabe.push(
     sagen(
@@ -143,8 +209,6 @@ function weiterleiten(
         ...zustand,
         phase: "frei",
         betrieb,
-        // Beim Notfall faehrt der Notdienst sofort – hier ist der Auftrag
-        // wirklich raus, ohne Freigabe.
         meldungen: meldungErgaenzen(
           zustand,
           { status: "an_handwerker", betrieb },
@@ -164,8 +228,7 @@ function weiterleiten(
       phase: "terminwahl",
       betrieb,
       // Wichtig: NICHT "an_handwerker". Der Auftrag ist vorbereitet, nicht
-      // erteilt. Erst die Freigabe im Dashboard schiebt ihn weiter – sonst
-      // verspricht der Chat dem Mieter etwas, das noch gar nicht passiert ist.
+      // erteilt. Erst die Freigabe im Dashboard schiebt ihn weiter.
       meldungen: meldungErgaenzen(
         zustand,
         { status: "in_pruefung", betrieb },
@@ -175,6 +238,17 @@ function weiterleiten(
     },
     ausgabe,
   };
+}
+
+/** Weiche nach der verfeinerten Diagnose. */
+function weiterleiten(
+  zustand: ChatZustand,
+  szenario: Szenario,
+  umgebung: Umgebung,
+): SchrittErgebnis {
+  return selbsthilfeMoeglich(szenario)
+    ? selbsthilfeAnbieten(zustand, szenario)
+    : beauftragen(zustand, szenario, umgebung);
 }
 
 /** Diagnose eines erkannten Szenarios – erste Reaktion auf das Foto. */
@@ -360,6 +434,86 @@ export function schritt(
           angebot: { art: "zweitfoto", optionen: szenario.zweitfoto.optionen },
         },
         ausgabe,
+      };
+    }
+
+    // -----------------------------------------------------------------------
+    // Selbsthilfe: Der Mieter entscheidet, ob er den Tipp will.
+    case "selbsthilfe": {
+      if (!szenario) return { zustand, ausgabe: [] };
+
+      if (!ereignis.annehmen) {
+        // Ablehnen ist völlig in Ordnung und wird auch so beantwortet.
+        const nachher = beauftragen(zustand, szenario, umgebung, false);
+        return {
+          zustand: nachher.zustand,
+          ausgabe: [
+            sagen(chatRahmen.selbsthilfeAbgelehnt, tippenKurz),
+            ...nachher.ausgabe,
+          ],
+        };
+      }
+
+      const tipp = selbsthilfeFuer(szenario.id)!;
+      return {
+        zustand: {
+          ...zustand,
+          phase: "selbsthilfeErgebnis",
+          selbsthilfeAngeboten: true,
+          angebot: { art: "selbsthilfeErgebnis" },
+          meldungen: meldungErgaenzen(
+            zustand,
+            {},
+            "Anleitung zur Selbsthilfe erhalten",
+          ),
+        },
+        ausgabe: [
+          {
+            nachricht: {
+              text: "Gern, so gehen Sie vor:",
+              karte: {
+                art: "anleitung",
+                titel: tipp.titel,
+                dauerMinuten: tipp.dauerMinuten,
+                material: tipp.material,
+                schritte: tipp.schritte,
+                videoUrl: videoLink(tipp.videoSuche),
+                abbruchHinweis: tipp.abbruchHinweis,
+              },
+            },
+            tippdauer: tippenLang,
+          },
+          sagen(chatRahmen.selbsthilfeErfolgFrage, tippenKurz),
+        ],
+      };
+    }
+
+    case "selbsthilfeErfolg": {
+      if (!szenario) return { zustand, ausgabe: [] };
+
+      if (ereignis.geklappt) {
+        return {
+          zustand: {
+            ...zustand,
+            phase: "frei",
+            angebot: { art: "frei" },
+            meldungen: meldungErgaenzen(
+              zustand,
+              { status: "erledigt" },
+              "Vom Mieter selbst behoben – kein Handwerkereinsatz nötig",
+            ),
+          },
+          ausgabe: [sagen(chatRahmen.selbsthilfeGeklappt, tippenKurz)],
+        };
+      }
+
+      const nachher = beauftragen(zustand, szenario, umgebung, false);
+      return {
+        zustand: nachher.zustand,
+        ausgabe: [
+          sagen(chatRahmen.selbsthilfeNichtGeklappt, tippenKurz),
+          ...nachher.ausgabe,
+        ],
       };
     }
 

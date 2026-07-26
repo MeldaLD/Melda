@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeftIcon, SparklesIcon, TrendingDownIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  SparklesIcon,
+  TrendingDownIcon,
+  WrenchIcon,
+} from "lucide-react";
 
 import { szenarioNach } from "@config/scenarios";
 import { DemoFoto } from "@/components/chat/DemoFoto";
@@ -61,6 +66,11 @@ export default async function VorgangDetail({
           <PrioBadge prioritaet={vorgang.prioritaet} />
           <StatusBadge status={vorgang.status} />
           {frist === "rot" && <Badge variant="notfall">Frist überschritten</Badge>}
+          {vorgang.selbsthilfe_erfolgreich && (
+            <Badge variant="marke">
+              <WrenchIcon className="size-3" /> Vom Mieter selbst behoben
+            </Badge>
+          )}
           {vorgang.zweitanfahrt_vermieden && (
             <Badge variant="marke">
               <TrendingDownIcon className="size-3" /> Zweitanfahrt vermieden

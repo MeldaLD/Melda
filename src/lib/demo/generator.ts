@@ -18,6 +18,7 @@
 import { szenarien, type Szenario } from "@config/scenarios";
 import { HAUSHALTSFORMEN, LAGEN, NACHNAMEN, VORNAMEN } from "@config/namen";
 import { SLA_STANDARD, type MandantVorlage } from "@config/muster-mandant";
+import { kleinreparaturen } from "@config/kleinreparaturen";
 
 import type {
   Einheit,
@@ -48,6 +49,8 @@ type VorgangsBauplan = {
   zweitanfahrt: boolean;
   /** Vollständiger Chatverlauf statt nur Eingangsnachricht. */
   vollerChat?: boolean;
+  /** Mieter hat den Schaden nach dem Tipp selbst behoben. */
+  selbstBehoben?: boolean;
 };
 
 const BAUPLAENE: VorgangsBauplan[] = [
@@ -107,6 +110,7 @@ const BAUPLAENE: VorgangsBauplan[] = [
     status: "erledigt",
     alterStunden: 120,
     zweitanfahrt: true,
+    selbstBehoben: true,
   },
   {
     szenario: "treppenhauslicht",
@@ -125,6 +129,7 @@ const BAUPLAENE: VorgangsBauplan[] = [
     status: "erledigt",
     alterStunden: 240,
     zweitanfahrt: true,
+    selbstBehoben: true,
   },
   {
     szenario: "heizung-kalt",
@@ -150,6 +155,7 @@ const BAUPLAENE: VorgangsBauplan[] = [
     status: "erledigt",
     alterStunden: 530,
     zweitanfahrt: true,
+    selbstBehoben: true,
   },
   {
     szenario: "wasserfleck-decke",
@@ -232,6 +238,7 @@ export function bestandErzeugen(
     einstellungen: {
       sla_stunden: { ...SLA_STANDARD },
       notfall_telefon: "0561 9000000",
+      kleinreparatur_grenze_euro: kleinreparaturen.grenzeEuro,
       hinweis: "Demo-Konfiguration. Werte können jederzeit angepasst werden.",
     },
     ablaufdatum: null,
@@ -380,6 +387,9 @@ export function bestandErzeugen(
         plan.status === "neu" || plan.status === "in_pruefung" ? null : betrieb.id,
       sla_frist: vorStunden(plan.alterStunden - slaStunden),
       zweitanfahrt_vermieden: plan.zweitanfahrt,
+      kosten_schaetzung_euro: szenario.kostenschaetzungEuro,
+      selbsthilfe_angeboten: Boolean(plan.selbstBehoben),
+      selbsthilfe_erfolgreich: Boolean(plan.selbstBehoben),
       ist_seed: true,
       erstellt_am: vorStunden(plan.alterStunden),
       erledigt_am:

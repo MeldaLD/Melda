@@ -51,6 +51,39 @@ export const chatRahmen = {
     `Ich habe den Notdienst von ${betrieb} alarmiert und Ihre Hausverwaltung ` +
     "parallel per SMS benachrichtigt. Der Notdienst ist in etwa 45 Minuten bei Ihnen.",
 
+  /**
+   * Kleinreparatur: Kostenhinweis und Selbsthilfe-Angebot.
+   *
+   * Sprachlich sehr bewusst gewählt. Die Kleinreparaturklausel überträgt nur
+   * die KOSTEN, nicht die Pflicht zu reparieren – eine Vornahmeklausel wäre
+   * unwirksam. Deshalb wird hier angeboten, nie aufgefordert, und der Satz
+   * "Sie müssen das natürlich nicht selbst machen" steht ausdrücklich dabei.
+   */
+  kleinreparaturHinweis: (kosten: number, grenze: number) =>
+    `Ein Hinweis vorweg: Ein Handwerkereinsatz kostet hier erfahrungsgemäß ` +
+    `etwa ${kosten} Euro. Reparaturen bis ${grenze} Euro tragen Mieter laut ` +
+    "vielen Mietverträgen selbst – Ihr Mietvertrag enthält vermutlich eine " +
+    "solche Kleinreparaturklausel.",
+
+  selbsthilfeFrage: (dauer: number) =>
+    `Das lässt sich in etwa ${dauer} Minuten selbst beheben, dann entstehen ` +
+    "Ihnen gar keine Kosten. Soll ich Ihnen zeigen, wie das geht? Sie müssen " +
+    "das natürlich nicht selbst machen – sagen Sie einfach Bescheid, dann " +
+    "beauftragen wir den Betrieb.",
+
+  selbsthilfeAbgelehnt: "Alles klar, dann kümmern wir uns darum.",
+
+  selbsthilfeErfolgFrage:
+    "Sagen Sie mir gern Bescheid, ob es geklappt hat. Falls nicht, beauftrage " +
+    "ich sofort den Betrieb – Sie müssen nichts noch einmal erklären.",
+
+  selbsthilfeGeklappt:
+    "Sehr schön, dann schließe ich die Meldung. Ihre Hausverwaltung sieht, " +
+    "dass sich die Sache erledigt hat. Melden Sie sich jederzeit wieder.",
+
+  selbsthilfeNichtGeklappt:
+    "Kein Problem, das war einen Versuch wert. Ich kümmere mich jetzt darum.",
+
   terminfrage: "Der Betrieb hat freie Zeitfenster. Welches passt Ihnen am besten?",
 
   terminBestaetigt: (fenster: string) =>
@@ -90,5 +123,9 @@ export const chatRahmen = {
     status: "Status",
     rueckruf: "Rückruf",
     neueMeldung: "Neue Meldung",
+    anleitung: "Ja, zeigen Sie mir das",
+    lieberHandwerker: "Nein, bitte Handwerker",
+    hatGeklappt: "Hat geklappt",
+    hatNichtGeklappt: "Hat nicht geklappt",
   },
 } as const;

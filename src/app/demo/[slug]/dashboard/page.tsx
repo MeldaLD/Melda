@@ -68,7 +68,7 @@ export default async function Uebersicht({
       </div>
 
       {/* Die Zahl, die den Verwalter überzeugt – bewusst eine eigene Reihe. */}
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiKachel
           betont
           bezeichnung="Zeitersparnis diese Woche"
@@ -81,6 +81,12 @@ export default async function Uebersicht({
           bezeichnung="Vermiedene Zweitanfahrten"
           wert={zahlen.zweitanfahrtenVermieden}
           hinweis={`Rund ${alsEuro(zahlen.ersparnisEuro)} nicht angefallene Kosten`}
+        />
+        <KpiKachel
+          betont
+          bezeichnung="Selbst behoben statt Handwerker"
+          wert={zahlen.selbsthilfeErfolge}
+          hinweis={`Anleitung im Chat statt Einsatz · ${alsEuro(zahlen.selbsthilfeErsparnisEuro)} gespart`}
         />
         <KpiKachel
           bezeichnung="⌀ Bearbeitungsdauer"

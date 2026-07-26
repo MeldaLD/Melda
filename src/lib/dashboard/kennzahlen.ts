@@ -67,6 +67,9 @@ export type Kennzahlen = {
   automatischErledigt: number;
   zweitanfahrtenVermieden: number;
   ersparnisEuro: number;
+  /** Durch Selbsthilfe des Mieters vollständig entfallene Einsätze. */
+  selbsthilfeErfolge: number;
+  selbsthilfeErsparnisEuro: number;
   gesparteStunden: number;
 };
 
@@ -87,6 +90,10 @@ export function kennzahlen(bestand: Mandantenbestand, jetzt = new Date()): Kennz
   );
 
   const vermieden = dieseWoche.filter((v) => v.zweitanfahrt_vermieden).length;
+
+  // Selbsthilfe zählt über den ganzen Bestand, nicht nur diese Woche: Es sind
+  // wenige Fälle, und über eine Woche wäre die Zahl meist null.
+  const selbstbehoben = bestand.vorgaenge.filter((v) => v.selbsthilfe_erfolgreich);
   const { kostenZweitanfahrtEuro, minutenProVorgang, minutenProZweitanfahrt } =
     demoKonfiguration.kennzahlen;
 
@@ -105,6 +112,12 @@ export function kennzahlen(bestand: Mandantenbestand, jetzt = new Date()): Kennz
     automatischErledigt: dieseWoche.filter((v) => v.quelle === "whatsapp").length,
     zweitanfahrtenVermieden: vermieden,
     ersparnisEuro: vermieden * kostenZweitanfahrtEuro,
+    selbsthilfeErfolge: selbstbehoben.length,
+    // Gespart ist genau der Handwerkereinsatz, der nicht stattgefunden hat.
+    selbsthilfeErsparnisEuro: selbstbehoben.reduce(
+      (summe, v) => summe + (v.kosten_schaetzung_euro ?? 0),
+      0,
+    ),
     // Ersparnis = eingesparte Aufnahme je Meldung plus die Koordination,
     // die eine vermiedene Zweitanfahrt sonst zusätzlich gekostet hätte.
     gesparteStunden: Math.round(

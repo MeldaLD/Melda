@@ -6,6 +6,8 @@ export type Phase =
   | "eingabe" // wartet auf Text oder Foto
   | "bestaetigung" // "Ist das korrekt?" – wartet auf Ja/Nein
   | "zweitfoto" // wartet auf das zweite Bild
+  | "selbsthilfe" // Angebot zur Eigenreparatur
+  | "selbsthilfeErgebnis"
   | "terminwahl"
   | "rueckrufGrund" // Worum geht es?
   | "rueckrufZeit" // Wann sind Sie erreichbar?
@@ -25,7 +27,17 @@ export type Karte =
       gewerk: Gewerk;
       kategorie: string;
     }
-  | { art: "status"; meldungen: Meldung[] };
+  | { art: "status"; meldungen: Meldung[] }
+  | {
+      art: "anleitung";
+      titel: string;
+      dauerMinuten: number;
+      material: string[];
+      schritte: string[];
+      videoUrl: string;
+      abbruchHinweis?: string;
+    }
+  | { art: "kleinreparatur"; kostenEuro: number; grenzeEuro: number };
 
 /**
  * Eine Schadensmeldung des Mieters.
@@ -74,6 +86,8 @@ export type Angebot =
   | { art: "eingabe" } // Freitext und Foto
   | { art: "bestaetigung" }
   | { art: "zweitfoto"; optionen: string[] }
+  | { art: "selbsthilfe" }
+  | { art: "selbsthilfeErgebnis" }
   | { art: "termin"; fenster: Terminfenster[] }
   | { art: "rueckrufGrund" }
   | { art: "rueckrufZeit" }
@@ -105,6 +119,8 @@ export type ChatZustand = {
   betrieb: string | null;
   /** Alle Meldungen dieses Mieters, neueste zuletzt. */
   meldungen: Meldung[];
+  /** Wurde für die laufende Meldung ein Selbsthilfe-Tipp gezeigt? */
+  selbsthilfeAngeboten: boolean;
   /** Wurde durch das zweite Foto eine Anfahrt gespart? */
   zweitanfahrtVermieden: boolean;
   /** Ein Fehlversuch beim zweiten Foto wird abgefangen, danach nicht mehr. */
@@ -121,6 +137,8 @@ export type ChatEreignis =
   | { art: "text"; text: string }
   | { art: "foto"; datei: string }
   | { art: "bestaetigung"; ja: boolean }
+  | { art: "selbsthilfe"; annehmen: boolean }
+  | { art: "selbsthilfeErfolg"; geklappt: boolean }
   | { art: "termin"; index: number }
   | { art: "rueckruf" }
   | { art: "rueckrufGrund"; grundId: string }

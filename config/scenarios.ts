@@ -60,6 +60,14 @@ export type Szenario = {
     nachher: string;
   };
 
+  /**
+   * Was der Handwerkereinsatz voraussichtlich kostet.
+   * Entscheidet, ob der Fall unter die Kleinreparaturklausel fällt und ob
+   * dem Mieter ein Selbsthilfe-Tipp angeboten wird.
+   * Siehe config/kleinreparaturen.ts
+   */
+  kostenschaetzungEuro: number;
+
   /** Zusammenfassung, die im Dashboard am Vorgang steht. */
   kiZusammenfassung: string;
 
@@ -102,6 +110,7 @@ export const szenarien: Szenario[] = [
       vorher: "Silikonfuge ausbessern, Materialbedarf unbekannt",
       nachher: "1,80 m Wannenfuge und Eckfuge erneuern, Schimmelentferner mitbringen",
     },
+    kostenschaetzungEuro: 180,
     kiZusammenfassung:
       "Silikonfuge an Duschwanne über volle Länge (ca. 1,80 m) schadhaft, " +
       "zusätzlich senkrechte Eckfuge. Beginnender Schimmelbefall, keine " +
@@ -147,6 +156,7 @@ export const szenarien: Szenario[] = [
       vorher: "Armatur tropft, Ursache und Ersatzteil offen",
       nachher: "35-mm-Kartusche Einhebelmischer, Eckventile vorhanden – Teil kommt mit",
     },
+    kostenschaetzungEuro: 95,
     kiZusammenfassung:
       "Einhebelmischer in der Küche tropft am Auslauf, verschlissene Kartusche " +
       "(35 mm). Eckventile unter der Spüle vorhanden und gängig. Reparatur in " +
@@ -193,6 +203,7 @@ export const szenarien: Szenario[] = [
       vorher: "Heizkörper kalt, Ursache offen – Monteur kommt ohne Ersatzteil",
       nachher: "Luft im Heizkörper, Ventil M30x1,5 – Entlüftung und Ersatzventil dabei",
     },
+    kostenschaetzungEuro: 90,
     kiZusammenfassung:
       "Heizkörper im Wohnzimmer unten warm, oben kalt – Hinweis auf Luft im " +
       "System. Thermostatventil M30x1,5. Prüfen, ob weitere Einheiten im Strang " +
@@ -250,6 +261,7 @@ export const szenarien: Szenario[] = [
       vorher: "Wasserschaden gemeldet, Ursache und Zugangsbedarf unklar",
       nachher: "Ursache in der Wohnung darüber – Notdienst organisiert beide Zugänge",
     },
+    kostenschaetzungEuro: 850,
     kiZusammenfassung:
       "Aktiver Wasseraustritt an der Decke, ca. 60 × 40 cm, unterhalb des Bades " +
       "der darüberliegenden Einheit. Notdienst alarmiert, Strom im Raum " +
@@ -297,6 +309,7 @@ export const szenarien: Szenario[] = [
       nachher:
         "Verdacht Wärmebrücke am Fensteranschluss – Feuchtemessung beim ersten Termin",
     },
+    kostenschaetzungEuro: 450,
     kiZusammenfassung:
       "Schimmelbefall ca. 25 × 25 cm in Außenwandecke neben Fenster, " +
       "Verdacht auf Wärmebrücke am Fensteranschluss. Feuchtemessung veranlasst. " +
@@ -339,6 +352,7 @@ export const szenarien: Szenario[] = [
       vorher: "Leuchtmittel tauschen – vor Ort stellt sich heraus: geht nicht",
       nachher: "Fest verbaute LED-Leuchte, Ersatzleuchte kommt direkt mit",
     },
+    kostenschaetzungEuro: 140,
     kiZusammenfassung:
       "LED-Deckenleuchte auf dem Treppenabsatz 2. OG ohne Funktion, " +
       "Leuchtmittel fest verbaut, kompletter Leuchtentausch erforderlich. " +
@@ -386,6 +400,7 @@ export const szenarien: Szenario[] = [
         "Verstopfung gemeldet – Rohrreinigungsfahrzeug wird vorsorglich geschickt",
       nachher: "Einzelverstopfung im Siphon, gut zugänglich – Standardeinsatz genügt",
     },
+    kostenschaetzungEuro: 85,
     kiZusammenfassung:
       "Waschbecken im Bad läuft nicht ab, Dusche und WC unauffällig. " +
       "Kunststoff-Flaschensiphon, frei zugänglich. Einzelverstopfung " +
@@ -432,6 +447,7 @@ export const szenarien: Szenario[] = [
       vorher: "Griff defekt – Monteur misst aus, bestellt, kommt erneut",
       nachher: "Dreh-Kipp-Beschlag, 43 mm Lochabstand – Ersatzgriff kommt mit",
     },
+    kostenschaetzungEuro: 75,
     kiZusammenfassung:
       "Fenstergriff im Kinderzimmer lose, Fenster schließt noch. " +
       "Dreh-Kipp-Kunststofffenster, Griffplatte 43 mm Lochabstand. " +
@@ -480,6 +496,7 @@ export const szenarien: Szenario[] = [
       nachher:
         "Zweidraht-Anlage, Fehler in der Einheit – ein Termin, kein Zusatzzugang",
     },
+    kostenschaetzungEuro: 190,
     kiZusammenfassung:
       "Innensprechstelle ohne Funktion, übrige Parteien nicht betroffen. " +
       "Zweidraht-Anlage, ca. 15 Jahre alt, Ersatzteile verfügbar. " +
@@ -521,6 +538,7 @@ export const szenarien: Szenario[] = [
       nachher:
         "Vier Tonnen dauerhaft überlastet – Turnuserhöhung wird gleich mitgeprüft",
     },
+    kostenschaetzungEuro: 60,
     kiZusammenfassung:
       "Müllraum überfüllt: vier Restmülltonnen voll, zusätzlich ca. sechs Säcke " +
       "daneben. Kein Sperrmüll. Wiederkehrendes Problem, Prüfung des " +

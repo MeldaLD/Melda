@@ -1,4 +1,10 @@
-import { AlertTriangleIcon, ArrowRightIcon, CheckIcon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ArrowRightIcon,
+  CheckIcon,
+  PlayIcon,
+  WrenchIcon,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -27,6 +33,15 @@ export function ChatKarte({ karte }: { karte: Karte }) {
       );
     case "status":
       return <StatusKarte meldungen={karte.meldungen} />;
+    case "kleinreparatur":
+      return (
+        <KleinreparaturKarte
+          kostenEuro={karte.kostenEuro}
+          grenzeEuro={karte.grenzeEuro}
+        />
+      );
+    case "anleitung":
+      return <AnleitungsKarte karte={karte} />;
   }
 }
 
@@ -92,6 +107,108 @@ function KlassifizierungsKarte({
           {PRIORITAET_BEZEICHNUNG[prioritaet]}
         </Badge>
         <Badge variant="outline">{GEWERK_BEZEICHNUNG[gewerk]}</Badge>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Kostenhinweis bei einer Kleinreparatur.
+ *
+ * Zeigt den Handwerkerpreis gegen die vertragliche Grenze – daraus wird für
+ * den Mieter sofort greifbar, warum sich der Tipp lohnt.
+ */
+function KleinreparaturKarte({
+  kostenEuro,
+  grenzeEuro,
+}: {
+  kostenEuro: number;
+  grenzeEuro: number;
+}) {
+  return (
+    <div className="mt-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5">
+      <p className="text-[11px] font-semibold tracking-wide text-slate-500 uppercase">
+        Kleinreparatur
+      </p>
+      <dl className="mt-1.5 space-y-1 text-xs">
+        <div className="flex justify-between gap-3">
+          <dt className="text-slate-500">Handwerkereinsatz</dt>
+          <dd className="tabellenziffern font-medium text-slate-900">
+            ca. {kostenEuro} €
+          </dd>
+        </div>
+        <div className="flex justify-between gap-3">
+          <dt className="text-slate-500">Ihr Anteil laut Mietvertrag</dt>
+          <dd className="tabellenziffern font-medium text-slate-900">
+            bis {grenzeEuro} €
+          </dd>
+        </div>
+        <div className="flex justify-between gap-3 border-t border-slate-200 pt-1">
+          <dt className="font-medium text-marke">Wenn Sie es selbst beheben</dt>
+          <dd className="tabellenziffern font-semibold text-marke">0 €</dd>
+        </div>
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * Die Selbsthilfe-Anleitung.
+ *
+ * Enthält bewusst einen Abbruchhinweis: Ein Tipp, der nicht sagt, wann man
+ * die Finger davon lassen soll, ist gefährlich – und im Schadensfall ein
+ * Problem für die Verwaltung.
+ */
+function AnleitungsKarte({ karte }: { karte: Extract<Karte, { art: "anleitung" }> }) {
+  return (
+    <div className="mt-2 overflow-hidden rounded-md border border-marke-rand bg-white">
+      <div className="flex items-center gap-2 border-b border-marke-rand bg-marke-sanft px-3 py-2">
+        <WrenchIcon className="size-3.5 shrink-0 text-marke" aria-hidden />
+        <span className="text-xs font-semibold text-marke">
+          {karte.titel} · ca. {karte.dauerMinuten} Min.
+        </span>
+      </div>
+
+      <div className="space-y-2.5 px-3 py-2.5">
+        {karte.material.length > 0 && (
+          <div>
+            <p className="text-[11px] font-medium text-slate-500">Sie brauchen</p>
+            <p className="text-xs text-slate-700">{karte.material.join(" · ")}</p>
+          </div>
+        )}
+
+        <ol className="space-y-1.5">
+          {karte.schritte.map((schritt, i) => (
+            <li key={i} className="flex gap-2">
+              <span className="tabellenziffern mt-px flex size-4 shrink-0 items-center justify-center rounded-full bg-marke-sanft text-[10px] font-semibold text-marke">
+                {i + 1}
+              </span>
+              <span className="text-xs leading-snug text-slate-700">{schritt}</span>
+            </li>
+          ))}
+        </ol>
+
+        {karte.abbruchHinweis && (
+          <p className="flex gap-1.5 rounded bg-prio-dringend-sanft px-2 py-1.5">
+            <AlertTriangleIcon
+              className="mt-px size-3 shrink-0 text-prio-dringend"
+              aria-hidden
+            />
+            <span className="text-[11px] leading-snug text-prio-dringend">
+              {karte.abbruchHinweis}
+            </span>
+          </p>
+        )}
+
+        <a
+          href={karte.videoUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-xs font-medium text-marke hover:underline"
+        >
+          <PlayIcon className="size-3.5" aria-hidden />
+          Video-Anleitungen dazu ansehen
+        </a>
       </div>
     </div>
   );

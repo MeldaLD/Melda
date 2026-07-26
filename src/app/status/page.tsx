@@ -41,6 +41,8 @@ const baustand = [
   { schritt: "Datenbankschema und Beispieldaten", fertig: true },
   { schritt: "Mieter-Chat", fertig: true },
   { schritt: "Verwalter-Dashboard", fertig: true },
+  { schritt: "Live-Verbindung Chat und Dashboard", fertig: true },
+  { schritt: "Kleinreparaturen und Selbsthilfe", fertig: true },
   { schritt: "Mandanten-Personalisierung und Admin", fertig: false },
 ];
 

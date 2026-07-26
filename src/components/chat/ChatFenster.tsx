@@ -280,6 +280,60 @@ function Aktionsleiste({
         </div>
       );
 
+    case "selbsthilfe":
+      return (
+        <div className={rahmen}>
+          <Schnellknopf
+            hervorgehoben
+            onClick={() =>
+              onEreignis(
+                { art: "selbsthilfe", annehmen: true },
+                { text: chatRahmen.knoepfe.anleitung },
+              )
+            }
+          >
+            {chatRahmen.knoepfe.anleitung}
+          </Schnellknopf>
+          <Schnellknopf
+            onClick={() =>
+              onEreignis(
+                { art: "selbsthilfe", annehmen: false },
+                { text: chatRahmen.knoepfe.lieberHandwerker },
+              )
+            }
+          >
+            {chatRahmen.knoepfe.lieberHandwerker}
+          </Schnellknopf>
+        </div>
+      );
+
+    case "selbsthilfeErgebnis":
+      return (
+        <div className={rahmen}>
+          <Schnellknopf
+            hervorgehoben
+            onClick={() =>
+              onEreignis(
+                { art: "selbsthilfeErfolg", geklappt: true },
+                { text: chatRahmen.knoepfe.hatGeklappt },
+              )
+            }
+          >
+            {chatRahmen.knoepfe.hatGeklappt}
+          </Schnellknopf>
+          <Schnellknopf
+            onClick={() =>
+              onEreignis(
+                { art: "selbsthilfeErfolg", geklappt: false },
+                { text: chatRahmen.knoepfe.hatNichtGeklappt },
+              )
+            }
+          >
+            {chatRahmen.knoepfe.hatNichtGeklappt}
+          </Schnellknopf>
+        </div>
+      );
+
     case "termin":
       return (
         <div className="flex flex-col gap-2 px-3 pb-1 sm:px-4">

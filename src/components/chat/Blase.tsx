@@ -15,6 +15,10 @@ function uhrzeit(iso: string): string {
 export function Blase({ nachricht }: { nachricht: ChatNachricht }) {
   const eigen = nachricht.von === "mieter";
 
+  // Sicherheitsnetz: Eine Blase ohne Text, Foto und Karte wäre im Gespräch
+  // ein leerer Kasten. Lieber gar nichts zeigen als etwas Kaputtes.
+  if (!nachricht.text && !nachricht.foto && !nachricht.karte) return null;
+
   return (
     <div className={cn("flex", eigen ? "justify-end" : "justify-start")}>
       <div

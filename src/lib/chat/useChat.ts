@@ -36,6 +36,12 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
 
   const zeitgeber = useRef<ReturnType<typeof setTimeout>[]>([]);
   const gestartet = useRef(false);
+  /** Verlässlicher als der Zustand: Der Wert im Ref ist sofort aktuell. */
+  const beschaeftigtRef = useRef(false);
+  /** Eingaben, die während einer laufenden Antwort ankamen. */
+  const warteschlange = useRef<[ChatEreignis, Partial<ChatNachricht> | undefined][]>(
+    [],
+  );
   /** Meldungs-IDs, die bereits in der Datenbank angelegt wurden. */
   const gespeicherte = useRef(new Set<string>());
 
@@ -66,11 +72,20 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
 
   const ausloesen = useCallback(
     async (ereignis: ChatEreignis, eigeneNachricht?: Partial<ChatNachricht>) => {
-      if (beschaeftigt) return;
+      // Während der Assistent antwortet, wird nichts angenommen. Früher wurde
+      // die Eingabe hier stillschweigend verworfen – der Mieter tippte etwas,
+      // das Eingabefeld leerte sich, und nichts geschah. Jetzt wandert sie in
+      // eine Warteschlange und wird direkt danach abgearbeitet.
+      if (beschaeftigtRef.current) {
+        warteschlange.current.push([ereignis, eigeneNachricht]);
+        return;
+      }
+      beschaeftigtRef.current = true;
       setBeschaeftigt(true);
 
       // Erst die Nachricht des Mieters anzeigen, dann reagieren.
-      if (eigeneNachricht) {
+      // Eine Blase ohne jeden Inhalt wird gar nicht erst erzeugt.
+      if (eigeneNachricht && (eigeneNachricht.text || eigeneNachricht.foto)) {
         anhaengen({
           id: neueId(),
           von: "mieter",
@@ -112,6 +127,7 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
 
       // Zustand der Maschine übernehmen, aber den angezeigten Verlauf behalten.
       setZustand((alt) => ({ ...ergebnis.zustand, nachrichten: alt.nachrichten }));
+      beschaeftigtRef.current = false;
       setBeschaeftigt(false);
 
       // Sobald eine Meldung durch ist, entsteht daraus ein echter Vorgang in
@@ -119,7 +135,11 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
       const fertige = ergebnis.zustand.meldungen.find(
         (m) =>
           !gespeicherte.current.has(m.id) &&
-          (m.status === "in_pruefung" || m.status === "an_handwerker"),
+          (m.status === "in_pruefung" ||
+            m.status === "an_handwerker" ||
+            // Selbst behobene Faelle werden ebenfalls angelegt - die
+            // Verwaltung soll sehen, was der Tipp erspart hat.
+            m.status === "erledigt"),
       );
 
       if (fertige) {
@@ -128,7 +148,7 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
           slug,
           einheitId,
           fertige,
-          ergebnis.zustand.zweitanfahrtVermieden,
+          ergebnis.zustand,
           zustandRef.current.nachrichten,
         ).then((nummer) => {
           if (nummer === null) return;
@@ -140,9 +160,20 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
           }));
         });
       }
+      // Was während der Antwort hereinkam, jetzt abarbeiten.
+      const naechste = warteschlange.current.shift();
+      if (naechste) {
+        await warten(120);
+        void ausloesenRef.current?.(naechste[0], naechste[1]);
+      }
     },
-    [alsGelesenMarkieren, anhaengen, beschaeftigt, umgebung, slug, einheitId],
+    [alsGelesenMarkieren, anhaengen, umgebung, slug, einheitId],
   );
+
+  // Selbstbezug für die Warteschlange – useCallback kann sich nicht direkt
+  // selbst aufrufen, ohne in seine eigene Abhängigkeitsliste zu geraten.
+  const ausloesenRef = useRef<typeof ausloesen>(null);
+  ausloesenRef.current = ausloesen;
 
   /** Begrüßung einmalig beim Öffnen. */
   useEffect(() => {
@@ -169,7 +200,7 @@ async function vorgangSpeichern(
   slug: string,
   einheitId: string | null,
   meldung: Meldung,
-  zweitanfahrtVermieden: boolean,
+  zustand: ChatZustand,
   nachrichten: ChatNachricht[],
 ): Promise<number | null> {
   try {
@@ -180,7 +211,9 @@ async function vorgangSpeichern(
         slug,
         einheitId,
         szenarioId: meldung.szenarioId,
-        zweitanfahrtVermieden,
+        zweitanfahrtVermieden: zustand.zweitanfahrtVermieden,
+        selbsthilfeAngeboten: zustand.selbsthilfeAngeboten,
+        selbsthilfeErfolgreich: meldung.status === "erledigt",
         nachrichten: nachrichten.map((n) => ({
           von: n.von,
           text: n.text,

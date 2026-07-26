@@ -27,6 +27,9 @@ type Eingang = {
   einheitId: string | null;
   szenarioId: string;
   zweitanfahrtVermieden: boolean;
+  /** Mieter hat den Schaden nach dem Tipp selbst behoben. */
+  selbsthilfeAngeboten?: boolean;
+  selbsthilfeErfolgreich?: boolean;
   nachrichten: {
     von: "mieter" | "ki";
     text?: string;
@@ -132,6 +135,7 @@ export async function POST(anfrage: Request) {
     // --- Vorgang -----------------------------------------------------------
     const jetzt = new Date();
     const notfall = szenario.prioritaet === "notfall";
+    const selbstBehoben = Boolean(eingang.selbsthilfeErfolgreich);
 
     const { data: vorgang, error: vorgangFehler } = await db
       .from("vorgaenge")
@@ -146,7 +150,7 @@ export async function POST(anfrage: Request) {
         prioritaet: szenario.prioritaet,
         // Ein Notfall geht sofort an den Notdienst, alles andere wartet auf
         // die Freigabe des Verwalters. Genau das ist das Vertrauensargument.
-        status: notfall ? "an_handwerker" : "in_pruefung",
+        status: selbstBehoben ? "erledigt" : notfall ? "an_handwerker" : "in_pruefung",
         ki_zusammenfassung: szenario.kiZusammenfassung,
         quelle: "whatsapp",
         mitarbeiter_id: bearbeiter?.id ?? null,
@@ -155,6 +159,9 @@ export async function POST(anfrage: Request) {
           jetzt.getTime() + SLA_STANDARD[szenario.prioritaet] * 3600_000,
         ).toISOString(),
         zweitanfahrt_vermieden: eingang.zweitanfahrtVermieden,
+        kosten_schaetzung_euro: szenario.kostenschaetzungEuro,
+        selbsthilfe_angeboten: Boolean(eingang.selbsthilfeAngeboten),
+        selbsthilfe_erfolgreich: Boolean(eingang.selbsthilfeErfolgreich),
         // Nicht als Seed markiert: Diese Zeile ist während einer Vorführung
         // entstanden und wird beim Zurücksetzen entfernt.
         ist_seed: false,
@@ -229,7 +236,7 @@ export async function POST(anfrage: Request) {
     await db.from("vorgang_verlauf").insert(verlauf);
 
     // --- Freigaben ---------------------------------------------------------
-    if (!notfall && betrieb) {
+    if (!notfall && !selbstBehoben && betrieb) {
       await db.from("freigaben").insert([
         {
           tenant_id: tenant.id,

@@ -129,6 +129,8 @@ export type MandantEinstellungen = {
   sla_stunden?: Partial<Record<Prioritaet, number>>;
   /** Wird bei Notfällen zusätzlich telefonisch alarmiert? */
   notfall_telefon?: string | null;
+  /** Höchstbetrag der Kleinreparaturklausel je Einzelfall, in Euro. */
+  kleinreparatur_grenze_euro?: number;
   /** Freitext, erscheint in den Einstellungen des Dashboards. */
   hinweis?: string;
 };
@@ -200,6 +202,12 @@ export type Vorgang = {
   handwerker_id: string | null;
   sla_frist: string | null;
   zweitanfahrt_vermieden: boolean;
+  /** Geschätzte Kosten eines Handwerkereinsatzes. */
+  kosten_schaetzung_euro: number | null;
+  /** Dem Mieter wurde eine Selbsthilfe-Anleitung angeboten. */
+  selbsthilfe_angeboten: boolean;
+  /** Vom Mieter selbst behoben – Handwerkereinsatz entfallen. */
+  selbsthilfe_erfolgreich: boolean;
   ist_seed: boolean;
   erstellt_am: string;
   erledigt_am: string | null;
