@@ -39,7 +39,7 @@ const baustand = [
   { schritt: "Projektgerüst, Designsystem, CI", fertig: true },
   { schritt: "Vorschau-Deployment auf Vercel", fertig: true },
   { schritt: "Datenbankschema und Beispieldaten", fertig: true },
-  { schritt: "Mieter-Chat", fertig: false },
+  { schritt: "Mieter-Chat", fertig: true },
   { schritt: "Verwalter-Dashboard", fertig: false },
   { schritt: "Mandanten-Personalisierung und Admin", fertig: false },
 ];
