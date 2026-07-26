@@ -46,6 +46,8 @@ const baustand = [
   { schritt: "Mandanten-Personalisierung und Admin", fertig: true },
   { schritt: "Deployment-Anleitung", fertig: true },
   { schritt: "Geführte Tour", fertig: true },
+  { schritt: "Alle Eingaben landen in der Datenbank", fertig: true },
+  { schritt: "Übergabe an die Mitarbeitenden mit Textbausteinen", fertig: true },
   { schritt: "Echte Demo-Fotos", fertig: false },
 ];
 

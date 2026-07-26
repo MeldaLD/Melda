@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import { szenarioNach } from "@config/scenarios";
 import { SLA_STANDARD } from "@config/muster-mandant";
-import { istDatenbankKonfiguriert } from "@/lib/daten/quelle";
+import { entscheiderName, freigabeWirkungAnwenden } from "@/lib/daten/freigaben";
+import { istSchreibenMoeglich } from "@/lib/daten/quelle";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Mandant } from "@/lib/daten/typen";
 
@@ -39,7 +40,7 @@ type Eingang = {
 };
 
 export async function POST(anfrage: Request) {
-  if (!istDatenbankKonfiguriert() || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  if (!istSchreibenMoeglich()) {
     return NextResponse.json({ gespeichert: false, grund: "keine-datenbank" });
   }
 
@@ -155,8 +156,14 @@ export async function POST(anfrage: Request) {
         quelle: "whatsapp",
         mitarbeiter_id: bearbeiter?.id ?? null,
         handwerker_id: notfall ? (betrieb?.id ?? null) : null,
+        // Fristen aus den Einstellungen des Mandanten, sonst der Standard.
+        // Dreht der Verwalter dort an der Schraube, rechnet die Ampel sofort
+        // anders – sonst wäre die Einstellung eine Attrappe.
         sla_frist: new Date(
-          jetzt.getTime() + SLA_STANDARD[szenario.prioritaet] * 3600_000,
+          jetzt.getTime() +
+            (tenant.einstellungen?.sla_stunden?.[szenario.prioritaet] ??
+              SLA_STANDARD[szenario.prioritaet]) *
+              3600_000,
         ).toISOString(),
         zweitanfahrt_vermieden: eingang.zweitanfahrtVermieden,
         kosten_schaetzung_euro: szenario.kostenschaetzungEuro,
@@ -236,12 +243,18 @@ export async function POST(anfrage: Request) {
     await db.from("vorgang_verlauf").insert(verlauf);
 
     // --- Freigaben ---------------------------------------------------------
+    // Hat der Verwalter für eine Art "künftig automatisch freigeben"
+    // angehakt, entsteht sie hier gleich als erledigt und wirkt sofort. Die
+    // Zeile bleibt trotzdem stehen – nachvollziehbar, wer was wann entschieden
+    // hat, auch wenn es eine Regel war.
+    const automatik = new Set(tenant.einstellungen?.automatik_freigaben ?? []);
+
     if (!notfall && !selbstBehoben && betrieb) {
-      await db.from("freigaben").insert([
+      const entwuerfe = [
         {
           tenant_id: tenant.id,
           vorgang_id: vorgang.id,
-          typ: "handwerkerauftrag",
+          typ: "handwerkerauftrag" as const,
           titel: `Auftrag an ${betrieb.firma}`,
           begruendung:
             `Gerade über WhatsApp eingegangen. ${betrieb.firma} ist der ` +
@@ -262,7 +275,7 @@ export async function POST(anfrage: Request) {
         {
           tenant_id: tenant.id,
           vorgang_id: vorgang.id,
-          typ: "mieter_antwort",
+          typ: "mieter_antwort" as const,
           titel: `Antwort an ${einheit.mieter_name}`,
           begruendung:
             "Der Mieter hat eine Eingangsbestätigung erhalten. Entwurf beruht " +
@@ -272,7 +285,29 @@ export async function POST(anfrage: Request) {
           status: "offen",
           ist_seed: false,
         },
-      ]);
+      ];
+
+      const akteur = automatik.size ? await entscheiderName(db, tenant.id) : "";
+      const jetztIso = jetzt.toISOString();
+
+      const zeilen = entwuerfe.map((e) =>
+        automatik.has(e.typ)
+          ? {
+              ...e,
+              status: "freigegeben" as const,
+              entschieden_am: jetztIso,
+              entschieden_von: `${akteur} (Automatikregel)`,
+              regel_automatisch: true,
+            }
+          : e,
+      );
+
+      const { data: angelegt } = await db.from("freigaben").insert(zeilen).select("*");
+
+      for (const freigabe of angelegt ?? []) {
+        if (freigabe.status !== "freigegeben") continue;
+        await freigabeWirkungAnwenden(db, freigabe, akteur, true);
+      }
     }
 
     return NextResponse.json({

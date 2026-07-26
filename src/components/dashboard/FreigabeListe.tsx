@@ -1,10 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
-import { CheckIcon, InfoIcon, PencilIcon, SparklesIcon, XIcon } from "lucide-react";
+import {
+  AlertCircleIcon,
+  CheckIcon,
+  InfoIcon,
+  Loader2Icon,
+  PencilIcon,
+  SparklesIcon,
+  XIcon,
+} from "lucide-react";
 
 import { LeerHinweis, PrioBadge } from "./Anzeigen";
+import { freigabeEntscheiden } from "@/app/demo/[slug]/dashboard/aktionen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -28,6 +37,12 @@ export type FreigabeZeile = {
 
 type Entscheidung = "freigegeben" | "abgelehnt";
 
+type Abschluss = {
+  entscheidung: Entscheidung;
+  /** Nur gesetzt, wenn die Datenbank nicht mitgespielt hat. */
+  hinweis?: string;
+};
+
 /**
  * Das Freigabe-Center.
  *
@@ -35,22 +50,28 @@ type Entscheidung = "freigegeben" | "abgelehnt";
  * Verwalter entscheidet. Deshalb zeigt jede Karte drei Dinge nebeneinander –
  * was getan werden soll, worauf sich das stützt, und den fertigen Text.
  *
- * DEMO: Die Entscheidung wird nur in der Oberfläche festgehalten, nicht
- * gespeichert. Im Echtbetrieb löst "Freigeben" den Versand aus und schiebt
- * den Vorgang weiter.
+ * Die Entscheidung geht in die Datenbank: Ein freigegebener Handwerkerauftrag
+ * schiebt den Vorgang auf "An Handwerker", eine freigegebene Mieterantwort
+ * wird als versendete Nachricht mitgeschrieben. Der Mieter sieht das im Chat,
+ * sobald er den Status abfragt. Was genau passiert, steht in
+ * src/lib/daten/freigaben.ts.
  */
 export function FreigabeListe({
   zeilen,
   basis,
+  slug,
 }: {
   zeilen: FreigabeZeile[];
   basis: string;
+  slug: string;
 }) {
-  const [entschieden, setEntschieden] = useState<Record<string, Entscheidung>>({});
-  const [automatik, setAutomatik] = useState<Record<string, boolean>>({});
+  // Entschiedene Karten bleiben bis zum Neuladen als Quittung stehen. Ohne das
+  // verschwände die Karte einfach, und der Betrachter wüsste nicht, ob etwas
+  // passiert ist.
+  const [abgeschlossen, setAbgeschlossen] = useState<Record<string, Abschluss>>({});
 
-  const offen = zeilen.filter((z) => !entschieden[z.freigabe.id]);
-  const erledigt = zeilen.filter((z) => entschieden[z.freigabe.id]);
+  const offen = zeilen.filter((z) => !abgeschlossen[z.freigabe.id]);
+  const erledigt = zeilen.filter((z) => abgeschlossen[z.freigabe.id]);
 
   return (
     <div className="space-y-4">
@@ -63,14 +84,10 @@ export function FreigabeListe({
               key={zeile.freigabe.id}
               zeile={zeile}
               basis={basis}
-              automatik={automatik[zeile.freigabe.typ] ?? false}
-              onAutomatik={(an) =>
-                setAutomatik((alt) => ({ ...alt, [zeile.freigabe.typ]: an }))
+              slug={slug}
+              onFertig={(abschluss) =>
+                setAbgeschlossen((alt) => ({ ...alt, [zeile.freigabe.id]: abschluss }))
               }
-              onEntscheiden={(wahl) => {
-                setEntschieden((alt) => ({ ...alt, [zeile.freigabe.id]: wahl }));
-                if (wahl === "freigegeben") tourMelden("dashboard:freigegeben");
-              }}
             />
           ))}
         </div>
@@ -81,24 +98,31 @@ export function FreigabeListe({
           <h2 className="text-sm font-medium text-muted-foreground">
             Gerade entschieden
           </h2>
-          {erledigt.map((zeile) => (
-            <div
-              key={zeile.freigabe.id}
-              className="flex items-center gap-2 rounded-md border border-border bg-white px-3 py-2 text-sm"
-            >
-              {entschieden[zeile.freigabe.id] === "freigegeben" ? (
-                <CheckIcon className="size-4 shrink-0 text-emerald-600" aria-hidden />
-              ) : (
-                <XIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-              )}
-              <span className="min-w-0 flex-1 truncate">{zeile.freigabe.titel}</span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {entschieden[zeile.freigabe.id] === "freigegeben"
-                  ? "freigegeben und versendet"
-                  : "abgelehnt"}
-              </span>
-            </div>
-          ))}
+          {erledigt.map((zeile) => {
+            const abschluss = abgeschlossen[zeile.freigabe.id];
+            return (
+              <div
+                key={zeile.freigabe.id}
+                className="flex items-center gap-2 rounded-md border border-border bg-white px-3 py-2 text-sm"
+              >
+                {abschluss.entscheidung === "freigegeben" ? (
+                  <CheckIcon className="size-4 shrink-0 text-emerald-600" aria-hidden />
+                ) : (
+                  <XIcon
+                    className="size-4 shrink-0 text-muted-foreground"
+                    aria-hidden
+                  />
+                )}
+                <span className="min-w-0 flex-1 truncate">{zeile.freigabe.titel}</span>
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  {abschluss.entscheidung === "freigegeben"
+                    ? "freigegeben und versendet"
+                    : "abgelehnt"}
+                  {abschluss.hinweis && ` · ${abschluss.hinweis}`}
+                </span>
+              </div>
+            );
+          })}
         </section>
       )}
     </div>
@@ -108,19 +132,48 @@ export function FreigabeListe({
 function Karte({
   zeile,
   basis,
-  automatik,
-  onAutomatik,
-  onEntscheiden,
+  slug,
+  onFertig,
 }: {
   zeile: FreigabeZeile;
   basis: string;
-  automatik: boolean;
-  onAutomatik: (an: boolean) => void;
-  onEntscheiden: (wahl: Entscheidung) => void;
+  slug: string;
+  onFertig: (abschluss: Abschluss) => void;
 }) {
   const { freigabe } = zeile;
   const [bearbeiten, setBearbeiten] = useState(false);
   const [text, setText] = useState(freigabe.entwurf_text);
+  const [automatik, setAutomatik] = useState(freigabe.regel_automatisch);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const [laeuft, starten] = useTransition();
+
+  const entscheiden = (entscheidung: Entscheidung) => {
+    setFehler(null);
+    starten(async () => {
+      const ergebnis = await freigabeEntscheiden({
+        slug,
+        freigabeId: freigabe.id,
+        entscheidung,
+        entwurfText: text,
+        automatik,
+      });
+
+      if (ergebnis.fehlgeschlagen) {
+        setFehler(ergebnis.hinweis ?? "Konnte nicht gespeichert werden.");
+        return;
+      }
+
+      if (entscheidung === "freigegeben") tourMelden("dashboard:freigegeben");
+
+      // Nicht gespeichert, aber auch kein Fehler: die Vorschau ohne
+      // Datenbank. Die Karte wandert trotzdem weiter, nur mit ehrlichem
+      // Vermerk – sonst wirkte die Demo kaputt.
+      onFertig({
+        entscheidung,
+        hinweis: ergebnis.gespeichert ? undefined : "nur in der Anzeige",
+      });
+    });
+  };
 
   return (
     <Card>
@@ -175,6 +228,11 @@ function Karte({
               {text}
             </pre>
           )}
+          {text !== freigabe.entwurf_text && (
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Ihre Änderung wird mit der Freigabe gespeichert.
+            </p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -182,24 +240,43 @@ function Karte({
             variant="marke"
             size="sm"
             data-tour="freigabe-knopf"
-            onClick={() => onEntscheiden("freigegeben")}
+            disabled={laeuft}
+            onClick={() => entscheiden("freigegeben")}
           >
-            <CheckIcon /> Freigeben
+            {laeuft ? <Loader2Icon className="animate-spin" /> : <CheckIcon />}
+            Freigeben
           </Button>
-          <Button variant="outline" size="sm" onClick={() => setBearbeiten((b) => !b)}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={laeuft}
+            onClick={() => setBearbeiten((b) => !b)}
+          >
             <PencilIcon /> {bearbeiten ? "Fertig" : "Bearbeiten"}
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => onEntscheiden("abgelehnt")}>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={laeuft}
+            onClick={() => entscheiden("abgelehnt")}
+          >
             <XIcon /> Ablehnen
           </Button>
         </div>
+
+        {fehler && (
+          <p className="flex items-start gap-1.5 rounded-md bg-prio-notfall-sanft px-2.5 py-2 text-xs text-prio-notfall">
+            <AlertCircleIcon className="mt-px size-3.5 shrink-0" aria-hidden />
+            {fehler}
+          </p>
+        )}
 
         {/* Der Weg zu mehr Automatisierung – ohne Kontrollverlust. */}
         <label className="flex cursor-pointer items-start gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
           <input
             type="checkbox"
             checked={automatik}
-            onChange={(e) => onAutomatik(e.target.checked)}
+            onChange={(e) => setAutomatik(e.target.checked)}
             className="mt-0.5 size-3.5 accent-[var(--marke)]"
           />
           <span>
@@ -208,7 +285,8 @@ function Karte({
             {automatik && (
               <span className="mt-1 flex items-center gap-1 text-marke">
                 <InfoIcon className="size-3" aria-hidden />
-                Sie werden weiterhin informiert und können jederzeit eingreifen.
+                Gilt ab der nächsten Meldung. Sie werden weiterhin informiert und können
+                die Regel in den Einstellungen jederzeit wieder abschalten.
               </span>
             )}
           </span>

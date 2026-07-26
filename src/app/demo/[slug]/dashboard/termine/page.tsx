@@ -3,8 +3,8 @@ import { PhoneIcon, WrenchIcon } from "lucide-react";
 
 import { grundNach, zeitwunschNach } from "@config/rueckruf-gruende";
 import { LeerHinweis, Seitenkopf } from "@/components/dashboard/Anzeigen";
+import { RueckrufZuordnen } from "@/components/dashboard/RueckrufZuordnen";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { alsDatum, alsZeitraum } from "@/lib/dashboard/format";
 import { bestandLaden } from "@/lib/daten/quelle";
@@ -27,6 +27,15 @@ export default async function TermineSeite({
   const handwerkertermine = bestand.termine
     .filter((t) => t.typ === "handwerkertermin")
     .sort((a, b) => (a.beginn ?? "").localeCompare(b.beginn ?? ""));
+
+  // Nur Name, Rolle und Bereich an den Browser geben – mehr braucht die
+  // Auswahl nicht.
+  const personen = bestand.mitarbeiter.map((m) => ({
+    id: m.id,
+    name: m.name,
+    rolle: m.rolle,
+    bereich: m.bereich,
+  }));
 
   const person = (id: string | null) =>
     bestand.mitarbeiter.find((m) => m.id === id)?.name ?? null;
@@ -75,7 +84,7 @@ export default async function TermineSeite({
                         {zeit?.bezeichnung.toLowerCase() ?? "nach Absprache"}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       {termin.bereich_vorschlag && (
                         <span className="text-xs text-muted-foreground">
                           Vorschlag:{" "}
@@ -84,12 +93,13 @@ export default async function TermineSeite({
                           </span>
                         </span>
                       )}
-                      {/* DEMO: Der Zuordnungsdialog ist noch nicht gebaut.
-                          Im Echtbetrieb öffnet sich hier die Auswahl von
-                          Mitarbeitenden inklusive Urlaubsvertretung. */}
-                      <Button size="sm" variant="marke">
-                        Zuordnen
-                      </Button>
+                      <RueckrufZuordnen
+                        slug={slug}
+                        terminId={termin.id}
+                        personen={personen}
+                        vorschlag={termin.bereich_vorschlag}
+                        zeitwunsch={termin.zeitwunsch}
+                      />
                     </div>
                   </li>
                 );

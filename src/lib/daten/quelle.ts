@@ -43,6 +43,15 @@ export function istDatenbankKonfiguriert(): boolean {
   );
 }
 
+/**
+ * Ob geschrieben werden kann. Lesen geht mit dem öffentlichen Schlüssel,
+ * Schreiben ausschließlich mit dem Service-Role-Key – ohne ihn läuft die Demo
+ * im Nur-Lesen-Betrieb weiter, statt mit einem Fehler abzubrechen.
+ */
+export function istSchreibenMoeglich(): boolean {
+  return istDatenbankKonfiguriert() && Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
 // Der Generator läuft pro Anfrage höchstens einmal je Mandant.
 const rueckfallSpeicher = new Map<
   string,

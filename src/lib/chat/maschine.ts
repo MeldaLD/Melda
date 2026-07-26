@@ -55,9 +55,18 @@ const { tippenKurz, tippenLang, bildAnalyse } = demoKonfiguration.chat;
 export type Umgebung = {
   firma: string;
   handwerker: HandwerkerVorlage[];
+  /**
+   * Höchstbetrag der Kleinreparaturklausel dieses Mandanten. Wird in den
+   * Einstellungen des Dashboards gepflegt; ohne Angabe gilt der Standard.
+   */
+  kleinreparaturGrenzeEuro?: number;
   /** Bezugszeitpunkt – als Parameter, damit Tests reproduzierbar sind. */
   jetzt?: Date;
 };
+
+function grenze(umgebung: Umgebung): number {
+  return umgebung.kleinreparaturGrenzeEuro ?? kleinreparaturen.grenzeEuro;
+}
 
 export function anfangszustand(): ChatZustand {
   return {
@@ -133,20 +142,22 @@ function klassifizierung(szenario: Szenario): Ausgabe {
  * Angeboten wird nur, niemals aufgefordert: Die Klausel überträgt die Kosten,
  * nicht die Pflicht zu reparieren. Siehe config/kleinreparaturen.ts
  */
-function selbsthilfeMoeglich(szenario: Szenario): boolean {
+function selbsthilfeMoeglich(szenario: Szenario, umgebung: Umgebung): boolean {
   if (szenario.prioritaet === "notfall") return false;
   if (!selbsthilfeFuer(szenario.id)) return false;
   if (szenario.kostenschaetzungEuro < kleinreparaturen.mindestbetragFuerTippEuro) {
     return false;
   }
-  return istKleinreparatur(szenario.kostenschaetzungEuro, kleinreparaturen.grenzeEuro);
+  return istKleinreparatur(szenario.kostenschaetzungEuro, grenze(umgebung));
 }
 
 function selbsthilfeAnbieten(
   zustand: ChatZustand,
   szenario: Szenario,
+  umgebung: Umgebung,
 ): SchrittErgebnis {
   const tipp = selbsthilfeFuer(szenario.id)!;
+  const grenzeEuro = grenze(umgebung);
 
   return {
     zustand: {
@@ -161,12 +172,12 @@ function selbsthilfeAnbieten(
         nachricht: {
           text: chatRahmen.kleinreparaturHinweis(
             szenario.kostenschaetzungEuro,
-            kleinreparaturen.grenzeEuro,
+            grenzeEuro,
           ),
           karte: {
             art: "kleinreparatur",
             kostenEuro: szenario.kostenschaetzungEuro,
-            grenzeEuro: kleinreparaturen.grenzeEuro,
+            grenzeEuro,
           },
         },
         tippdauer: tippenLang,
@@ -246,8 +257,8 @@ function weiterleiten(
   szenario: Szenario,
   umgebung: Umgebung,
 ): SchrittErgebnis {
-  return selbsthilfeMoeglich(szenario)
-    ? selbsthilfeAnbieten(zustand, szenario)
+  return selbsthilfeMoeglich(szenario, umgebung)
+    ? selbsthilfeAnbieten(zustand, szenario, umgebung)
     : beauftragen(zustand, szenario, umgebung);
 }
 
@@ -258,6 +269,7 @@ function diagnostizieren(zustand: ChatZustand, szenario: Szenario): SchrittErgeb
     szenarioId: szenario.id,
     titel: szenario.titel,
     nummer: null,
+    vorgangId: null,
     status: "neu",
     prioritaet: szenario.prioritaet,
     betrieb: null,

@@ -3,20 +3,23 @@ import { notFound } from "next/navigation";
 import { rueckrufGruende } from "@config/rueckruf-gruende";
 import { kleinreparaturen, selbsthilfeKatalog } from "@config/kleinreparaturen";
 import { Seitenkopf } from "@/components/dashboard/Anzeigen";
+import { AutomatikRegeln, RegelFormular } from "@/components/dashboard/RegelFormular";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { bestandLaden } from "@/lib/daten/quelle";
-import {
-  FACHBEREICH_BEZEICHNUNG,
-  GEWERK_BEZEICHNUNG,
-  PRIORITAET_BEZEICHNUNG,
-  type Prioritaet,
-} from "@/lib/daten/typen";
+import { FACHBEREICH_BEZEICHNUNG, GEWERK_BEZEICHNUNG } from "@/lib/daten/typen";
 
 /**
- * DEMO: Die Einstellungen sind eine Ansicht, kein Formular. Sie zeigen, was
- * konfigurierbar wäre, damit ein Verwalter die Tiefe des Systems einschätzen
- * kann – gespeichert wird hier nichts.
+ * Die Einstellungen.
+ *
+ * Die Regelwerte – Ampelfristen, Kleinreparaturgrenze, Notfallnummer,
+ * Automatikregeln – lassen sich hier ändern und werden gespeichert. Sie
+ * wirken sofort: Die Ampel rechnet danach, und der Assistent bietet die
+ * Selbsthilfe entsprechend an.
+ *
+ * DEMO: Mitarbeitende, Objekte und Handwerksbetriebe bleiben Ansicht. Diese
+ * Stammdaten kommen im Echtbetrieb aus dem ERP des Kunden; ein Formular
+ * dafür würde eine Pflege vortäuschen, die es so nicht geben wird.
  */
 export default async function EinstellungenSeite({
   params,
@@ -29,13 +32,12 @@ export default async function EinstellungenSeite({
 
   const { bestand } = ergebnis;
   const { mandant } = bestand;
-  const sla = mandant.einstellungen?.sla_stunden ?? {};
 
   return (
     <div className="space-y-4 p-4 sm:p-6">
       <Seitenkopf
         titel="Einstellungen"
-        beschreibung="In dieser Vorschau nur zur Ansicht."
+        beschreibung="Regelwerte ändern Sie hier. Stammdaten kommen später aus Ihrem System."
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -65,31 +67,14 @@ export default async function EinstellungenSeite({
 
         <Card>
           <CardHeader>
-            <CardTitle>Eskalationsregeln</CardTitle>
+            <CardTitle>Regeln</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-xs text-muted-foreground">
-              Ab wann ein Vorgang in der Ampel rot wird.
-            </p>
-            <ul className="divide-y divide-border text-sm">
-              {(Object.keys(PRIORITAET_BEZEICHNUNG) as Prioritaet[]).map((p) => (
-                <li key={p} className="flex items-center justify-between py-2">
-                  <span>{PRIORITAET_BEZEICHNUNG[p]}</span>
-                  <span className="tabellenziffern text-muted-foreground">
-                    {sla[p] ?? "–"} Stunden
-                  </span>
-                </li>
-              ))}
-            </ul>
-            {mandant.einstellungen?.notfall_telefon && (
-              <p className="border-t border-border pt-3 text-xs text-muted-foreground">
-                Bei Notfällen wird zusätzlich{" "}
-                <span className="tabellenziffern font-medium text-slate-700">
-                  {mandant.einstellungen.notfall_telefon}
-                </span>{" "}
-                per SMS alarmiert.
-              </p>
-            )}
+          <CardContent>
+            <RegelFormular
+              slug={slug}
+              einstellungen={mandant.einstellungen ?? {}}
+              standardGrenze={kleinreparaturen.grenzeEuro}
+            />
           </CardContent>
         </Card>
 
@@ -128,14 +113,6 @@ export default async function EinstellungenSeite({
             </p>
             <ul className="divide-y divide-border text-sm">
               <li className="flex items-center justify-between py-2">
-                <span>Höchstbetrag je Einzelfall</span>
-                <span className="tabellenziffern font-medium">
-                  {mandant.einstellungen?.kleinreparatur_grenze_euro ??
-                    kleinreparaturen.grenzeEuro}{" "}
-                  €
-                </span>
-              </li>
-              <li className="flex items-center justify-between py-2">
                 <span>Jahresobergrenze</span>
                 <span className="tabellenziffern font-medium">
                   {Math.round(kleinreparaturen.jahresgrenzeAnteil * 100)} % der
@@ -154,6 +131,22 @@ export default async function EinstellungenSeite({
               reparieren. Der Assistent bietet die Anleitung deshalb ausdrücklich an und
               fordert nie dazu auf.
             </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Automatische Freigaben</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Was der Assistent ohne Nachfrage erledigen darf. Sie werden weiterhin über
+              jeden Vorgang informiert.
+            </p>
+            <AutomatikRegeln
+              slug={slug}
+              typen={mandant.einstellungen?.automatik_freigaben ?? []}
+            />
           </CardContent>
         </Card>
 

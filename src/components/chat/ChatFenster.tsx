@@ -37,6 +37,7 @@ function Gespraech({ mandant, nutzer }: { mandant: Mandant; nutzer: ChatNutzer }
   const umgebung: Umgebung = {
     firma: mandant.firma,
     handwerker: mandant.handwerker ?? [],
+    kleinreparaturGrenzeEuro: mandant.einstellungen?.kleinreparatur_grenze_euro,
   };
 
   const { zustand, tippt, beschaeftigt, ausloesen } = useChat(

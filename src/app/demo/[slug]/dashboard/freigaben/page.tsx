@@ -44,7 +44,7 @@ export default async function FreigabeCenter({
         beschreibung="Der Assistent hat alles vorbereitet. Entscheiden tun Sie."
       />
       <div className="max-w-3xl">
-        <FreigabeListe zeilen={zeilen} basis={`/demo/${slug}/dashboard`} />
+        <FreigabeListe zeilen={zeilen} basis={`/demo/${slug}/dashboard`} slug={slug} />
       </div>
     </div>
   );

@@ -131,6 +131,11 @@ export type MandantEinstellungen = {
   notfall_telefon?: string | null;
   /** Höchstbetrag der Kleinreparaturklausel je Einzelfall, in Euro. */
   kleinreparatur_grenze_euro?: number;
+  /**
+   * Freigabearten, die künftig ohne Nachfrage erteilt werden.
+   * Wird im Freigabe-Center gesetzt und wirkt auf neu entstehende Vorgänge.
+   */
+  automatik_freigaben?: FreigabeTyp[];
   /** Freitext, erscheint in den Einstellungen des Dashboards. */
   hinweis?: string;
 };

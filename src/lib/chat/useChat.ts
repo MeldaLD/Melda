@@ -4,7 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { demoKonfiguration } from "@config/demo";
 import { anfangszustand, schritt, type Umgebung } from "./maschine";
-import type { ChatEreignis, ChatNachricht, ChatZustand, Meldung } from "./typen";
+import type {
+  ChatEreignis,
+  ChatNachricht,
+  ChatZustand,
+  Meldung,
+  Rueckrufwunsch,
+  Terminfenster,
+} from "./typen";
 
 /**
  * Spielt die Zustandsmaschine mit menschlich wirkenden Pausen ab und hält die
@@ -42,8 +49,14 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
   const warteschlange = useRef<[ChatEreignis, Partial<ChatNachricht> | undefined][]>(
     [],
   );
-  /** Meldungs-IDs, die bereits in der Datenbank angelegt wurden. */
-  const gespeicherte = useRef(new Set<string>());
+  /**
+   * Meldungs-ID -> laufende oder abgeschlossene Speicherung.
+   *
+   * Bewusst die Zusage und nicht das Ergebnis: Wer gleich nach dem Absenden
+   * ein Terminfenster antippt, wäre sonst schneller als die Datenbank und
+   * hinge ohne Vorgangs-ID in der Luft. So wartet der Termin einfach ab.
+   */
+  const gespeicherte = useRef(new Map<string, Promise<Speicherung | null>>());
 
   useEffect(() => {
     const laufende = zeitgeber.current;
@@ -143,23 +156,43 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
       );
 
       if (fertige) {
-        gespeicherte.current.add(fertige.id);
-        void vorgangSpeichern(
+        const laeuft = vorgangSpeichern(
           slug,
           einheitId,
           fertige,
           ergebnis.zustand,
           zustandRef.current.nachrichten,
-        ).then((nummer) => {
-          if (nummer === null) return;
+        );
+        gespeicherte.current.set(fertige.id, laeuft);
+
+        void laeuft.then((gespeichert) => {
+          if (!gespeichert) return;
           setZustand((alt) => ({
             ...alt,
             meldungen: alt.meldungen.map((m) =>
-              m.id === fertige.id ? { ...m, nummer } : m,
+              m.id === fertige.id
+                ? { ...m, nummer: gespeichert.nummer, vorgangId: gespeichert.vorgangId }
+                : m,
             ),
           }));
         });
       }
+
+      // Termin und Rückruf hängen nicht am Abschluss einer Meldung, sondern
+      // an der Wahl des Mieters – deshalb hier und nicht oben.
+      if (ereignis.art === "termin" && ergebnis.zustand.gewaehlterTermin) {
+        void terminSpeichern(
+          slug,
+          ergebnis.zustand.meldungen[ergebnis.zustand.meldungen.length - 1],
+          ergebnis.zustand.gewaehlterTermin,
+          gespeicherte.current,
+        );
+      }
+
+      if (ereignis.art === "rueckrufZeit" && ergebnis.zustand.rueckruf?.zeitwunschId) {
+        void rueckrufSpeichern(slug, einheitId, ergebnis.zustand.rueckruf);
+      }
+
       // Was während der Antwort hereinkam, jetzt abarbeiten.
       const naechste = warteschlange.current.shift();
       if (naechste) {
@@ -189,6 +222,8 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
 
 // ---------------------------------------------------------------------------
 
+type Speicherung = { nummer: number | null; vorgangId: string | null };
+
 /**
  * Legt den Vorgang serverseitig an.
  *
@@ -202,7 +237,7 @@ async function vorgangSpeichern(
   meldung: Meldung,
   zustand: ChatZustand,
   nachrichten: ChatNachricht[],
-): Promise<number | null> {
+): Promise<Speicherung | null> {
   try {
     const antwort = await fetch("/api/chat/vorgang", {
       method: "POST",
@@ -224,9 +259,71 @@ async function vorgangSpeichern(
     });
 
     const ergebnis = await antwort.json();
-    return ergebnis?.gespeichert ? (ergebnis.nummer ?? null) : null;
+    if (!ergebnis?.gespeichert) return null;
+    return {
+      nummer: ergebnis.nummer ?? null,
+      vorgangId: ergebnis.vorgangId ?? null,
+    };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Hängt den gewählten Wunschtermin an den Vorgang.
+ *
+ * Wartet ab, bis der Vorgang selbst angelegt ist – ohne seine ID gäbe es
+ * nichts, woran der Termin hängen könnte.
+ */
+async function terminSpeichern(
+  slug: string,
+  meldung: Meldung | undefined,
+  fenster: Terminfenster,
+  gespeicherte: Map<string, Promise<Speicherung | null>>,
+): Promise<void> {
+  if (!meldung) return;
+
+  try {
+    const vorgang = await gespeicherte.get(meldung.id);
+    if (!vorgang?.vorgangId) return;
+
+    await fetch("/api/chat/termin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug,
+        vorgangId: vorgang.vorgangId,
+        beginn: fenster.beginn,
+        ende: fenster.ende,
+        beschriftung: fenster.beschriftung,
+      }),
+    });
+  } catch {
+    // Bewusst still: Der Mieter hat seine Bestätigung schon gesehen.
+  }
+}
+
+/** Legt den Rückrufwunsch an. Hängt an keinem Vorgang, nur an der Wohnung. */
+async function rueckrufSpeichern(
+  slug: string,
+  einheitId: string | null,
+  rueckruf: Partial<Rueckrufwunsch>,
+): Promise<void> {
+  if (!rueckruf.grundId || !rueckruf.zeitwunschId) return;
+
+  try {
+    await fetch("/api/chat/rueckruf", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug,
+        einheitId,
+        grundId: rueckruf.grundId,
+        zeitwunschId: rueckruf.zeitwunschId,
+      }),
+    });
+  } catch {
+    // Siehe oben.
   }
 }
 

@@ -91,6 +91,19 @@ export function LiveAktualisierung({
         },
         aktualisieren,
       )
+      // Wunschtermine und Rückrufwünsche aus dem Chat landen hier – sie
+      // erscheinen unter "Rückrufe & Termine" und sollen dort nicht auf ein
+      // manuelles Neuladen warten müssen.
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "termine",
+          filter: `tenant_id=eq.${tenantId}`,
+        },
+        aktualisieren,
+      )
       .subscribe();
 
     return () => {

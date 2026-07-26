@@ -1,9 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { CheckIcon, SendIcon, SparklesIcon, UserPlusIcon, XIcon } from "lucide-react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import {
+  AlertCircleIcon,
+  CheckIcon,
+  Loader2Icon,
+  SendIcon,
+  SparklesIcon,
+  UserPlusIcon,
+  XIcon,
+} from "lucide-react";
 import Link from "next/link";
 
+import {
+  mieterAnlegen,
+  notizEintragen,
+  type Ergebnis,
+} from "@/app/demo/[slug]/dashboard/aktionen";
 import {
   ASSISTENT_BEISPIELE,
   assistentAntwort,
@@ -22,6 +36,8 @@ type Eintrag = {
   karte?: AssistentKarte;
   /** Bereits bestätigte Aktionen zeigen statt der Knöpfe eine Quittung. */
   erledigt?: string;
+  /** Hat die Speicherung nicht geklappt, steht der Grund an der Karte. */
+  fehler?: string;
 };
 
 /**
@@ -31,9 +47,10 @@ type Eintrag = {
  * durch Formulare zu klicken. Zielgruppe ist jemand, der Excel kann und
  * keine Lust auf Masken hat.
  *
- * DEMO: Schreibende Aktionen werden bestätigt und quittiert, aber nicht
- * gespeichert. Was im Echtbetrieb passieren müsste, steht jeweils am
- * Bestätigungsknopf.
+ * Schreibende Aktionen laufen über Server Actions und legen echte Zeilen an –
+ * ein angelegter Mieter steht danach in den Objekten, eine Notiz in der
+ * Historie des Vorgangs. Der Assistent führt sie nie allein aus: Zuerst zeigt
+ * er, was er verstanden hat, dann bestätigt der Verwalter.
  */
 export function Assistent({ bestand }: { bestand: Mandantenbestand }) {
   const [offen, setOffen] = useState(false);
@@ -41,6 +58,8 @@ export function Assistent({ bestand }: { bestand: Mandantenbestand }) {
   const [entwurf, setEntwurf] = useState("");
   const ende = useRef<HTMLDivElement>(null);
   const zaehler = useRef(0);
+  const slug = bestand.mandant.slug;
+  const router = useRouter();
 
   useEffect(() => {
     if (offen) ende.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -64,10 +83,38 @@ export function Assistent({ bestand }: { bestand: Mandantenbestand }) {
     ]);
   };
 
-  const bestaetigen = (id: number, quittung: string) => {
+  /**
+   * Führt aus, was auf der Karte steht.
+   *
+   * Das Ergebnis wird ehrlich gezeigt: gespeichert, nur angezeigt (Vorschau
+   * ohne Datenbank) oder gescheitert. Eine Quittung, hinter der nichts steht,
+   * wäre in einem Vertriebsgespräch das Letzte, was wir gebrauchen können.
+   */
+  const ausfuehren = async (
+    id: number,
+    aktion: () => Promise<Ergebnis>,
+    quittung: string,
+  ) => {
+    const ergebnis = await aktion();
+
     setEintraege((alt) =>
-      alt.map((e) => (e.id === id ? { ...e, erledigt: quittung } : e)),
+      alt.map((e) =>
+        e.id !== id
+          ? e
+          : ergebnis.fehlgeschlagen
+            ? { ...e, fehler: ergebnis.hinweis ?? "Hat nicht geklappt." }
+            : {
+                ...e,
+                fehler: undefined,
+                erledigt: ergebnis.gespeichert
+                  ? quittung
+                  : `${quittung} (in dieser Vorschau nicht gespeichert)`,
+              },
+      ),
     );
+
+    // Die neue Zeile soll auch in den Listen dahinter auftauchen.
+    if (ergebnis.gespeichert) router.refresh();
   };
 
   if (!offen) {
@@ -129,8 +176,11 @@ export function Assistent({ bestand }: { bestand: Mandantenbestand }) {
                 <Karte
                   karte={e.karte}
                   erledigt={e.erledigt}
-                  onBestaetigen={(quittung) => bestaetigen(e.id, quittung)}
-                  slug={bestand.mandant.slug}
+                  fehler={e.fehler}
+                  onAusfuehren={(aktion, quittung) =>
+                    ausfuehren(e.id, aktion, quittung)
+                  }
+                  slug={slug}
                 />
               )}
             </div>
@@ -194,12 +244,14 @@ function Startpunkte({ onWaehlen }: { onWaehlen: (text: string) => void }) {
 function Karte({
   karte,
   erledigt,
-  onBestaetigen,
+  fehler,
+  onAusfuehren,
   slug,
 }: {
   karte: AssistentKarte;
   erledigt?: string;
-  onBestaetigen: (quittung: string) => void;
+  fehler?: string;
+  onAusfuehren: (aktion: () => Promise<Ergebnis>, quittung: string) => Promise<void>;
   slug: string;
 }) {
   const rahmen = "rounded-md border border-border bg-slate-50 p-3 space-y-2";
@@ -253,18 +305,23 @@ function Karte({
                 Der Mieter erhält eine WhatsApp-Nachricht an diese Nummer und ist damit
                 erreichbar. Es gibt keine Zugangsdaten und keine App.
               </p>
-              <Button
-                size="sm"
-                variant="marke"
-                className="w-full"
-                onClick={() =>
-                  onBestaetigen(
+              <Ausfuehren
+                beschriftung="Anlegen und begrüßen"
+                fehler={fehler}
+                onKlick={() =>
+                  onAusfuehren(
+                    () =>
+                      mieterAnlegen({
+                        slug,
+                        objektId: karte.objekt!.id,
+                        lage: karte.lage!,
+                        name: karte.name!,
+                        telefon: karte.telefon!,
+                      }),
                     `${karte.name} wurde angelegt und per WhatsApp begrüßt.`,
                   )
                 }
-              >
-                Anlegen und begrüßen
-              </Button>
+              />
             </>
           ) : (
             <p className="text-[11px] text-prio-dringend">
@@ -353,20 +410,59 @@ function Karte({
           {erledigt ? (
             <Quittung text={erledigt} />
           ) : (
-            <Button
-              size="sm"
-              variant="marke"
-              className="w-full"
-              onClick={() =>
-                onBestaetigen(`Notiz zu Vorgang ${karte.vorgang.nummer} gespeichert.`)
+            <Ausfuehren
+              beschriftung="Eintragen"
+              fehler={fehler}
+              onKlick={() =>
+                onAusfuehren(
+                  () =>
+                    notizEintragen({
+                      slug,
+                      vorgangId: karte.vorgang.id,
+                      text: karte.text,
+                    }),
+                  `Notiz zu Vorgang ${karte.vorgang.nummer} gespeichert.`,
+                )
               }
-            >
-              Eintragen
-            </Button>
+            />
           )}
         </div>
       );
   }
+}
+
+/** Bestätigungsknopf mit Laufanzeige und Fehlerausgabe. */
+function Ausfuehren({
+  beschriftung,
+  fehler,
+  onKlick,
+}: {
+  beschriftung: string;
+  fehler?: string;
+  onKlick: () => Promise<void>;
+}) {
+  const [laeuft, starten] = useTransition();
+
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="marke"
+        className="w-full"
+        disabled={laeuft}
+        onClick={() => starten(async () => void (await onKlick()))}
+      >
+        {laeuft && <Loader2Icon className="animate-spin" />}
+        {beschriftung}
+      </Button>
+      {fehler && (
+        <p className="flex items-start gap-1.5 text-[11px] text-prio-notfall">
+          <AlertCircleIcon className="mt-px size-3 shrink-0" aria-hidden />
+          {fehler}
+        </p>
+      )}
+    </>
+  );
 }
 
 function Zeile({ bezeichnung, wert }: { bezeichnung: string; wert?: string | null }) {

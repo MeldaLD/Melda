@@ -10,6 +10,8 @@ import {
 import { szenarioNach } from "@config/scenarios";
 import { DemoFoto } from "@/components/chat/DemoFoto";
 import { PrioBadge, StatusBadge } from "@/components/dashboard/Anzeigen";
+import { Fotostreifen, type Beleg } from "@/components/dashboard/Fotostreifen";
+import { Uebergabe } from "@/components/dashboard/Uebergabe";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,6 +49,22 @@ export default async function VorgangDetail({
     .filter((v) => v.vorgang_id === vorgang.id)
     .sort((a, b) => b.zeitpunkt.localeCompare(a.zeitpunkt));
 
+  // Alle Bilder des Mieters, in der Reihenfolge, in der sie kamen. Das zweite
+  // ist das nachgeforderte – genau das, was den Umfang klärt.
+  const belege: Beleg[] = nachrichten
+    .filter((n) => n.foto_id)
+    .map((n, index) => ({
+      datei: n.foto_id as string,
+      herkunft: index === 0 ? "Erstes Foto" : "Vom Assistenten nachgefordert",
+      zeit: alsDatumZeit(n.gesendet_am),
+    }));
+
+  // Steht noch kein Betrieb fest, zeigen wir den, der zuständig wäre – sonst
+  // stünde in der E-Mail eine Lücke.
+  const vorgeschlagenerBetrieb = handwerker
+    ? undefined
+    : bestand.handwerker.find((h) => h.gewerk === vorgang.gewerk && h.ist_standard);
+
   const basis = `/demo/${slug}/dashboard`;
   const frist = slaZustand(vorgang);
 
@@ -83,20 +101,49 @@ export default async function VorgangDetail({
         </p>
       </header>
 
+      {/* Zuerst das Bild. Wer einen Fall öffnet, will sehen, worum es geht,
+          bevor er liest. */}
+      {belege.length > 0 && (
+        <div className="mb-4">
+          <Fotostreifen belege={belege} />
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           {vorgang.ki_zusammenfassung && (
             <Card className="border-marke-rand bg-marke-sanft">
               <CardHeader className="flex-row items-center gap-2">
                 <SparklesIcon className="size-4 text-marke" aria-hidden />
-                <CardTitle>Zusammenfassung des Assistenten</CardTitle>
+                <CardTitle>Das hat der Assistent aufgenommen</CardTitle>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-3">
                 <p className="text-sm leading-relaxed text-slate-700">
                   {vorgang.ki_zusammenfassung}
                 </p>
+
+                {/* Auf einen Blick erfassbar: die Eckdaten als Zeile, nicht
+                    als Fließtext. */}
+                <dl className="flex flex-wrap gap-x-6 gap-y-1.5 border-t border-marke-rand pt-3 text-xs">
+                  <Eckwert
+                    bezeichnung="Gewerk"
+                    wert={GEWERK_BEZEICHNUNG[vorgang.gewerk]}
+                  />
+                  <Eckwert bezeichnung="Kategorie" wert={vorgang.kategorie} />
+                  {vorgang.kosten_schaetzung_euro && (
+                    <Eckwert
+                      bezeichnung="Kostenschätzung"
+                      wert={`etwa ${vorgang.kosten_schaetzung_euro} €`}
+                    />
+                  )}
+                  <Eckwert
+                    bezeichnung="Eingang"
+                    wert={`vor ${alterKurz(vorgang.erstellt_am)}`}
+                  />
+                </dl>
+
                 {szenario && vorgang.zweitanfahrt_vermieden && (
-                  <div className="mt-3 space-y-1.5 border-t border-marke-rand pt-3 text-xs">
+                  <div className="space-y-1.5 border-t border-marke-rand pt-3 text-xs">
                     <p className="font-medium text-slate-700">
                       Was die Nachfrage nach dem zweiten Foto gebracht hat
                     </p>
@@ -111,6 +158,34 @@ export default async function VorgangDetail({
               </CardContent>
             </Card>
           )}
+
+          {/* Ab hier übernimmt der Mensch. */}
+          <Uebergabe
+            slug={slug}
+            vorgangId={vorgang.id}
+            status={vorgang.status}
+            betriebTelefon={handwerker?.telefon ?? null}
+            daten={{
+              firma: bestand.mandant.firma,
+              vorgangsnummer: vorgang.nummer,
+              titel: vorgang.titel,
+              kategorie: vorgang.kategorie,
+              gewerk: vorgang.gewerk,
+              prioritaet: vorgang.prioritaet,
+              objekt: objekt?.name ?? "–",
+              einheit: einheit?.bezeichnung ?? "–",
+              mieterName: einheit?.mieter_name ?? "Mieter",
+              mieterTelefon: einheit?.mieter_telefon ?? null,
+              betrieb: handwerker?.firma ?? vorgeschlagenerBetrieb?.firma ?? null,
+              zusammenfassung: vorgang.ki_zusammenfassung,
+              erkenntnis:
+                szenario && vorgang.zweitanfahrt_vermieden
+                  ? szenario.erkenntnis.nachher
+                  : null,
+              kostenschaetzungEuro: vorgang.kosten_schaetzung_euro,
+              ansprechpartner: bestand.mandant.ansprechpartner,
+            }}
+          />
 
           <Card>
             <CardHeader>
@@ -202,6 +277,16 @@ export default async function VorgangDetail({
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Eckdatum in der Kopfzeile der Zusammenfassung. */
+function Eckwert({ bezeichnung, wert }: { bezeichnung: string; wert: string }) {
+  return (
+    <div>
+      <dt className="text-muted-foreground">{bezeichnung}</dt>
+      <dd className="font-medium text-slate-800">{wert}</dd>
     </div>
   );
 }

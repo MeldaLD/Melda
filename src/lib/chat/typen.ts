@@ -54,6 +54,8 @@ export type Meldung = {
   titel: string;
   /** Vorgangsnummer aus der Datenbank, sobald gespeichert. */
   nummer: number | null;
+  /** Datenbank-ID des Vorgangs – nötig, um später Termine anzuhängen. */
+  vorgangId: string | null;
   status: VorgangStatus;
   prioritaet: Prioritaet;
   betrieb: string | null;
