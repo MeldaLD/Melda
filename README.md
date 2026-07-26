@@ -77,19 +77,21 @@ deployen.
 
 ```
 config/            Von Hand pflegbare Inhalte – hier ändern Sie die Demo
-  scenarios.ts       die Schadensszenarien des Chats
-  chat-rahmen.ts     generische Gesprächstexte
+  scenarios.ts       die Schadensszenarien (Texte des Chats, Basis der Vorgänge)
+  muster-mandant.ts  der Beispielmandant, zugleich Rückfalldatensatz
+  namen.ts           Namenspools für plausible Beispieldaten
   demo.ts            Timings, Feature-Schalter, Nutzenannahmen
 supabase/
-  migrations/        SQL-Schema, versioniert
-  seed/              Beispieldaten
+  migrations/        SQL-Schema, versioniert – siehe supabase/README.md
+  seed/              erzeugte Beispieldaten (npm run seed:sql)
+scripts/
+  seed-sql.ts        schreibt die Seed-Datei aus dem Generator
 src/
   app/               Routen (App Router)
   components/ui/     shadcn/ui-Komponenten
-  components/chat/   Chat-Oberfläche
-  components/dashboard/
   lib/branding/      Farbableitung aus der Mandanten-Primärfarbe
-  lib/chat/          Zustandsmaschine des Chats
+  lib/daten/         Domänentypen und Datenzugriff mit Rückfallebene
+  lib/demo/          Beispieldaten-Generator (deterministisch)
   lib/supabase/      Datenbank-Clients (browser · server · admin)
 ```
 
@@ -111,6 +113,20 @@ wie es shadcn/ui vorsieht. Weitere Komponenten holen Sie sich mit
 | `npm run typecheck` | TypeScript ohne Emit |
 | `npm run format` | Prettier schreibend |
 | `npm run format:check` | Prettier prüfend (läuft auch in der CI) |
+| `npm run seed:sql` | Beispieldaten neu erzeugen (`supabase/seed/`) |
+| `npm run typen:datenbank` | Typen aus der verknüpften Datenbank erzeugen |
+
+## Datenbank
+
+Schema, Sicherheitsmodell und wie Sie die Migrationen einspielen – auch ohne
+Terminal – steht in [supabase/README.md](./supabase/README.md).
+
+Die Anwendung läuft auch **ohne Datenbank**: Ist Supabase nicht konfiguriert
+oder nicht erreichbar, liefert der Beispieldaten-Generator denselben Bestand
+direkt aus dem Speicher (`src/lib/daten/quelle.ts`). Das schützt die Demo
+davor, ins Leere zu laufen, wenn Supabase ein Projekt im kostenlosen Tarif
+nach sieben Tagen Inaktivität pausiert. Im Rückfallbetrieb fehlt nur der
+Live-Effekt zwischen Chat und Dashboard.
 
 ## Konventionen
 

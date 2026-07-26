@@ -1,0 +1,22 @@
+# Konfiguration der Supabase-CLI.
+# Die Projekt-Referenz trägt `supabase link --project-ref ...` selbst ein.
+
+project_id = "melda-demo"
+
+[db]
+port = 54322
+major_version = 15
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage"]
+extra_search_path = ["public"]
+max_rows = 1000
+
+[studio]
+enabled = true
+port = 54323
+
+[realtime]
+enabled = true

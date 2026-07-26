@@ -38,7 +38,7 @@ const umgebungsvariablen = [
 const baustand = [
   { schritt: "Projektgerüst, Designsystem, CI", fertig: true },
   { schritt: "Vorschau-Deployment auf Vercel", fertig: true },
-  { schritt: "Datenbankschema und Beispieldaten", fertig: false },
+  { schritt: "Datenbankschema und Beispieldaten", fertig: true },
   { schritt: "Mieter-Chat", fertig: false },
   { schritt: "Verwalter-Dashboard", fertig: false },
   { schritt: "Mandanten-Personalisierung und Admin", fertig: false },
