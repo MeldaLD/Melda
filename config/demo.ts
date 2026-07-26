@@ -24,14 +24,28 @@ export const demoKonfiguration = {
     tourAutomatischStarten: true,
   },
 
-  /** Kaufmännische Annahmen für die Nutzenrechnung im Dashboard.
-   *  DEMO: frei gewählte, plausible Werte – keine belastbare Statistik. */
+  /**
+   * Kaufmännische Annahmen für die Nutzenrechnung im Dashboard.
+   *
+   * DEMO: Frei gewählte, aber begründbare Werte – keine erhobene Statistik.
+   * Diese Zahlen behaupten wir gegenüber dem Kunden sichtbar, Sie müssen sie
+   * also verteidigen können. Die Herleitung steht deshalb jeweils dabei.
+   */
   kennzahlen: {
     /** Anteil der Handwerkeraufträge mit vermeidbarer Zweitanfahrt. */
     anteilZweitanfahrten: 0.3,
-    /** Angenommene Kosten einer vermeidbaren Zweitanfahrt in Euro. */
+
+    /** Kosten einer vermeidbaren Zweitanfahrt in Euro:
+     *  Anfahrtspauschale plus eine angefangene Arbeitsstunde. */
     kostenZweitanfahrtEuro: 180,
-    /** Angenommene Minuten pro Vorgang, die telefonische Aufnahme kostet. */
-    minutenProTelefonat: 9,
+
+    /** Minuten, die eine telefonisch aufgenommene Meldung die Verwaltung
+     *  kostet: Anruf annehmen und notieren, Rückfragen, Handwerker briefen,
+     *  Mieter zurückrufen. Konservativ gerechnet. */
+    minutenProVorgang: 20,
+
+    /** Zusätzliche Minuten Koordination je Zweitanfahrt: Rückmeldung des
+     *  Betriebs, neuer Termin, erneute Absprache mit dem Mieter. */
+    minutenProZweitanfahrt: 15,
   },
 } as const;

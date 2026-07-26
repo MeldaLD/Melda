@@ -18,7 +18,6 @@
 import { szenarien, type Szenario } from "@config/scenarios";
 import { HAUSHALTSFORMEN, LAGEN, NACHNAMEN, VORNAMEN } from "@config/namen";
 import { SLA_STANDARD, type MandantVorlage } from "@config/muster-mandant";
-import { demoKonfiguration } from "@config/demo";
 
 import type {
   Einheit,
@@ -206,8 +205,16 @@ export function bestandErzeugen(
   /** Zeitpunkt vor N Stunden, als ISO-Zeichenkette. */
   const vorStunden = (stunden: number): string =>
     new Date(bezug.getTime() - stunden * 3600_000).toISOString();
-  const inStunden = (stunden: number): string =>
-    new Date(bezug.getTime() + stunden * 3600_000).toISOString();
+  /**
+   * Termin in N Stunden, aber auf eine glatte Uhrzeit gesetzt.
+   * Ein Handwerkertermin um 17:31 Uhr verrät sofort, dass die Daten
+   * ausgerechnet und nicht vereinbart wurden.
+   */
+  const anTagUm = (stundenVoraus: number, stunde: number, minute = 0): string => {
+    const tag = new Date(bezug.getTime() + stundenVoraus * 3600_000);
+    tag.setHours(stunde, minute, 0, 0);
+    return tag.toISOString();
+  };
 
   // --- Mandant -------------------------------------------------------------
   const mandant: Mandant = {
@@ -376,7 +383,11 @@ export function bestandErzeugen(
       ist_seed: true,
       erstellt_am: vorStunden(plan.alterStunden),
       erledigt_am:
-        plan.status === "erledigt" ? vorStunden(plan.alterStunden - 30) : null,
+        plan.status === "erledigt"
+          ? vorStunden(
+              plan.alterStunden - bearbeitungsdauer(szenario.prioritaet, zufall),
+            )
+          : null,
     });
 
     nachrichten.push(
@@ -455,6 +466,7 @@ export function bestandErzeugen(
     // Handwerkertermine für alles, was bereits terminiert ist
     if (plan.status === "termin_vereinbart" || plan.status === "in_arbeit") {
       const start = zufall.zahl(24, 120);
+      const stunde = zufall.wahl([8, 9, 10, 13, 14, 15]);
       termine.push({
         id: stabileUuid(`termin:handwerk:${schluessel}`),
         tenant_id: tenantId,
@@ -464,8 +476,8 @@ export function bestandErzeugen(
         mitarbeiter_id: null,
         handwerker_id: betrieb.id,
         einheit_id: einheit.id,
-        beginn: inStunden(start),
-        ende: inStunden(start + 2),
+        beginn: anTagUm(start, stunde),
+        ende: anTagUm(start, stunde + 2),
         status: "bestaetigt",
         grund: null,
         zeitwunsch: null,
@@ -515,6 +527,7 @@ export function bestandErzeugen(
     bereich: Fachbereich;
     zugeordnet: Mitarbeiter | null;
     inStundenAb: number | null;
+    stunde: number;
   }[] = [
     {
       grund: "abrechnung",
@@ -523,6 +536,7 @@ export function bestandErzeugen(
       bereich: "buchhaltung",
       zugeordnet: buchhaltung,
       inStundenAb: 26,
+      stunde: 10,
     },
     {
       grund: "schaden",
@@ -531,6 +545,7 @@ export function bestandErzeugen(
       bereich: "technik",
       zugeordnet: technik,
       inStundenAb: 50,
+      stunde: 14,
     },
     {
       grund: "vertrag",
@@ -539,6 +554,7 @@ export function bestandErzeugen(
       bereich: "allgemein",
       zugeordnet: null,
       inStundenAb: null,
+      stunde: 9,
     },
     {
       grund: "zahlung",
@@ -547,6 +563,7 @@ export function bestandErzeugen(
       bereich: "buchhaltung",
       zugeordnet: null,
       inStundenAb: null,
+      stunde: 9,
     },
   ];
 
@@ -561,8 +578,12 @@ export function bestandErzeugen(
       mitarbeiter_id: wunsch.zugeordnet?.id ?? null,
       handwerker_id: null,
       einheit_id: einheit.id,
-      beginn: wunsch.inStundenAb === null ? null : inStunden(wunsch.inStundenAb),
-      ende: wunsch.inStundenAb === null ? null : inStunden(wunsch.inStundenAb + 0.25),
+      beginn:
+        wunsch.inStundenAb === null ? null : anTagUm(wunsch.inStundenAb, wunsch.stunde),
+      ende:
+        wunsch.inStundenAb === null
+          ? null
+          : anTagUm(wunsch.inStundenAb, wunsch.stunde, 15),
       status: wunsch.zugeordnet ? "bestaetigt" : "geplant",
       grund: wunsch.grund,
       zeitwunsch: wunsch.zeitwunsch,
@@ -826,27 +847,18 @@ function verlaufseintraege(e: VerlaufEingabe): VorgangVerlauf[] {
   return eintraege;
 }
 
-/** Nutzenrechnung für die Kennzahlen im Dashboard. */
-export function kennzahlen(bestand: Mandantenbestand, bezug: Date = new Date()) {
-  const woche = bezug.getTime() - 7 * 24 * 3600_000;
-  const dieseWoche = bestand.vorgaenge.filter(
-    (v) => new Date(v.erstellt_am).getTime() >= woche,
-  );
-  const vermieden = dieseWoche.filter((v) => v.zweitanfahrt_vermieden).length;
-  const { kostenZweitanfahrtEuro, minutenProTelefonat } = demoKonfiguration.kennzahlen;
-
-  return {
-    offen: bestand.vorgaenge.filter(
-      (v) => v.status !== "erledigt" && v.status !== "storniert",
-    ).length,
-    notfaelle: bestand.vorgaenge.filter(
-      (v) => v.prioritaet === "notfall" && v.status !== "erledigt",
-    ).length,
-    offeneFreigaben: bestand.freigaben.filter((f) => f.status === "offen").length,
-    vorgaengeDieseWoche: dieseWoche.length,
-    zweitanfahrtenVermieden: vermieden,
-    ersparnisEuro: vermieden * kostenZweitanfahrtEuro,
-    // DEMO: Jede automatisch aufgenommene Meldung ersetzt ein Telefonat.
-    gesparteStunden: Math.round((dieseWoche.length * minutenProTelefonat) / 60),
-  };
+/**
+ * Wie lange ein Vorgang von der Meldung bis zur Erledigung gebraucht hat.
+ *
+ * Bewusst je nach Dringlichkeit unterschiedlich und mit Streuung: Wären alle
+ * Vorgänge exakt gleich schnell erledigt, wäre die Durchschnittsdauer im
+ * Dashboard eine glatte Zahl – und damit sofort als erfunden erkennbar.
+ */
+function bearbeitungsdauer(prioritaet: Vorgang["prioritaet"], zufall: Zufall): number {
+  const [von, bis] = {
+    notfall: [3, 9],
+    dringend: [11, 34],
+    routine: [26, 96],
+  }[prioritaet];
+  return zufall.zahl(von, bis);
 }
