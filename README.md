@@ -36,6 +36,13 @@ npm run dev
 
 Die Anwendung läuft dann auf http://localhost:3000.
 
+**Ohne Rechner arbeiten?** Die Vorschau lässt sich vollständig im mobilen
+Browser einrichten – siehe
+[docs/vorschau-auf-dem-ipad.md](./docs/vorschau-auf-dem-ipad.md). Danach ist
+bei jedem Push automatisch der aktuelle Stand unter einer festen URL
+erreichbar. Die Seite `/status` zeigt dort, welche Umgebungsvariablen
+angekommen sind und welcher Commit läuft.
+
 ### Umgebungsvariablen
 
 Alle Werte stehen kommentiert in [`.env.example`](./.env.example).
