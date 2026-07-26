@@ -20,7 +20,7 @@ export function ChatFenster({ mandant }: { mandant: Mandant }) {
     handwerker: mandant.handwerker ?? [],
   };
 
-  const { zustand, tippt, beschaeftigt, ausloesen } = useChat(umgebung);
+  const { zustand, tippt, beschaeftigt, ausloesen } = useChat(umgebung, mandant.slug);
   const [entwurf, setEntwurf] = useState("");
   const [fotoOffen, setFotoOffen] = useState(false);
   const ende = useRef<HTMLDivElement>(null);

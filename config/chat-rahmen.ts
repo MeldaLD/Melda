@@ -37,9 +37,15 @@ export const chatRahmen = {
     "Auf diesem Bild erkenne ich den betroffenen Bereich leider nicht. Geht es " +
     "etwas weiter weg, sodass die Umgebung mit drauf ist?",
 
+  /**
+   * Wichtig für die Glaubwürdigkeit: Bei allem außer Notfällen wird der
+   * Auftrag nur vorbereitet. Freigegeben wird er von der Verwaltung. Eine
+   * Formulierung wie "habe ich beauftragt" würde dem Kernversprechen
+   * widersprechen, dass die KI nichts allein entscheidet.
+   */
   weiterleitung: (betrieb: string) =>
-    `Ich habe die Meldung an ${betrieb} weitergeleitet. Der Betrieb meldet sich ` +
-    "zur Terminfindung.",
+    `Ich habe den Auftrag für ${betrieb} vorbereitet. Ihre Hausverwaltung gibt ` +
+    "ihn frei, anschließend meldet sich der Betrieb bei Ihnen zur Terminfindung.",
 
   weiterleitungNotfall: (betrieb: string) =>
     `Ich habe den Notdienst von ${betrieb} alarmiert und Ihre Hausverwaltung ` +

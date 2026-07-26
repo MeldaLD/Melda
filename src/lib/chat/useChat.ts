@@ -23,7 +23,7 @@ function jetztIso(): string {
   return new Date().toISOString();
 }
 
-export function useChat(umgebung: Umgebung) {
+export function useChat(umgebung: Umgebung, slug: string) {
   const [zustand, setZustand] = useState<ChatZustand>(anfangszustand);
   const [tippt, setTippt] = useState(false);
   const [beschaeftigt, setBeschaeftigt] = useState(false);
@@ -35,6 +35,8 @@ export function useChat(umgebung: Umgebung) {
 
   const zeitgeber = useRef<ReturnType<typeof setTimeout>[]>([]);
   const gestartet = useRef(false);
+  // Der Vorgang wird genau einmal je Meldung gespeichert.
+  const gespeichert = useRef(false);
 
   useEffect(() => {
     const laufende = zeitgeber.current;
@@ -101,8 +103,25 @@ export function useChat(umgebung: Umgebung) {
       // Zustand der Maschine übernehmen, aber den angezeigten Verlauf behalten.
       setZustand((alt) => ({ ...ergebnis.zustand, nachrichten: alt.nachrichten }));
       setBeschaeftigt(false);
+
+      // Sobald die Meldung weitergeleitet ist, entsteht daraus ein echter
+      // Vorgang in der Datenbank – der taucht dann live im Dashboard auf.
+      if (
+        !gespeichert.current &&
+        ergebnis.zustand.status === "an_handwerker" &&
+        ergebnis.zustand.szenarioId
+      ) {
+        gespeichert.current = true;
+        void vorgangSpeichern(
+          slug,
+          ergebnis.zustand,
+          zustandRef.current.nachrichten,
+        ).then((nummer) => {
+          if (nummer !== null) setZustand((alt) => ({ ...alt, nummer }));
+        });
+      }
     },
-    [alsGelesenMarkieren, anhaengen, beschaeftigt, umgebung],
+    [alsGelesenMarkieren, anhaengen, beschaeftigt, umgebung, slug],
   );
 
   /** Begrüßung einmalig beim Öffnen. */
@@ -115,4 +134,40 @@ export function useChat(umgebung: Umgebung) {
   }, []);
 
   return { zustand, tippt, beschaeftigt, ausloesen };
+}
+
+/**
+ * Legt den Vorgang serverseitig an.
+ *
+ * Schlägt das fehl – keine Datenbank konfiguriert, Projekt pausiert, kein
+ * Netz – läuft der Chat unverändert weiter. Eine Vorführung darf nicht daran
+ * scheitern, dass im Hintergrund etwas nicht gespeichert werden konnte.
+ */
+async function vorgangSpeichern(
+  slug: string,
+  zustand: ChatZustand,
+  nachrichten: ChatNachricht[],
+): Promise<number | null> {
+  try {
+    const antwort = await fetch("/api/chat/vorgang", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug,
+        szenarioId: zustand.szenarioId,
+        zweitanfahrtVermieden: zustand.zweitanfahrtVermieden,
+        nachrichten: nachrichten.map((n) => ({
+          von: n.von,
+          text: n.text,
+          foto: n.foto,
+          gesendetAm: n.zeit,
+        })),
+      }),
+    });
+
+    const ergebnis = await antwort.json();
+    return ergebnis?.gespeichert ? (ergebnis.nummer ?? null) : null;
+  } catch {
+    return null;
+  }
 }

@@ -47,6 +47,28 @@ Quelle sind `config/muster-mandant.ts` (Firma, Stadt, Objekte, Mitarbeitende,
 Handwerksbetriebe) und `config/scenarios.ts` (die Schadensfälle). Wer dort
 etwas ändert, führt den Befehl aus und spielt die Datei erneut ein.
 
+## Live-Verbindung zwischen Chat und Dashboard
+
+Meldet ein Mieter im Chat einen Schaden, legt der Route Handler
+`/api/chat/vorgang` daraus serverseitig einen echten Vorgang an – mit
+Chatverlauf, Historie und den beiden offenen Freigaben. Das Dashboard
+abonniert über Supabase Realtime die Tabellen `vorgaenge`, `nachrichten`,
+`freigaben` und `termine` und rendert bei einer Änderung neu.
+
+Damit das funktioniert, müssen drei Dinge stimmen – alle drei erledigen die
+Migrationen:
+
+1. Die Tabellen sind Teil der Publication `supabase_realtime`.
+2. Sie haben `REPLICA IDENTITY FULL`, damit Filter auf `tenant_id` auch bei
+   Änderungen greifen.
+3. Der Anon-Key darf lesen (ohne SELECT-Recht kommen keine Ereignisse an).
+
+Falls im Supabase-Dashboard unter *Database → Replication* nachgesehen
+werden soll: Dort müssen die vier Tabellen aktiviert sein.
+
+Ohne Datenbank läuft der Chat unverändert weiter, nur ohne den Live-Effekt.
+Die Route antwortet dann mit `gespeichert: false`.
+
 ## Zurücksetzen
 
 Die Seed-Datei ist wiederholbar: Sie leert zuerst alle Bewegungsdaten des

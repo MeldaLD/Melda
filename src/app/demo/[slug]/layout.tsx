@@ -42,7 +42,9 @@ export default async function DemoLayout({ children, params }: Eigenschaften) {
       style={palette as React.CSSProperties}
     >
       <DemoLeiste
+        slug={slug}
         hinweis={ohneDatenbank ? "Vorschaubetrieb ohne Datenbank" : undefined}
+        zuruecksetzenZeigen={!ohneDatenbank}
       />
       <div className="min-h-0 overflow-y-auto">{children}</div>
     </div>
