@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { AlertCircleIcon, CheckIcon, Loader2Icon } from "lucide-react";
 
-import { rueckrufZuordnen } from "@/app/demo/[slug]/dashboard/aktionen";
+import { rueckrufZuordnen } from "@/app/demo/[slug]/leitstand/aktionen";
 import { Button } from "@/components/ui/button";
 import { FACHBEREICH_BEZEICHNUNG, type Fachbereich } from "@/lib/daten/typen";
 

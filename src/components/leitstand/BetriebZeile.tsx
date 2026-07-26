@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { AlertCircleIcon, CheckIcon, Loader2Icon, StarIcon } from "lucide-react";
 
-import { betriebPflegen } from "@/app/demo/[slug]/dashboard/aktionen";
+import { betriebPflegen } from "@/app/demo/[slug]/leitstand/aktionen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { GEWERK_BEZEICHNUNG, type Handwerker, type Kanal } from "@/lib/daten/typen";

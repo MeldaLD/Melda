@@ -12,12 +12,39 @@
 export const chatRahmen = {
   begruessung: (firma: string) =>
     `Guten Tag, hier ist der Serviceassistent der ${firma}. ` +
-    `Sie können mir hier rund um die Uhr Schäden melden – ganz normal per ` +
-    `Nachricht, ohne App und ohne Anmeldung.`,
+    `Sie erreichen mich rund um die Uhr – ganz normal per Nachricht, ohne App ` +
+    `und ohne Anmeldung.`,
+
+  /**
+   * Der Einstieg fragt nach dem Anliegen, nicht nach einem Schaden.
+   *
+   * Wer nur "Schaden melden" anbietet, bekommt trotzdem alles andere – nur
+   * unsortiert. Und die meisten Anliegen lassen sich hier abschließen, ohne
+   * dass jemand telefonieren muss. Die Themen stehen in config/anliegen.ts.
+   */
+  anliegenFrage: "Worum geht es? Tippen Sie einfach an, was am besten passt.",
 
   aufforderung:
     "Beschreiben Sie mir kurz, worum es geht, oder senden Sie mir gleich ein Foto. " +
     "Mit einem Bild geht es meist deutlich schneller.",
+
+  /** Nach einer Auskunft: Hat es gereicht? */
+  auskunftNachfrage: "Hilft Ihnen das weiter?",
+
+  auskunftGeholfen:
+    "Freut mich. Sie erreichen mich jederzeit hier – ohne Wartezeit und ohne " +
+    "Telefon.",
+
+  /**
+   * Der Rückruf ist die letzte Stufe, nicht die erste.
+   *
+   * Er wird angeboten, sobald die Auskunft nicht gereicht hat – aber erst
+   * dann. Ein Knopf "Rückruf" gleich am Anfang würde die Hälfte der
+   * Gespräche zu Telefonaten machen, die niemand braucht.
+   */
+  auskunftNichtGeholfen:
+    "Verstanden, dann kümmert sich jemand persönlich darum. Sie können mir " +
+    "hier schreiben, worum es genau geht – oder wir rufen Sie zurück.",
 
   /** Hinweis im Foto-Dialog. Rechtlich sauber und wirkt professionell. */
   fotoHinweis: "Aus Datenschutzgründen arbeitet diese Demo mit Beispielbildern.",
@@ -130,6 +157,10 @@ export const chatRahmen = {
     "Gern. Worum geht es? Dann landet Ihre Anfrage gleich bei der richtigen " +
     "Stelle in der Verwaltung.",
 
+  /** Das Thema stand schon am Anfang – nicht noch einmal fragen. */
+  rueckrufUebernommen: (grund: string) =>
+    `Gern, es geht um „${grund}". Wann erreichen wir Sie am besten?`,
+
   rueckrufZeitFrage: "Und wann erreichen wir Sie am besten?",
 
   rueckrufBestaetigt: (grund: string, zeit: string) =>
@@ -153,5 +184,7 @@ export const chatRahmen = {
     lieberHandwerker: "Nein, bitte Handwerker",
     hatGeklappt: "Hat geklappt",
     hatNichtGeklappt: "Hat nicht geklappt",
+    hilftWeiter: "Ja, danke",
+    hilftNicht: "Nein, ich brauche jemanden",
   },
 } as const;

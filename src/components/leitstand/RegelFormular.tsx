@@ -7,7 +7,7 @@ import {
   automatikAbschalten,
   einstellungenSpeichern,
   type Ergebnis,
-} from "@/app/demo/[slug]/dashboard/aktionen";
+} from "@/app/demo/[slug]/leitstand/aktionen";
 import { Button } from "@/components/ui/button";
 import {
   FREIGABE_TYP_BEZEICHNUNG,

@@ -138,6 +138,14 @@ export type MandantEinstellungen = {
   /** Höchstbetrag der Kleinreparaturklausel je Einzelfall, in Euro. */
   kleinreparatur_grenze_euro?: number;
   /**
+   * Ab diesem Betrag wird ein Auftrag der Hausverwaltung vorgelegt; darunter
+   * beauftragen wir ohne Rückfrage. Das ist ihr Steuerrad – siehe
+   * docs/betriebsmodell.md.
+   */
+  freigabe_ab_euro?: number;
+  /** Gewerke, die immer vorgelegt werden, unabhängig vom Betrag. */
+  immer_vorlegen_gewerke?: Gewerk[];
+  /**
    * Freigabearten, die künftig ohne Nachfrage erteilt werden.
    * Wird im Freigabe-Center gesetzt und wirkt auf neu entstehende Vorgänge.
    */

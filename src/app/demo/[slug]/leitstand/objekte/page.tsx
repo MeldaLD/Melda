@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { Seitenkopf } from "@/components/dashboard/Anzeigen";
+import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { istOffen } from "@/lib/dashboard/kennzahlen";
 import { bestandLaden } from "@/lib/daten/quelle";

@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 
-import { Seitenkopf } from "@/components/dashboard/Anzeigen";
+import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
 import {
   FreigabeListe,
   type FreigabeZeile,
-} from "@/components/dashboard/FreigabeListe";
+} from "@/components/leitstand/FreigabeListe";
 import { bestandLaden } from "@/lib/daten/quelle";
 
 export default async function FreigabeCenter({
@@ -44,7 +44,7 @@ export default async function FreigabeCenter({
         beschreibung="Der Assistent hat alles vorbereitet. Entscheiden tun Sie."
       />
       <div className="max-w-3xl">
-        <FreigabeListe zeilen={zeilen} basis={`/demo/${slug}/dashboard`} slug={slug} />
+        <FreigabeListe zeilen={zeilen} basis={`/demo/${slug}/leitstand`} slug={slug} />
       </div>
     </div>
   );

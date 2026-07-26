@@ -4,7 +4,12 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { SearchIcon } from "lucide-react";
 
-import { PrioBadge, SlaPunkt, StatusBadge, LeerHinweis } from "./Anzeigen";
+import {
+  PrioBadge,
+  SlaPunkt,
+  StatusBadge,
+  LeerHinweis,
+} from "@/components/gemeinsam/Anzeigen";
 import { alterKurz, nachDringlichkeit, slaZustand } from "@/lib/dashboard/kennzahlen";
 import { alsDatumZeit } from "@/lib/dashboard/format";
 import {

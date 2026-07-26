@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 
 import { rueckrufGruende } from "@config/rueckruf-gruende";
 import { kleinreparaturen, selbsthilfeKatalog } from "@config/kleinreparaturen";
-import { Seitenkopf } from "@/components/dashboard/Anzeigen";
-import { AutomatikRegeln, RegelFormular } from "@/components/dashboard/RegelFormular";
+import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { AutomatikRegeln, RegelFormular } from "@/components/leitstand/RegelFormular";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { bestandLaden } from "@/lib/daten/quelle";

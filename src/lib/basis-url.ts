@@ -30,7 +30,10 @@ export function basisUrl(): string {
 }
 
 /** Baut einen vollständigen Link auf die Demo eines Mandanten. */
-export function demoLink(slug: string, pfad: "" | "/chat" | "/dashboard" = ""): string {
+export function demoLink(
+  slug: string,
+  pfad: "" | "/chat" | "/dashboard" | "/leitstand" = "",
+): string {
   return `${basisUrl()}/demo/${slug}${pfad}`;
 }
 

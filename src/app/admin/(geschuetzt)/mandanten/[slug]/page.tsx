@@ -8,7 +8,7 @@ import { LogoUpload } from "@/components/admin/LogoUpload";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { LeerHinweis } from "@/components/dashboard/Anzeigen";
+import { LeerHinweis } from "@/components/gemeinsam/Anzeigen";
 import { alsDatumZeit } from "@/lib/dashboard/format";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { basisUrl } from "@/lib/basis-url";

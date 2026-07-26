@@ -17,13 +17,13 @@ import {
   mieterAnlegen,
   notizEintragen,
   type Ergebnis,
-} from "@/app/demo/[slug]/dashboard/aktionen";
+} from "@/app/demo/[slug]/leitstand/aktionen";
 import {
   ASSISTENT_BEISPIELE,
   assistentAntwort,
   type AssistentKarte,
 } from "@/lib/assistent/maschine";
-import { PrioBadge, SlaPunkt } from "./Anzeigen";
+import { PrioBadge, SlaPunkt } from "@/components/gemeinsam/Anzeigen";
 import { alterKurz } from "@/lib/dashboard/kennzahlen";
 import { STATUS_BEZEICHNUNG, type Mandantenbestand } from "@/lib/daten/typen";
 import { Button } from "@/components/ui/button";
@@ -360,7 +360,7 @@ function Karte({
             </p>
           )}
           <Button asChild size="sm" variant="outline" className="w-full">
-            <Link href={`/demo/${slug}/dashboard/vorgaenge/${karte.vorgang.id}`}>
+            <Link href={`/demo/${slug}/leitstand/vorgaenge/${karte.vorgang.id}`}>
               Vorgang öffnen
             </Link>
           </Button>
@@ -377,7 +377,7 @@ function Karte({
             {karte.vorgaenge.slice(0, 6).map((v) => (
               <li key={v.id}>
                 <Link
-                  href={`/demo/${slug}/dashboard/vorgaenge/${v.id}`}
+                  href={`/demo/${slug}/leitstand/vorgaenge/${v.id}`}
                   className="flex items-center gap-2 py-1.5 text-xs hover:text-marke"
                 >
                   <SlaPunkt vorgang={v} />

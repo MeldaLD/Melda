@@ -42,7 +42,39 @@ export function ChatKarte({ karte }: { karte: Karte }) {
       );
     case "anleitung":
       return <AnleitungsKarte karte={karte} />;
+    case "auskunft":
+      return <AuskunftsKarte titel={karte.titel} schritte={karte.schritte} />;
   }
+}
+
+/**
+ * Die Antwort auf ein Anliegen, das kein Schaden ist.
+ *
+ * Nummerierte Schritte statt Fließtext: Der Mieter soll auf einen Blick
+ * sehen, was er tun kann, ohne einen Absatz zu lesen. Genau daran hängt, ob
+ * das Anliegen hier endet oder doch zum Telefonat wird.
+ */
+function AuskunftsKarte({ titel, schritte }: { titel: string; schritte: string[] }) {
+  return (
+    <div className="mt-2 rounded-md border border-marke-rand bg-marke-sanft/60 p-3">
+      <p className="text-xs font-semibold tracking-wide text-marke uppercase">
+        {titel}
+      </p>
+      <ol className="mt-2 space-y-2">
+        {schritte.map((schritt, index) => (
+          <li
+            key={schritt}
+            className="flex gap-2.5 text-sm leading-snug text-slate-700"
+          >
+            <span className="tabellenziffern flex size-5 shrink-0 items-center justify-center rounded-full bg-marke text-[11px] font-semibold text-marke-kontrast">
+              {index + 1}
+            </span>
+            {schritt}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
 }
 
 function SofortmassnahmeKarte() {

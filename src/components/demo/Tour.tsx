@@ -101,9 +101,7 @@ export function Tour({ slug, automatisch }: { slug: string; automatisch: boolean
   }, [stand, station, geradeErledigt, pfad]);
 
   // --- Wegweiser -----------------------------------------------------------
-  const amRichtigenOrt =
-    !station ||
-    (station.pfad === "chat" ? pfad.endsWith("/chat") : pfad.includes("/dashboard"));
+  const amRichtigenOrt = !station || pfad.endsWith(`/${station.pfad}`);
 
   const hingehen = () => {
     if (!station) return;

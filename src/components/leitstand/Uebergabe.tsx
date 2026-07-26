@@ -27,7 +27,7 @@ import {
   terminlinkErneutSenden,
   vorgangWeiterschieben,
   type Ergebnis,
-} from "@/app/demo/[slug]/dashboard/aktionen";
+} from "@/app/demo/[slug]/leitstand/aktionen";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";

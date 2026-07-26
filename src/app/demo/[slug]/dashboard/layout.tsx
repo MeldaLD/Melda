@@ -1,11 +1,21 @@
 import { notFound } from "next/navigation";
 
-import { Assistent } from "@/components/dashboard/Assistent";
-import { LiveAktualisierung } from "@/components/dashboard/LiveAktualisierung";
-import { Seitenleiste } from "@/components/dashboard/Seitenleiste";
+import { LiveAktualisierung } from "@/components/gemeinsam/LiveAktualisierung";
+import { Navigation } from "@/components/verwalter/Navigation";
 import { bestandLaden } from "@/lib/daten/quelle";
+import { ausnahmen } from "@/lib/verwalter/ausnahmen";
 
-export default async function DashboardLayout({
+/**
+ * Die Sicht der Hausverwaltung.
+ *
+ * Bewusst schmal. Wir übernehmen die Kommunikation mit Mietern und Betrieben;
+ * was hier bleibt, ist Überblick und Kontrolle – nicht die Kleinarbeit. Warum
+ * gerade diese vier Bereiche, steht in docs/betriebsmodell.md.
+ *
+ * Kein Assistent, keine Freigabeliste, keine Betriebspflege: Das ist unser
+ * Arbeitsplatz und liegt unter /leitstand.
+ */
+export default async function VerwalterLayout({
   children,
   params,
 }: {
@@ -17,14 +27,12 @@ export default async function DashboardLayout({
   if (!ergebnis) notFound();
 
   const { bestand } = ergebnis;
-  const offeneFreigaben = bestand.freigaben.filter((f) => f.status === "offen").length;
+  const offen = ausnahmen(bestand).filter((a) => a.dringlichkeit === "hoch").length;
 
   return (
     <div className="flex min-h-full flex-col bg-slate-50 lg:flex-row">
-      <Seitenleiste mandant={bestand.mandant} offeneFreigaben={offeneFreigaben} />
+      <Navigation mandant={bestand.mandant} offeneAusnahmen={offen} />
       <main className="min-w-0 flex-1">{children}</main>
-      <Assistent bestand={bestand} />
-      {/* Hört auf Änderungen, die aus dem Mieter-Chat kommen. */}
       <LiveAktualisierung
         tenantId={bestand.mandant.id}
         basis={`/demo/${slug}/dashboard`}

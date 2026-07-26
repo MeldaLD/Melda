@@ -1,29 +1,31 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import {
-  ArrowLeftIcon,
-  SparklesIcon,
-  TrendingDownIcon,
-  WrenchIcon,
-} from "lucide-react";
+import { ArrowLeftIcon, TrendingDownIcon, WrenchIcon } from "lucide-react";
 
-import { szenarioNach } from "@config/scenarios";
 import { DemoFoto } from "@/components/chat/DemoFoto";
-import { PrioBadge, StatusBadge } from "@/components/dashboard/Anzeigen";
-import { Fotostreifen, type Beleg } from "@/components/dashboard/Fotostreifen";
-import { Uebergabe, type Abstimmungsstand } from "@/components/dashboard/Uebergabe";
+import { PrioBadge, StatusBadge } from "@/components/gemeinsam/Anzeigen";
+import { Fotostreifen, type Beleg } from "@/components/gemeinsam/Fotostreifen";
+import { Eingreifen } from "@/components/verwalter/Eingreifen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { alsDatumZeit } from "@/lib/dashboard/format";
 import { alterKurz, slaZustand } from "@/lib/dashboard/kennzahlen";
-import { bestandLaden, istSchreibenMoeglich } from "@/lib/daten/quelle";
-import { basisUrl } from "@/lib/basis-url";
-import { terminLink, vorschlaegeLesen } from "@/lib/daten/terminanfrage";
-import { supabaseAdmin } from "@/lib/supabase/admin";
-import { GEWERK_BEZEICHNUNG, type Handwerker } from "@/lib/daten/typen";
+import { bestandLaden } from "@/lib/daten/quelle";
+import { GEWERK_BEZEICHNUNG } from "@/lib/daten/typen";
 
-export default async function VorgangDetail({
+/**
+ * Ein Vorgang aus Sicht der Hausverwaltung.
+ *
+ * Zwei Dinge und sonst nichts: die Zusammenfassung und der lückenlose
+ * Verlauf. Genau das braucht jemand, den der Eigentümer anruft – und genau
+ * das schuldet ein Beauftragter nach § 666 BGB.
+ *
+ * Keine Textbausteine, kein Telefonleitfaden, keine Statusknöpfe: Das ist
+ * Arbeit, und die haben wir übernommen. Wer trotzdem eingreifen will, findet
+ * unten den Weg dazu – das ist die Kontrolle, die nicht delegierbar ist.
+ */
+export default async function VorgangLesen({
   params,
 }: {
   params: Promise<{ slug: string; id: string }>;
@@ -38,22 +40,19 @@ export default async function VorgangDetail({
 
   const einheit = bestand.einheiten.find((e) => e.id === vorgang.einheit_id);
   const objekt = bestand.objekte.find((o) => o.id === einheit?.objekt_id);
-  const mitarbeiter = bestand.mitarbeiter.find((m) => m.id === vorgang.mitarbeiter_id);
   const handwerker = bestand.handwerker.find((h) => h.id === vorgang.handwerker_id);
-  const szenario = vorgang.szenario_id
-    ? szenarioNach.get(vorgang.szenario_id)
-    : undefined;
 
   const nachrichten = bestand.nachrichten
     .filter((n) => n.vorgang_id === vorgang.id)
     .sort((a, b) => a.gesendet_am.localeCompare(b.gesendet_am));
 
+  // Der Verlauf ist hier die Hauptsache, nicht eine Randspalte: Er ist der
+  // Nachweis, dass gearbeitet wurde. Älteste zuerst – man liest eine
+  // Geschichte von vorn.
   const verlauf = bestand.verlauf
     .filter((v) => v.vorgang_id === vorgang.id)
-    .sort((a, b) => b.zeitpunkt.localeCompare(a.zeitpunkt));
+    .sort((a, b) => a.zeitpunkt.localeCompare(b.zeitpunkt));
 
-  // Alle Bilder des Mieters, in der Reihenfolge, in der sie kamen. Das zweite
-  // ist das nachgeforderte – genau das, was den Umfang klärt.
   const belege: Beleg[] = nachrichten
     .filter((n) => n.foto_id)
     .map((n, index) => ({
@@ -62,32 +61,17 @@ export default async function VorgangDetail({
       zeit: alsDatumZeit(n.gesendet_am),
     }));
 
-  // Steht noch kein Betrieb fest, zeigen wir den, der zuständig wäre – sonst
-  // stünde in der E-Mail eine Lücke.
-  const vorgeschlagenerBetrieb = handwerker
-    ? undefined
-    : bestand.handwerker.find((h) => h.gewerk === vorgang.gewerk && h.ist_standard);
-
+  const termin = bestand.termine.find(
+    (t) => t.vorgang_id === vorgang.id && t.typ === "handwerkertermin",
+  );
   const basis = `/demo/${slug}/dashboard`;
   const frist = slaZustand(vorgang);
-
-  const zustaendig = handwerker ?? vorgeschlagenerBetrieb ?? null;
-  // "Freigegeben" heißt hier: Der Auftrag hat das Freigabe-Center passiert.
-  // Vorher darf nichts an den Betrieb gehen – auch nicht automatisch.
-  const auftragFreigegeben =
-    vorgang.status !== "neu" && vorgang.status !== "in_pruefung";
-  const abstimmung = await abstimmungsstand(
-    vorgang.id,
-    zustaendig,
-    auftragFreigegeben,
-    `${basis}/freigaben`,
-  );
 
   return (
     <div className="p-4 sm:p-6">
       <Button asChild variant="ghost" size="sm" className="mb-3 -ml-2">
         <Link href={`${basis}/vorgaenge`}>
-          <ArrowLeftIcon /> Zurück zur Liste
+          <ArrowLeftIcon /> Zurück
         </Link>
       </Button>
 
@@ -116,8 +100,6 @@ export default async function VorgangDetail({
         </p>
       </header>
 
-      {/* Zuerst das Bild. Wer einen Fall öffnet, will sehen, worum es geht,
-          bevor er liest. */}
       {belege.length > 0 && (
         <div className="mb-4">
           <Fotostreifen belege={belege} />
@@ -126,90 +108,76 @@ export default async function VorgangDetail({
 
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          {vorgang.ki_zusammenfassung && (
-            <Card className="border-marke-rand bg-marke-sanft">
-              <CardHeader className="flex-row items-center gap-2">
-                <SparklesIcon className="size-4 text-marke" aria-hidden />
-                <CardTitle>Das hat der Assistent aufgenommen</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <p className="text-sm leading-relaxed text-slate-700">
-                  {vorgang.ki_zusammenfassung}
-                </p>
-
-                {/* Auf einen Blick erfassbar: die Eckdaten als Zeile, nicht
-                    als Fließtext. */}
-                <dl className="flex flex-wrap gap-x-6 gap-y-1.5 border-t border-marke-rand pt-3 text-xs">
-                  <Eckwert
-                    bezeichnung="Gewerk"
-                    wert={GEWERK_BEZEICHNUNG[vorgang.gewerk]}
-                  />
-                  <Eckwert bezeichnung="Kategorie" wert={vorgang.kategorie} />
-                  {vorgang.kosten_schaetzung_euro && (
-                    <Eckwert
-                      bezeichnung="Kostenschätzung"
-                      wert={`etwa ${vorgang.kosten_schaetzung_euro} €`}
-                    />
-                  )}
-                  <Eckwert
-                    bezeichnung="Eingang"
-                    wert={`vor ${alterKurz(vorgang.erstellt_am)}`}
-                  />
-                </dl>
-
-                {szenario && vorgang.zweitanfahrt_vermieden && (
-                  <div className="space-y-1.5 border-t border-marke-rand pt-3 text-xs">
-                    <p className="font-medium text-slate-700">
-                      Was die Nachfrage nach dem zweiten Foto gebracht hat
-                    </p>
-                    <p className="text-muted-foreground line-through">
-                      {szenario.erkenntnis.vorher}
-                    </p>
-                    <p className="font-medium text-marke">
-                      {szenario.erkenntnis.nachher}
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Ab hier übernimmt der Mensch. */}
-          <Uebergabe
-            slug={slug}
-            vorgangId={vorgang.id}
-            status={vorgang.status}
-            betriebTelefon={handwerker?.telefon ?? null}
-            abstimmung={abstimmung}
-            daten={{
-              firma: bestand.mandant.firma,
-              vorgangsnummer: vorgang.nummer,
-              titel: vorgang.titel,
-              kategorie: vorgang.kategorie,
-              gewerk: vorgang.gewerk,
-              prioritaet: vorgang.prioritaet,
-              objekt: objekt?.name ?? "–",
-              einheit: einheit?.bezeichnung ?? "–",
-              mieterName: einheit?.mieter_name ?? "Mieter",
-              mieterTelefon: einheit?.mieter_telefon ?? null,
-              betrieb: handwerker?.firma ?? vorgeschlagenerBetrieb?.firma ?? null,
-              zusammenfassung: vorgang.ki_zusammenfassung,
-              erkenntnis:
-                szenario && vorgang.zweitanfahrt_vermieden
-                  ? szenario.erkenntnis.nachher
-                  : null,
-              kostenschaetzungEuro: vorgang.kosten_schaetzung_euro,
-              ansprechpartner: bestand.mandant.ansprechpartner,
-            }}
-          />
-
           <Card>
             <CardHeader>
-              <CardTitle>Verlauf mit dem Mieter</CardTitle>
+              <CardTitle>Worum es geht</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm leading-relaxed text-slate-700">
+                {vorgang.ki_zusammenfassung ?? vorgang.titel}
+              </p>
+              <dl className="flex flex-wrap gap-x-6 gap-y-1.5 border-t border-border pt-3 text-xs">
+                <Eckwert
+                  bezeichnung="Gewerk"
+                  wert={GEWERK_BEZEICHNUNG[vorgang.gewerk]}
+                />
+                <Eckwert
+                  bezeichnung="Betrieb"
+                  wert={handwerker?.firma ?? "noch keiner"}
+                />
+                {vorgang.kosten_schaetzung_euro && (
+                  <Eckwert
+                    bezeichnung="Kosten"
+                    wert={`etwa ${vorgang.kosten_schaetzung_euro} €`}
+                  />
+                )}
+                <Eckwert
+                  bezeichnung="Eingegangen"
+                  wert={`vor ${alterKurz(vorgang.erstellt_am)}`}
+                />
+                {termin?.beginn && (
+                  <Eckwert bezeichnung="Termin" wert={alsDatumZeit(termin.beginn)} />
+                )}
+              </dl>
+            </CardContent>
+          </Card>
+
+          {/* Der Nachweis: jeder Schritt mit Zeitpunkt und Urheber. */}
+          <Card>
+            <CardHeader className="gap-1">
+              <CardTitle>Was passiert ist</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Lückenlos, mit Zeitpunkt und Urheber.
+              </p>
+            </CardHeader>
+            <CardContent>
+              <ol className="space-y-3">
+                {verlauf.map((eintrag) => (
+                  <li key={eintrag.id} className="flex gap-3">
+                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-marke" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm leading-snug">{eintrag.beschreibung}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {eintrag.akteur} · {alsDatumZeit(eintrag.zeitpunkt)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="gap-1">
+              <CardTitle>Gespräch mit dem Mieter</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Wortlaut, falls jemand nachfragt.
+              </p>
             </CardHeader>
             <CardContent className="space-y-2.5">
               {nachrichten.map((nachricht) => {
                 const vomMieter = nachricht.richtung === "mieter";
+                const vomBetrieb = nachricht.richtung === "handwerker";
                 return (
                   <div
                     key={nachricht.id}
@@ -219,7 +187,9 @@ export default async function VorgangDetail({
                       className={
                         vomMieter
                           ? "max-w-[80%] rounded-lg rounded-bl-sm bg-slate-100 px-3 py-2"
-                          : "max-w-[80%] rounded-lg rounded-br-sm bg-marke-sanft px-3 py-2"
+                          : vomBetrieb
+                            ? "max-w-[80%] rounded-lg rounded-bl-sm border border-border bg-white px-3 py-2"
+                            : "max-w-[80%] rounded-lg rounded-br-sm bg-marke-sanft px-3 py-2"
                       }
                     >
                       {nachricht.foto_id && (
@@ -233,8 +203,12 @@ export default async function VorgangDetail({
                         {nachricht.text}
                       </p>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        {vomMieter ? einheit?.mieter_name : "Assistent"} ·{" "}
-                        {alsDatumZeit(nachricht.gesendet_am)}
+                        {vomMieter
+                          ? einheit?.mieter_name
+                          : vomBetrieb
+                            ? (handwerker?.firma ?? "Betrieb")
+                            : "Assistent"}{" "}
+                        · {alsDatumZeit(nachricht.gesendet_am)}
                       </p>
                     </div>
                   </div>
@@ -244,125 +218,19 @@ export default async function VorgangDetail({
           </Card>
         </div>
 
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Zuordnung</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="space-y-2.5 text-sm">
-                <Feld bezeichnung="Kategorie" wert={vorgang.kategorie} />
-                <Feld bezeichnung="Gewerk" wert={GEWERK_BEZEICHNUNG[vorgang.gewerk]} />
-                <Feld
-                  bezeichnung="Handwerker"
-                  wert={handwerker?.firma ?? "Noch nicht beauftragt"}
-                />
-                <Feld
-                  bezeichnung="Zuständig"
-                  wert={mitarbeiter?.name ?? "Nicht zugewiesen"}
-                />
-                <Feld
-                  bezeichnung="Eingang"
-                  wert={`${alsDatumZeit(vorgang.erstellt_am)} (vor ${alterKurz(vorgang.erstellt_am)})`}
-                />
-                <Feld bezeichnung="Kanal" wert={kanalName(vorgang.quelle)} />
-                <Feld bezeichnung="Telefon" wert={einheit?.mieter_telefon ?? "–"} />
-              </dl>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Historie</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ol className="space-y-3">
-                {verlauf.map((eintrag) => (
-                  <li key={eintrag.id} className="flex gap-2.5">
-                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-marke" />
-                    <div className="min-w-0">
-                      <p className="text-sm leading-snug">{eintrag.beschreibung}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {eintrag.akteur} · {alsDatumZeit(eintrag.zeitpunkt)}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            </CardContent>
-          </Card>
+        <div>
+          <Eingreifen
+            slug={slug}
+            vorgangId={vorgang.id}
+            titel={vorgang.titel}
+            gestoppt={vorgang.status === "storniert"}
+          />
         </div>
       </div>
     </div>
   );
 }
 
-/**
- * Wie weit die direkte Abstimmung mit dem Betrieb ist.
- *
- * Wird eigens abgefragt statt über bestandLaden mitgeladen: Terminanfragen
- * hängen an einem einzelnen Vorgang und gehören nicht in den Bestand, den
- * jede Dashboard-Seite lädt.
- */
-async function abstimmungsstand(
-  vorgangId: string,
-  betrieb: Handwerker | null | undefined,
-  /** Solange der Auftrag nicht freigegeben ist, geht nichts an den Betrieb. */
-  freigegeben: boolean,
-  freigabenPfad: string,
-): Promise<Abstimmungsstand> {
-  if (!betrieb?.abstimmung_erlaubt) {
-    return { art: "nicht_erlaubt", betrieb: betrieb?.firma ?? null };
-  }
-  if (!freigegeben) {
-    return { art: "wartet_auf_freigabe", betrieb: betrieb.firma, freigabenPfad };
-  }
-  if (!istSchreibenMoeglich()) {
-    return { art: "moeglich", betrieb: betrieb.firma };
-  }
-
-  const { data: anfrage } = await supabaseAdmin()
-    .from("terminanfragen")
-    .select("status, vorschlaege, gewaehlt, erstellt_am, token")
-    .eq("vorgang_id", vorgangId)
-    .order("erstellt_am", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-
-  if (!anfrage || anfrage.status === "abgelaufen") {
-    return { art: "moeglich", betrieb: betrieb.firma };
-  }
-
-  const vorschlaege = vorschlaegeLesen(anfrage.vorschlaege);
-
-  if (anfrage.status === "offen") {
-    return {
-      art: "wartet",
-      betrieb: betrieb.firma,
-      seit: `seit ${alterKurz(anfrage.erstellt_am)}`,
-      link: terminLink(basisUrl(), anfrage.token),
-    };
-  }
-  if (anfrage.status === "beantwortet") {
-    return {
-      art: "vorgeschlagen",
-      betrieb: betrieb.firma,
-      anzahl: vorschlaege.length,
-    };
-  }
-
-  const gewaehlt =
-    anfrage.gewaehlt !== null ? vorschlaege[anfrage.gewaehlt] : undefined;
-  return {
-    art: "gewaehlt",
-    betrieb: betrieb.firma,
-    fenster: gewaehlt
-      ? `${alsDatumZeit(gewaehlt.beginn)} – ${alsDatumZeit(gewaehlt.ende)}`
-      : "Termin steht",
-  };
-}
-
-/** Eckdatum in der Kopfzeile der Zusammenfassung. */
 function Eckwert({ bezeichnung, wert }: { bezeichnung: string; wert: string }) {
   return (
     <div>
@@ -370,17 +238,4 @@ function Eckwert({ bezeichnung, wert }: { bezeichnung: string; wert: string }) {
       <dd className="font-medium text-slate-800">{wert}</dd>
     </div>
   );
-}
-
-function Feld({ bezeichnung, wert }: { bezeichnung: string; wert: string }) {
-  return (
-    <div className="flex gap-3">
-      <dt className="w-28 shrink-0 text-xs text-muted-foreground">{bezeichnung}</dt>
-      <dd className="min-w-0 flex-1 text-sm">{wert}</dd>
-    </div>
-  );
-}
-
-function kanalName(kanal: string): string {
-  return { whatsapp: "WhatsApp", email: "E-Mail", telefon: "Telefon" }[kanal] ?? kanal;
 }

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 
-import { Seitenkopf } from "@/components/dashboard/Anzeigen";
-import { BetriebZeile } from "@/components/dashboard/BetriebZeile";
+import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { BetriebZeile } from "@/components/leitstand/BetriebZeile";
 import { istOffen } from "@/lib/dashboard/kennzahlen";
 import { bestandLaden } from "@/lib/daten/quelle";
 

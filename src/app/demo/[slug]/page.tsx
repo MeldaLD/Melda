@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { LayoutDashboardIcon, MessageCircleIcon } from "lucide-react";
+import { LayoutDashboardIcon, MessageCircleIcon, WrenchIcon } from "lucide-react";
 
 import { szenarien } from "@config/scenarios";
 import { Card } from "@/components/ui/card";
@@ -41,9 +41,9 @@ export default async function DemoStartseite({
           Mieterkommunikation über WhatsApp – für die {mandant.firma}
         </h1>
         <p className="text-[15px] leading-relaxed text-muted-foreground">
-          So könnte die Schadensmeldung bei Ihnen aussehen: Der Mieter schreibt über
-          WhatsApp, ohne App und ohne Anmeldung. Ein Assistent nimmt auf, fragt gezielt
-          nach und bereitet den Handwerkerauftrag vor. Die Freigabe bleibt bei Ihnen.
+          Ihre Mieter schreiben über WhatsApp, ohne App und ohne Anmeldung. Wir nehmen
+          auf, fragen gezielt nach, beauftragen den Betrieb und stimmen den Termin ab.
+          Sie behalten den Überblick und die Kontrolle – die Kleinarbeit haben wir.
         </p>
       </div>
 
@@ -58,10 +58,24 @@ export default async function DemoStartseite({
         <Einstieg
           href={`/demo/${slug}/dashboard`}
           symbol={<LayoutDashboardIcon className="size-5" />}
-          titel="Sicht der Verwaltung"
-          beschreibung="Vorgänge, Freigaben und Termine an einer Stelle."
+          titel="Ihre Sicht"
+          beschreibung="Was Aufmerksamkeit braucht, was gelaufen ist, und Ihre Grenzen."
         />
       </div>
+
+      {/* Bewusst kleiner und darunter: Der Leitstand ist unsere Werkbank, nicht
+          das, was der Kunde bedienen muss. Ihn zu zeigen schafft aber
+          Vertrauen – man sieht, wo die Arbeit hinwandert. */}
+      <Link
+        href={`/demo/${slug}/leitstand`}
+        className="mt-3 flex items-center gap-2.5 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-marke-rand hover:text-marke"
+      >
+        <WrenchIcon className="size-4 shrink-0" aria-hidden />
+        <span>
+          <strong className="font-medium">Unser Leitstand</strong> – was im Hintergrund
+          passiert, damit Ihre Sicht so ruhig bleibt.
+        </span>
+      </Link>
 
       <div className="mt-10 space-y-4 border-t border-border pt-6">
         <h2 className="text-sm font-semibold">Worauf Sie achten sollten</h2>

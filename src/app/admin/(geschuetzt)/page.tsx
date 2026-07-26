@@ -4,7 +4,7 @@ import { EyeIcon, PlusIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { LeerHinweis } from "@/components/dashboard/Anzeigen";
+import { LeerHinweis } from "@/components/gemeinsam/Anzeigen";
 import { alsDatumZeit } from "@/lib/dashboard/format";
 import { istDatenbankKonfiguriert } from "@/lib/daten/quelle";
 import { supabaseAdmin } from "@/lib/supabase/admin";

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MailIcon, MessageCircleIcon, PhoneIcon } from "lucide-react";
 
-import { LeerHinweis, Seitenkopf } from "@/components/dashboard/Anzeigen";
+import { LeerHinweis, Seitenkopf } from "@/components/gemeinsam/Anzeigen";
 import { Badge } from "@/components/ui/badge";
 import { alsDatumZeit } from "@/lib/dashboard/format";
 import { bestandLaden } from "@/lib/daten/quelle";
@@ -55,7 +55,7 @@ export default async function Postfach({
     b.gesendet_am.localeCompare(a.gesendet_am),
   );
 
-  const basis = `/demo/${slug}/dashboard`;
+  const basis = `/demo/${slug}/leitstand`;
 
   return (
     <div className="p-4 sm:p-6">

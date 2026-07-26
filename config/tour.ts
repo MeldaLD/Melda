@@ -29,10 +29,10 @@ export type TourStation = {
   /** Ein Satz dazu, warum das der Blick wert ist. */
   begruendung: string;
   /**
-   * Wo die Station stattfindet. Passt der Pfad nicht, führt die Tour
-   * zuerst dorthin.
+   * Wo die Station stattfindet, relativ zu /demo/<slug>/. Passt der Pfad
+   * nicht, führt die Tour zuerst dorthin.
    */
-  pfad: "chat" | "dashboard";
+  pfad: string;
   /**
    * Element, das hervorgehoben wird. Muss im Markup ein passendes
    * data-tour-Attribut tragen. Leer lassen, wenn es nichts zu markieren gibt.
@@ -45,7 +45,7 @@ export type TourStation = {
 export const tourStationen: TourStation[] = [
   {
     id: "melden",
-    aufgabe: "Melden Sie einen Schaden – tippen Sie auf „Foto senden“.",
+    aufgabe: "Melden Sie einen Schaden und senden Sie ein Foto.",
     begruendung:
       "So sieht es für Ihre Mieter aus. Keine App, keine Anmeldung, kein Portal.",
     pfad: "chat",
@@ -61,13 +61,18 @@ export const tourStationen: TourStation[] = [
     erledigtBei: "chat:erkenntnis",
   },
   {
-    id: "freigabe",
-    aufgabe: "Wechseln Sie ins Dashboard und geben Sie einen Auftrag frei.",
+    // Die dritte Station war früher eine Freigabe. Das war richtig, solange
+    // die Verwaltung jeden Auftrag einzeln entschied – inzwischen übernehmen
+    // wir die Abstimmung, und die eigentliche Botschaft ist eine andere:
+    // Nicht "Sie entscheiden jeden Fall", sondern "Sie setzen die Grenze und
+    // sehen nur noch, was abweicht".
+    id: "kontrolle",
+    aufgabe: "Wechseln Sie in Ihre Sicht und stellen Sie Ihre Grenze ein.",
     begruendung:
-      "Der Assistent bereitet vor, entschieden wird von Ihnen. Nichts geht ohne Ihre Freigabe raus.",
-    pfad: "dashboard",
-    markierung: "freigabe-knopf",
-    erledigtBei: "dashboard:freigegeben",
+      "Sie entscheiden einmal, bis wohin wir ohne Rückfrage handeln – statt jeden Auftrag einzeln freizugeben.",
+    pfad: "dashboard/grenzen",
+    markierung: "grenze-feld",
+    erledigtBei: "verwalter:grenze-gesehen",
   },
 ];
 
@@ -85,9 +90,10 @@ export const tourTexte = {
   abschluss: {
     titel: "Das war der Kern",
     text:
-      "Ihre Mieter melden über WhatsApp, der Assistent fragt nach, was dem " +
-      "Handwerker sonst fehlt, und freigegeben wird nichts ohne Sie. Sehen " +
-      "Sie sich gern weiter um – oder lassen Sie uns kurz sprechen.",
+      "Ihre Mieter melden über WhatsApp, wir fragen nach, was dem Handwerker " +
+      "sonst fehlt, und stimmen den Termin direkt mit dem Betrieb ab. Sie " +
+      "behalten den Überblick und die Kontrolle – die Kleinarbeit haben wir. " +
+      "Wie das im Hintergrund aussieht, sehen Sie in unserem Leitstand.",
     weiter: "Weiter umsehen",
   },
 

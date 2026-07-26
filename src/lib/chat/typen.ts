@@ -3,6 +3,8 @@ import type { Gewerk, Prioritaet, VorgangStatus } from "@/lib/daten/typen";
 /** Die Phasen des Gesprächs. Siehe src/lib/chat/maschine.ts für die Übergänge. */
 export type Phase =
   | "begruessung"
+  | "anliegen" // Worum geht es? – der Einstieg
+  | "auskunft" // Antwort gegeben, wartet auf "hat das geholfen?"
   | "eingabe" // wartet auf Text oder Foto
   | "bestaetigung" // "Ist das korrekt?" – wartet auf Ja/Nein
   | "zweitfoto" // wartet auf das zweite Bild
@@ -37,7 +39,9 @@ export type Karte =
       videoUrl: string;
       abbruchHinweis?: string;
     }
-  | { art: "kleinreparatur"; kostenEuro: number; grenzeEuro: number };
+  | { art: "kleinreparatur"; kostenEuro: number; grenzeEuro: number }
+  /** Auskunft zu einem Anliegen: was gilt, und was der Mieter tun kann. */
+  | { art: "auskunft"; titel: string; schritte: string[] };
 
 /**
  * Eine Schadensmeldung des Mieters.
@@ -90,6 +94,8 @@ export type ChatNachricht = {
 /** Was der Mieter gerade tun kann. Steuert die Knopfleiste unter dem Verlauf. */
 export type Angebot =
   | { art: "keins" }
+  | { art: "anliegen" } // die Themenauswahl am Anfang
+  | { art: "auskunft" } // "Hilft Ihnen das weiter?"
   | { art: "eingabe" } // Freitext und Foto
   | { art: "bestaetigung" }
   | { art: "zweitfoto"; optionen: string[] }
@@ -121,6 +127,8 @@ export type ChatZustand = {
   nachrichten: ChatNachricht[];
   angebot: Angebot;
 
+  /** Womit der Mieter eingestiegen ist – siehe config/anliegen.ts. */
+  anliegenId: string | null;
   /** Szenario der Meldung, an der gerade gearbeitet wird. */
   szenarioId: string | null;
   /** Betrieb, für den der Auftrag vorbereitet wurde. */
@@ -142,6 +150,8 @@ export type ChatZustand = {
 /** Ereignisse, die der Mieter auslöst. */
 export type ChatEreignis =
   | { art: "start" }
+  | { art: "anliegen"; anliegenId: string }
+  | { art: "auskunft"; geholfen: boolean }
   | { art: "text"; text: string }
   | { art: "foto"; datei: string }
   | { art: "bestaetigung"; ja: boolean }

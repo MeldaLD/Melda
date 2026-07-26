@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import { PhoneIcon, WrenchIcon } from "lucide-react";
 
 import { grundNach, zeitwunschNach } from "@config/rueckruf-gruende";
-import { LeerHinweis, Seitenkopf } from "@/components/dashboard/Anzeigen";
-import { RueckrufZuordnen } from "@/components/dashboard/RueckrufZuordnen";
+import { LeerHinweis, Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { RueckrufZuordnen } from "@/components/leitstand/RueckrufZuordnen";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { alsDatum, alsZeitraum } from "@/lib/dashboard/format";

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeftIcon, CameraIcon, ChevronDownIcon, SendIcon } from "lucide-react";
 import Link from "next/link";
 
+import { anliegen } from "@config/anliegen";
 import { chatRahmen } from "@config/chat-rahmen";
 import { szenarien } from "@config/scenarios";
 import { rueckrufGruende, zeitwuensche } from "@config/rueckruf-gruende";
@@ -305,6 +306,59 @@ function Aktionsleiste({
   const rahmen = "flex flex-wrap gap-2 px-3 pb-1 sm:px-4";
 
   switch (angebot.art) {
+    // Der Einstieg: das Anliegen, nicht der Schaden. Bewusst ohne "Rückruf"
+    // in der Liste – der kommt erst, wenn eine Auskunft nicht gereicht hat.
+    case "anliegen":
+      return (
+        <div className="flex flex-col gap-2 px-3 pb-1 sm:px-4">
+          {anliegen.map((a) => (
+            <Schnellknopf
+              key={a.id}
+              breit
+              hervorgehoben={a.istSchaden}
+              // Die Tour markiert erst dieses Thema, danach den Foto-Knopf –
+              // beide tragen dieselbe Kennung, sichtbar ist immer nur einer.
+              tourZiel={a.istSchaden ? "foto-knopf" : undefined}
+              onClick={() =>
+                onEreignis(
+                  { art: "anliegen", anliegenId: a.id },
+                  { text: a.bezeichnung },
+                )
+              }
+            >
+              {a.bezeichnung}
+            </Schnellknopf>
+          ))}
+        </div>
+      );
+
+    case "auskunft":
+      return (
+        <div className={rahmen}>
+          <Schnellknopf
+            hervorgehoben
+            onClick={() =>
+              onEreignis(
+                { art: "auskunft", geholfen: true },
+                { text: chatRahmen.knoepfe.hilftWeiter },
+              )
+            }
+          >
+            {chatRahmen.knoepfe.hilftWeiter}
+          </Schnellknopf>
+          <Schnellknopf
+            onClick={() =>
+              onEreignis(
+                { art: "auskunft", geholfen: false },
+                { text: chatRahmen.knoepfe.hilftNicht },
+              )
+            }
+          >
+            {chatRahmen.knoepfe.hilftNicht}
+          </Schnellknopf>
+        </div>
+      );
+
     case "eingabe":
       return (
         <div className={rahmen} data-tour="foto-knopf">
@@ -518,11 +572,13 @@ function Schnellknopf({
   onClick,
   hervorgehoben,
   breit,
+  tourZiel,
 }: {
   children: React.ReactNode;
   onClick: () => void;
   hervorgehoben?: boolean;
   breit?: boolean;
+  tourZiel?: string;
 }) {
   // bg-white nur für die nicht hervorgehobenen Knöpfe. Sonst überschreibt es
   // die Markenfarbe des hervorgehobenen Knopfes, dessen Schrift weiß bleibt –
@@ -537,6 +593,7 @@ function Schnellknopf({
       size="sm"
       variant={hervorgehoben ? "marke" : "outline"}
       onClick={onClick}
+      data-tour={tourZiel}
       className={hervorgehoben ? form : `${form} bg-white`}
     >
       {children}

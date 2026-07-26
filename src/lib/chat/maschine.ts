@@ -27,6 +27,7 @@
  * Ab "frei" jederzeit: Status abfragen, Rückruf buchen, neue Meldung.
  */
 
+import { anliegenNach } from "@config/anliegen";
 import { chatRahmen } from "@config/chat-rahmen";
 import { demoKonfiguration } from "@config/demo";
 import { szenarioAusText, szenarioNach, type Szenario } from "@config/scenarios";
@@ -73,6 +74,7 @@ export function anfangszustand(): ChatZustand {
     phase: "begruessung",
     nachrichten: [],
     angebot: { art: "keins" },
+    anliegenId: null,
     szenarioId: null,
     betrieb: null,
     meldungen: [],
@@ -301,12 +303,82 @@ export function schritt(
     // -----------------------------------------------------------------------
     case "start":
       return {
-        zustand: { ...zustand, phase: "eingabe", angebot: { art: "eingabe" } },
+        zustand: { ...zustand, phase: "anliegen", angebot: { art: "anliegen" } },
         ausgabe: [
           sagen(chatRahmen.begruessung(umgebung.firma), tippenKurz),
-          sagen(chatRahmen.aufforderung, tippenKurz),
+          sagen(chatRahmen.anliegenFrage, tippenKurz),
         ],
       };
+
+    // -----------------------------------------------------------------------
+    // Der Einstieg. Zu jedem Thema kommt zuerst eine Antwort, mit der es
+    // meistens erledigt ist – der Rückruf steht erst dahinter.
+    case "anliegen": {
+      const gewaehlt = anliegenNach.get(ereignis.anliegenId);
+      if (!gewaehlt) return { zustand, ausgabe: [] };
+
+      if (gewaehlt.istSchaden) {
+        return {
+          zustand: { ...zustand, phase: "eingabe", angebot: { art: "eingabe" } },
+          ausgabe: [sagen(chatRahmen.aufforderung, tippenKurz)],
+        };
+      }
+
+      // Nach dem Stand einer Meldung fragt man nicht lange – zeigen.
+      if (gewaehlt.id === "stand") {
+        return schritt(zustand, { art: "status" }, umgebung);
+      }
+
+      // "Etwas anderes" hat keine Schritte: Da hilft nur zuhören.
+      if (!gewaehlt.schritte?.length) {
+        return {
+          zustand: {
+            ...zustand,
+            phase: "frei",
+            anliegenId: gewaehlt.id,
+            angebot: { art: "frei" },
+          },
+          ausgabe: [sagen(gewaehlt.auskunft ?? chatRahmen.aufforderung, tippenLang)],
+        };
+      }
+
+      return {
+        zustand: {
+          ...zustand,
+          phase: "auskunft",
+          anliegenId: gewaehlt.id,
+          angebot: { art: "auskunft" },
+        },
+        ausgabe: [
+          {
+            nachricht: {
+              text: gewaehlt.auskunft ?? "",
+              karte: {
+                art: "auskunft",
+                titel: gewaehlt.bezeichnung,
+                schritte: gewaehlt.schritte,
+              },
+            },
+            tippdauer: tippenLang,
+          },
+          sagen(chatRahmen.auskunftNachfrage, tippenKurz),
+        ],
+      };
+    }
+
+    case "auskunft": {
+      if (ereignis.geholfen) {
+        return {
+          zustand: { ...zustand, phase: "frei", angebot: { art: "frei" } },
+          ausgabe: [sagen(chatRahmen.auskunftGeholfen, tippenKurz)],
+        };
+      }
+      // Erst jetzt kommt das Telefon ins Spiel.
+      return {
+        zustand: { ...zustand, phase: "frei", angebot: { art: "frei" } },
+        ausgabe: [sagen(chatRahmen.auskunftNichtGeholfen, tippenKurz)],
+      };
+    }
 
     // -----------------------------------------------------------------------
     case "text": {
@@ -320,11 +392,14 @@ export function schritt(
         return schritt(zustand, { art: "rueckruf" }, umgebung);
       }
 
-      if (zustand.phase === "eingabe") {
+      // Auch im Einstieg: Wer gleich lostippt, statt ein Thema anzutippen,
+      // soll verstanden werden. Ihn auf die Knöpfe zu verweisen wäre genau
+      // die Bevormundung, die wir den Portalen vorwerfen.
+      if (zustand.phase === "eingabe" || zustand.phase === "anliegen") {
         const gefunden = szenarioAusText(text);
         if (gefunden) return diagnostizieren(zustand, gefunden);
         return {
-          zustand: { ...zustand, angebot: { art: "eingabe" } },
+          zustand: { ...zustand, phase: "eingabe", angebot: { art: "eingabe" } },
           ausgabe: [sagen(chatRahmen.nichtVerstanden, tippenKurz)],
         };
       }
@@ -557,7 +632,31 @@ export function schritt(
     // Rückruf in zwei Schritten: erst das Thema, dann die Erreichbarkeit.
     // Bewusst kein fester Termin bei einer namentlich genannten Person –
     // die Zuordnung macht die Verwaltung im Dashboard.
-    case "rueckruf":
+    case "rueckruf": {
+      // Wer am Anfang schon gesagt hat, worum es geht, soll nicht dieselbe
+      // Frage zweimal beantworten. Die Themen des Einstiegs und die
+      // Rückrufgründe tragen absichtlich dieselben Schlüssel.
+      const ausAnliegen = zustand.anliegenId
+        ? grundNach.get(zustand.anliegenId)
+        : undefined;
+
+      if (ausAnliegen) {
+        return {
+          zustand: {
+            ...zustand,
+            phase: "rueckrufZeit",
+            rueckruf: {
+              grundId: ausAnliegen.id,
+              grundBezeichnung: ausAnliegen.bezeichnung,
+            },
+            angebot: { art: "rueckrufZeit" },
+          },
+          ausgabe: [
+            sagen(chatRahmen.rueckrufUebernommen(ausAnliegen.bezeichnung), tippenKurz),
+          ],
+        };
+      }
+
       return {
         zustand: {
           ...zustand,
@@ -567,6 +666,7 @@ export function schritt(
         },
         ausgabe: [sagen(chatRahmen.rueckrufFrage, tippenKurz)],
       };
+    }
 
     case "rueckrufGrund": {
       const grund = grundNach.get(ereignis.grundId);
@@ -702,6 +802,8 @@ export function schritt(
       return {
         zustand: {
           ...anfangszustand(),
+          // Der Knopf heißt "Neue Meldung" – dann geht es auch direkt in die
+          // Schadensaufnahme und nicht noch einmal durch die Themenauswahl.
           phase: "eingabe",
           nachrichten: zustand.nachrichten,
           // Bestehende Meldungen bleiben erhalten – der Mieter kann mehrere

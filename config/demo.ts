@@ -48,4 +48,23 @@ export const demoKonfiguration = {
      *  Betriebs, neuer Termin, erneute Absprache mit dem Mieter. */
     minutenProZweitanfahrt: 15,
   },
+
+  /**
+   * Die Verwaltersicht – Kontrolle statt Kleinarbeit.
+   *
+   * Der Zuschnitt steht in docs/betriebsmodell.md. Kurz: Auf den Tisch der
+   * Hausverwaltung kommt, was abweicht. Diese Werte entscheiden, was als
+   * Abweichung gilt.
+   */
+  verwalter: {
+    /** Ab diesem Betrag wird ein Auftrag vorgelegt, darunter beauftragen wir.
+     *  Je Mandant überschreibbar unter einstellungen.freigabe_ab_euro. */
+    freigabeAbEuroStandard: 400,
+
+    /** Ab so vielen Tagen ohne Bewegung erscheint ein Vorgang als Hinweis. */
+    stilleTageBisHinweis: 5,
+
+    /** DEMO: Der Assistent antwortet sofort. Im Echtbetrieb gemessen. */
+    reaktionMinuten: 2,
+  },
 } as const;

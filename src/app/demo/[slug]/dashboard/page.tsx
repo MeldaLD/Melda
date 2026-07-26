@@ -1,22 +1,27 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowRightIcon } from "lucide-react";
+import { AlertTriangleIcon, ArrowRightIcon, CheckIcon, InfoIcon } from "lucide-react";
 
-import { KpiKachel } from "@/components/dashboard/KpiKachel";
-import { WochenDiagramm } from "@/components/dashboard/WochenDiagramm";
-import { PrioBadge, Seitenkopf, SlaPunkt } from "@/components/dashboard/Anzeigen";
+import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { alterKurz } from "@/lib/dashboard/kennzahlen";
 import { bestandLaden } from "@/lib/daten/quelle";
-import {
-  alterKurz,
-  istOffen,
-  kennzahlen,
-  nachDringlichkeit,
-  wochenverlauf,
-} from "@/lib/dashboard/kennzahlen";
-import { alsEuro } from "@/lib/dashboard/format";
+import { ausnahmen, kostengrenze, nachweis } from "@/lib/verwalter/ausnahmen";
 
-export default async function Uebersicht({
+/**
+ * Die Startseite der Hausverwaltung.
+ *
+ * Die Reihenfolge ist die Aussage: zuerst, was Aufmerksamkeit braucht – und
+ * wenn das leer ist, steht das auch so da. Erst darunter kommt, was ohne
+ * Zutun gelaufen ist.
+ *
+ * Ein Dashboard mit zwölf Kacheln wäre keine Kontrolle, sondern deren
+ * Vortäuschung. Hier steht deshalb eine einzige Frage im Vordergrund: Muss
+ * ich gerade etwas tun?
+ */
+export default async function KontrollSeite({
   params,
 }: {
   params: Promise<{ slug: string }>;
@@ -26,131 +31,155 @@ export default async function Uebersicht({
   if (!ergebnis) notFound();
 
   const { bestand } = ergebnis;
-  const zahlen = kennzahlen(bestand);
-  const verlauf = wochenverlauf(bestand);
   const basis = `/demo/${slug}/dashboard`;
-
-  const dringendste = bestand.vorgaenge
-    .filter(istOffen)
-    .sort(nachDringlichkeit)
-    .slice(0, 5);
+  const liste = ausnahmen(bestand);
+  const hoch = liste.filter((a) => a.dringlichkeit === "hoch");
+  const mittel = liste.filter((a) => a.dringlichkeit === "mittel");
+  const woche = nachweis(bestand, 7);
+  const grenze = kostengrenze(bestand);
 
   return (
-    <div className="p-4 sm:p-6">
+    <div className="space-y-5 p-4 sm:p-6">
       <Seitenkopf
-        titel="Übersicht"
-        beschreibung={`Stand für ${bestand.mandant.firma}`}
+        titel="Ihre Kontrolle"
+        beschreibung="Sie sehen, was abweicht. Alles Übrige läuft."
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <KpiKachel
-          bezeichnung="Offene Vorgänge"
-          wert={zahlen.offen}
-          ziel={`${basis}/vorgaenge`}
-        />
-        <KpiKachel
-          bezeichnung="Davon Notfälle"
-          wert={zahlen.notfaelle}
-          warnung
-          ziel={`${basis}/vorgaenge?prioritaet=notfall`}
-        />
-        <KpiKachel
-          bezeichnung="Wartet auf Ihre Freigabe"
-          wert={zahlen.offeneFreigaben}
-          ziel={`${basis}/freigaben`}
-        />
-        <KpiKachel
-          bezeichnung="Frist überschritten"
-          wert={zahlen.ueberfaellig}
-          warnung
-          ziel={`${basis}/vorgaenge?sla=rot`}
-        />
-      </div>
+      {/* --- Was Aufmerksamkeit braucht ------------------------------------ */}
+      <section className="space-y-3">
+        {liste.length === 0 ? (
+          <Card className="border-marke-rand bg-marke-sanft">
+            <CardContent className="flex items-start gap-3 p-5">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-marke text-marke-kontrast">
+                <CheckIcon className="size-4" aria-hidden />
+              </span>
+              <div>
+                <p className="font-medium">Nichts braucht Ihre Aufmerksamkeit.</p>
+                <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                  Keine überschrittene Frist, kein Auftrag über Ihrer Grenze von{" "}
+                  {grenze} €, nichts, das liegen bleibt. Wenn hier etwas steht, steht es
+                  zu Recht.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold">Braucht Ihre Aufmerksamkeit</h2>
+              <Badge variant={hoch.length ? "notfall" : "outline"}>
+                {liste.length}
+              </Badge>
+            </div>
+            {[...hoch, ...mittel].map((a) => (
+              <Card
+                key={a.id}
+                className={
+                  a.dringlichkeit === "hoch"
+                    ? "border-prio-notfall/40"
+                    : "border-border"
+                }
+              >
+                <CardContent className="flex flex-wrap items-start gap-3 p-4">
+                  <span
+                    className={
+                      a.dringlichkeit === "hoch"
+                        ? "mt-0.5 shrink-0 text-prio-notfall"
+                        : "mt-0.5 shrink-0 text-muted-foreground"
+                    }
+                  >
+                    {a.dringlichkeit === "hoch" ? (
+                      <AlertTriangleIcon className="size-4" aria-hidden />
+                    ) : (
+                      <InfoIcon className="size-4" aria-hidden />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium">{a.titel}</p>
+                    <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
+                      {a.begruendung}
+                    </p>
+                    {a.ort && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Vorgang {a.vorgangNummer} · {a.ort}
+                      </p>
+                    )}
+                  </div>
+                  {a.vorgangId && (
+                    <Button asChild size="sm" variant="outline" className="shrink-0">
+                      <Link href={`${basis}/vorgaenge/${a.vorgangId}`}>
+                        Ansehen <ArrowRightIcon />
+                      </Link>
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </>
+        )}
+      </section>
 
-      {/* Die Zahl, die den Verwalter überzeugt – bewusst eine eigene Reihe. */}
-      <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiKachel
-          betont
-          bezeichnung="Zeitersparnis diese Woche"
-          wert={zahlen.gesparteStunden}
-          einheit="Stunden"
-          hinweis={`${zahlen.vorgaengeDieseWoche} Meldungen ohne Telefonat aufgenommen`}
-        />
-        <KpiKachel
-          betont
-          bezeichnung="Vermiedene Zweitanfahrten"
-          wert={zahlen.zweitanfahrtenVermieden}
-          hinweis={`Rund ${alsEuro(zahlen.ersparnisEuro)} nicht angefallene Kosten`}
-        />
-        <KpiKachel
-          betont
-          bezeichnung="Selbst behoben statt Handwerker"
-          wert={zahlen.selbsthilfeErfolge}
-          hinweis={`Anleitung im Chat statt Einsatz · ${alsEuro(zahlen.selbsthilfeErsparnisEuro)} gespart`}
-        />
-        <KpiKachel
-          bezeichnung="⌀ Bearbeitungsdauer"
-          wert={zahlen.dauerSchnittStunden}
-          einheit="Stunden"
-          hinweis="Von der Meldung bis zur Erledigung"
-        />
-      </div>
+      {/* --- Was ohne Ihr Zutun gelaufen ist ------------------------------- */}
+      <Card>
+        <CardHeader className="gap-1">
+          <CardTitle>Diese Woche für Sie erledigt</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Ohne dass Sie etwas tun mussten.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Zahl wert={woche.eingegangen} was="Meldungen aufgenommen" />
+            <Zahl wert={woche.ohneRueckfrage} was="ohne Rückfrage erledigt" />
+            <Zahl wert={`${woche.reaktionMinuten} Min.`} was="bis zur ersten Antwort" />
+            <Zahl wert={`${woche.gesparteStunden} Std.`} was="Ihre Zeit gespart" />
+          </dl>
 
-      <div className="mt-3 grid gap-3 lg:grid-cols-5">
-        <Card className="lg:col-span-3">
-          <CardHeader>
-            <CardTitle>Vorgänge pro Woche</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <WochenDiagramm werte={verlauf} />
-          </CardContent>
-        </Card>
-
-        <Card className="lg:col-span-2">
-          <CardHeader className="flex-row items-center justify-between">
-            <CardTitle>Dringendste Vorgänge</CardTitle>
-            <Link
-              href={`${basis}/vorgaenge`}
-              className="flex items-center gap-1 text-xs text-marke hover:underline"
-            >
-              Alle <ArrowRightIcon className="size-3" />
+          <p className="border-t border-border pt-3 text-sm leading-relaxed text-muted-foreground">
+            {woche.vorgelegt === 0
+              ? `Nichts lag über Ihrer Grenze von ${grenze} € – deshalb mussten wir Sie zu keinem Auftrag fragen.`
+              : `${woche.vorgelegt} ${woche.vorgelegt === 1 ? "Auftrag lag" : "Aufträge lagen"} über Ihrer Grenze von ${grenze} € und wurde${woche.vorgelegt === 1 ? "" : "n"} Ihnen vorgelegt.`}{" "}
+            <Link href={`${basis}/grenzen`} className="text-marke hover:underline">
+              Grenze ändern
             </Link>
-          </CardHeader>
-          <CardContent>
-            <ul className="divide-y divide-border">
-              {dringendste.map((vorgang) => {
-                const einheit = bestand.einheiten.find(
-                  (e) => e.id === vorgang.einheit_id,
-                );
-                const objekt = bestand.objekte.find((o) => o.id === einheit?.objekt_id);
+          </p>
+        </CardContent>
+      </Card>
 
-                return (
-                  <li key={vorgang.id}>
-                    <Link
-                      href={`${basis}/vorgaenge/${vorgang.id}`}
-                      className="flex items-start gap-2.5 py-2.5 hover:text-marke"
-                    >
-                      <SlaPunkt vorgang={vorgang} />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{vorgang.titel}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {objekt?.name} · {einheit?.bezeichnung}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 flex-col items-end gap-1">
-                        <PrioBadge prioritaet={vorgang.prioritaet} />
-                        <span className="text-[11px] text-muted-foreground">
-                          {alterKurz(vorgang.erstellt_am)}
-                        </span>
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </CardContent>
-        </Card>
+      {/* --- Der Weg zum Nachschlagen -------------------------------------- */}
+      <div className="flex flex-wrap gap-3">
+        <Button asChild variant="outline">
+          <Link href={`${basis}/vorgaenge`}>
+            Alle Vorgänge nachlesen <ArrowRightIcon />
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link href={`${basis}/nachweis`}>
+            Nachweis für den Eigentümer <ArrowRightIcon />
+          </Link>
+        </Button>
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        Zuletzt eingegangen:{" "}
+        {bestand.vorgaenge.length
+          ? `vor ${alterKurz(
+              [...bestand.vorgaenge].sort((a, b) =>
+                b.erstellt_am.localeCompare(a.erstellt_am),
+              )[0].erstellt_am,
+            )}`
+          : "–"}
+      </p>
+    </div>
+  );
+}
+
+function Zahl({ wert, was }: { wert: string | number; was: string }) {
+  return (
+    <div>
+      <dt className="sr-only">{was}</dt>
+      <dd className="tabellenziffern text-2xl font-semibold tracking-tight">{wert}</dd>
+      <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{was}</p>
     </div>
   );
 }

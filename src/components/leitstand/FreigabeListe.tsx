@@ -12,8 +12,8 @@ import {
   XIcon,
 } from "lucide-react";
 
-import { LeerHinweis, PrioBadge } from "./Anzeigen";
-import { freigabeEntscheiden } from "@/app/demo/[slug]/dashboard/aktionen";
+import { LeerHinweis, PrioBadge } from "@/components/gemeinsam/Anzeigen";
+import { freigabeEntscheiden } from "@/app/demo/[slug]/leitstand/aktionen";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
