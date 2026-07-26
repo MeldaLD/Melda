@@ -39,26 +39,23 @@ im mobilen Browser.
 
 Der erste Build dauert ein bis zwei Minuten.
 
-## Schritt 3 – Den Arbeitsbranch als Produktionsbranch setzen
+## Schritt 3 – Nichts zu tun
 
-Standardmäßig veröffentlicht Vercel nur den Hauptbranch produktiv; alles
-andere landet auf geschützten Vorschau-URLs, die eine Anmeldung verlangen.
-Solange wir entwickeln, ist es bequemer, den Arbeitsbranch direkt auf die
-Haupt-URL zu legen.
-
-1. Im Projekt: **Settings → Git**.
-2. Unter **Production Branch** eintragen:
-   `claude/hausverwaltung-demo-platform-10rs3w`
-3. **Save**.
-4. Zurück auf **Deployments → Redeploy** beim obersten Eintrag.
+Der Arbeitsbranch `claude/hausverwaltung-demo-platform-10rs3w` ist zugleich
+der Standardbranch des Repositories – er war der erste Branch im vorher
+leeren Repo. Vercel übernimmt beim Import den Standardbranch als
+Produktionsbranch, also ist bereits alles richtig eingestellt.
 
 Ergebnis: eine feste, ohne Anmeldung erreichbare Adresse in der Form
-`https://melda.vercel.app`. Diese URL im Home-Bildschirm ablegen –
-ab jetzt ist dort immer der aktuelle Stand zu sehen.
+`https://melda.vercel.app`. Diese URL auf dem Home-Bildschirm ablegen –
+dort ist ab jetzt immer der aktuelle Stand zu sehen.
 
-> Vor dem ersten echten Kundenlink stellen wir das wieder um: Dann wird
-> `main` der Produktionsbranch und die Entwicklung läuft über
-> Vorschau-Deployments.
+> Falls die Einstellung später doch einmal gebraucht wird: Sie liegt nicht
+> mehr unter *Settings → Git*, sondern unter
+> **Settings → Environments → Production → Branch Tracking**.
+>
+> Vor dem ersten echten Kundenlink stellen wir das Repository auf `main` als
+> Standardbranch um; die Entwicklung läuft dann über Vorschau-Deployments.
 
 ## Schritt 4 – Umgebungsvariablen eintragen
 
