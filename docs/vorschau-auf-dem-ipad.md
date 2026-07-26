@@ -69,7 +69,10 @@ einfügen, alle drei Haken (Production, Preview, Development) setzen, **Save**.
 | `SUPABASE_SERVICE_ROLE_KEY` | ebenda, `service_role` / Secret key (hinter „Reveal") |
 | `ADMIN_PASSWORT` | frei wählbar |
 | `ADMIN_SESSION_SECRET` | 32 zufällige Zeichen, siehe Hinweis unten |
-| `NEXT_PUBLIC_BASIS_URL` | die Vercel-URL aus Schritt 3, ohne Schrägstrich am Ende |
+
+`NEXT_PUBLIC_BASIS_URL` wird **nicht** gebraucht. Vercel kennt die eigene
+Projekt-URL, die Anwendung übernimmt sie automatisch. Die Variable ist erst
+nötig, wenn eine eigene Domain dazukommt.
 
 Für `ADMIN_SESSION_SECRET` gibt es auf dem iPad kein `openssl`. Ausreichend
 ist jede lange, zufällige Zeichenkette – etwa aus dem Passwortgenerator des

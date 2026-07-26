@@ -2,6 +2,7 @@ import { CheckIcon, MinusIcon } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { basisUrl } from "@/lib/basis-url";
 
 /**
  * Kleine Diagnoseseite.
@@ -31,7 +32,6 @@ const umgebungsvariablen = [
   },
   { name: "ADMIN_PASSWORT", gesetzt: !!process.env.ADMIN_PASSWORT },
   { name: "ADMIN_SESSION_SECRET", gesetzt: !!process.env.ADMIN_SESSION_SECRET },
-  { name: "NEXT_PUBLIC_BASIS_URL", gesetzt: !!process.env.NEXT_PUBLIC_BASIS_URL },
 ];
 
 /** Baustand nach dem Plan. Wird bei jedem Ausbauschritt hier mitgepflegt. */
@@ -113,6 +113,14 @@ export default function StatusSeite() {
               }).format(new Date())}
             </span>
           </div>
+          <div className="flex justify-between gap-4 border-t border-border pt-2">
+            <span className="text-muted-foreground">Basis-URL</span>
+            <span className="text-right font-medium break-all">{basisUrl()}</span>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Wird für die Demo-Links in der E-Mail-Vorlage verwendet. Ohne gesetzte{" "}
+            <code>NEXT_PUBLIC_BASIS_URL</code> automatisch von Vercel übernommen.
+          </p>
         </CardContent>
       </Card>
 

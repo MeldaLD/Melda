@@ -57,8 +57,12 @@ Die Supabase-Werte finden Sie im Supabase-Dashboard unter
 | `service_role` / Secret key (hinter „Reveal") | `SUPABASE_SERVICE_ROLE_KEY` |
 
 Dazu kommen `ADMIN_PASSWORT` und `ADMIN_SESSION_SECRET` für den
-Admin-Bereich sowie `NEXT_PUBLIC_BASIS_URL` für die Demo-Links in der
-E-Mail-Vorlage.
+Admin-Bereich.
+
+`NEXT_PUBLIC_BASIS_URL` ist optional: Ohne sie nimmt die Anwendung lokal
+`http://localhost:3000` und auf Vercel automatisch die Projekt-URL. Gesetzt
+werden muss sie erst, wenn eine eigene Domain im Spiel ist – siehe
+`src/lib/basis-url.ts`.
 
 > `SUPABASE_SERVICE_ROLE_KEY` umgeht alle Sicherheitsregeln der Datenbank.
 > Nie mit `NEXT_PUBLIC_` präfixen, nie committen, nie im Frontend verwenden.
