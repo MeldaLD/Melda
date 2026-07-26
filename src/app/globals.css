@@ -1,0 +1,114 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+  Basis-Designsystem der Demo-Plattform.
+
+  Zwei Ebenen:
+  1. Neutrale shadcn/ui-Tokens (--background, --foreground, ...) – ruhige,
+     seriöse Graustufen. Bewusst KEIN Dark Mode: Eine Vertriebsdemo muss bei
+     jedem Betrachter identisch aussehen, egal wie sein System eingestellt ist.
+  2. Mandanten-Tokens (--marke-*) – werden pro Demo-Mandant zur Laufzeit aus
+     der Primärfarbe berechnet und im <body>-style überschrieben.
+     Siehe src/lib/branding/farben.ts
+*/
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Mandantenfarben – zur Laufzeit überschrieben */
+  --color-marke: var(--marke);
+  --color-marke-hover: var(--marke-hover);
+  --color-marke-kontrast: var(--marke-kontrast);
+  --color-marke-sanft: var(--marke-sanft);
+  --color-marke-rand: var(--marke-rand);
+  --color-marke-zweit: var(--marke-zweit);
+
+  /* Prioritätsfarben – fest, damit die Ampel überall gleich liest */
+  --color-prio-notfall: oklch(0.55 0.21 25);
+  --color-prio-notfall-sanft: oklch(0.96 0.03 25);
+  --color-prio-dringend: oklch(0.68 0.16 62);
+  --color-prio-dringend-sanft: oklch(0.97 0.04 75);
+  --color-prio-routine: oklch(0.6 0.06 240);
+  --color-prio-routine-sanft: oklch(0.96 0.01 240);
+
+  /* WhatsApp-Anmutung im Mieter-Chat */
+  --color-chat-hintergrund: #e5ddd5;
+  --color-chat-eigen: #d9fdd3;
+  --color-chat-fremd: #ffffff;
+  --color-chat-haken: #53bdeb;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.5rem;
+
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.21 0.01 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.01 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.01 260);
+  --primary: oklch(0.21 0.01 260);
+  --primary-foreground: oklch(0.98 0 0);
+  --secondary: oklch(0.97 0.002 260);
+  --secondary-foreground: oklch(0.21 0.01 260);
+  --muted: oklch(0.97 0.002 260);
+  --muted-foreground: oklch(0.55 0.015 260);
+  --accent: oklch(0.97 0.002 260);
+  --accent-foreground: oklch(0.21 0.01 260);
+  --destructive: oklch(0.55 0.21 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.92 0.004 260);
+  --input: oklch(0.92 0.004 260);
+  --ring: oklch(0.7 0.015 260);
+
+  /* Fallback-Markenfarben, falls kein Mandant geladen ist */
+  --marke: oklch(0.45 0.09 245);
+  --marke-hover: oklch(0.39 0.09 245);
+  --marke-kontrast: oklch(0.99 0 0);
+  --marke-sanft: oklch(0.96 0.02 245);
+  --marke-rand: oklch(0.88 0.04 245);
+  --marke-zweit: oklch(0.55 0.07 200);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Deutsche Zahlen-/Datumsdarstellung soll nicht springen */
+  .tabellenziffern {
+    font-variant-numeric: tabular-nums;
+  }
+}
