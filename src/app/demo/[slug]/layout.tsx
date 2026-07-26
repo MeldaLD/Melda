@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 
+import { Aufrufzaehler } from "@/components/demo/Aufrufzaehler";
 import { DemoLeiste } from "@/components/demo/DemoLeiste";
 import { markenPalette } from "@/lib/branding/farben";
 import { istDatenbankKonfiguriert, mandantLaden } from "@/lib/daten/quelle";
@@ -47,6 +48,8 @@ export default async function DemoLayout({ children, params }: Eigenschaften) {
         zuruecksetzenZeigen={!ohneDatenbank}
       />
       <div className="min-h-0 overflow-y-auto">{children}</div>
+      {/* Meldet still, ob und wie lange die Demo angesehen wird. */}
+      <Aufrufzaehler slug={slug} />
     </div>
   );
 }
