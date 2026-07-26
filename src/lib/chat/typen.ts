@@ -7,7 +7,8 @@ export type Phase =
   | "bestaetigung" // "Ist das korrekt?" – wartet auf Ja/Nein
   | "zweitfoto" // wartet auf das zweite Bild
   | "terminwahl"
-  | "rueckrufwahl"
+  | "rueckrufGrund" // Worum geht es?
+  | "rueckrufZeit" // Wann sind Sie erreichbar?
   | "frei"; // Meldung abgeschlossen, freies Gespräch
 
 /** Eingebettete Karten im Chat – mehr als reiner Text. */
@@ -46,7 +47,8 @@ export type Angebot =
   | { art: "bestaetigung" }
   | { art: "zweitfoto"; optionen: string[] }
   | { art: "termin"; fenster: Terminfenster[] }
-  | { art: "rueckruf"; fenster: Rueckruffenster[] }
+  | { art: "rueckrufGrund" }
+  | { art: "rueckrufZeit" }
   | { art: "frei" }; // Freitext, Status, Rückruf
 
 export type Terminfenster = {
@@ -56,9 +58,12 @@ export type Terminfenster = {
   ende: string;
 };
 
-export type Rueckruffenster = Terminfenster & {
-  mitarbeiter: string;
-  bereich: string;
+/** Was der Mieter zu seinem Rückrufwunsch angegeben hat. */
+export type Rueckrufwunsch = {
+  grundId: string;
+  grundBezeichnung: string;
+  zeitwunschId: string;
+  zeitwunschBezeichnung: string;
 };
 
 export type ChatZustand = {
@@ -80,6 +85,8 @@ export type ChatZustand = {
   zweitfotoFehlversuche: number;
   /** Gewähltes Zeitfenster, für die Bestätigungstexte. */
   gewaehlterTermin: Terminfenster | null;
+  /** Offener Rückrufwunsch, während der Mieter ihn zusammenstellt. */
+  rueckruf: Partial<Rueckrufwunsch> | null;
 };
 
 /** Ereignisse, die der Mieter auslöst. */
@@ -90,7 +97,8 @@ export type ChatEreignis =
   | { art: "bestaetigung"; ja: boolean }
   | { art: "termin"; index: number }
   | { art: "rueckruf" }
-  | { art: "rueckrufTermin"; index: number }
+  | { art: "rueckrufGrund"; grundId: string }
+  | { art: "rueckrufZeit"; zeitwunschId: string }
   | { art: "status" }
   | { art: "neueMeldung" };
 

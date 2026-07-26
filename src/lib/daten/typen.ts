@@ -257,9 +257,16 @@ export type Termin = {
   mitarbeiter_id: string | null;
   handwerker_id: string | null;
   einheit_id: string | null;
-  beginn: string;
-  ende: string;
+  /** Bei Rückrufen zunächst leer – die Verwaltung terminiert im Dashboard. */
+  beginn: string | null;
+  ende: string | null;
   status: TerminStatus;
+  /** Nur bei Rückrufen: das vom Mieter gewählte Thema. */
+  grund: string | null;
+  /** Nur bei Rückrufen: vormittag | nachmittag | egal */
+  zeitwunsch: string | null;
+  /** Zuordnungsvorschlag aus dem Thema, im Dashboard überschreibbar. */
+  bereich_vorschlag: Fachbereich | null;
   ist_seed: boolean;
 };
 

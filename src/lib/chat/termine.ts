@@ -1,6 +1,4 @@
-import type { MitarbeiterVorlage } from "@/lib/daten/typen";
-import { FACHBEREICH_BEZEICHNUNG } from "@/lib/daten/typen";
-import type { Rueckruffenster, Terminfenster } from "./typen";
+import type { Terminfenster } from "./typen";
 
 /**
  * Terminvorschläge für den Chat.
@@ -88,37 +86,4 @@ export function handwerkerfenster(jetzt: Date = new Date()): Terminfenster[] {
     fenster(tag2, 14, 16, false),
     fenster(tag3, 10, 12, false),
   ];
-}
-
-/**
- * Rückruffenster der Verwaltung, verteilt auf die Mitarbeitenden.
- * Die Zuordnung nach Fachbereich macht sichtbar, dass hinter der Buchung ein
- * durchdachtes Team steht und nicht eine anonyme Warteschleife.
- */
-export function rueckruffenster(
-  mitarbeiter: MitarbeiterVorlage[],
-  jetzt: Date = new Date(),
-): Rueckruffenster[] {
-  const auswahl = mitarbeiter.length
-    ? mitarbeiter
-    : [{ name: "Hausverwaltung", rolle: "Service", bereich: "allgemein" as const }];
-
-  const tag1 = naechsterWerktag(jetzt);
-  const tag2 = naechsterWerktag(tag1);
-  const istMorgen = tag1.getDate() === new Date(jetzt.getTime() + 86_400_000).getDate();
-
-  const zeiten: [Date, number, number, boolean][] = [
-    [tag1, 9, 10, istMorgen],
-    [tag1, 15, 16, istMorgen],
-    [tag2, 11, 12, false],
-  ];
-
-  return zeiten.map(([tag, von, bis, morgen], index) => {
-    const person = auswahl[index % auswahl.length];
-    return {
-      ...fenster(tag, von, bis, morgen),
-      mitarbeiter: person.name,
-      bereich: FACHBEREICH_BEZEICHNUNG[person.bereich],
-    };
-  });
 }

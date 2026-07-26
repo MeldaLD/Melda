@@ -6,6 +6,7 @@ import Link from "next/link";
 
 import { chatRahmen } from "@config/chat-rahmen";
 import { szenarien } from "@config/scenarios";
+import { rueckrufGruende, zeitwuensche } from "@config/rueckruf-gruende";
 import { useChat } from "@/lib/chat/useChat";
 import type { Umgebung } from "@/lib/chat/maschine";
 import type { Mandant } from "@/lib/daten/typen";
@@ -17,7 +18,6 @@ export function ChatFenster({ mandant }: { mandant: Mandant }) {
   const umgebung: Umgebung = {
     firma: mandant.firma,
     handwerker: mandant.handwerker ?? [],
-    mitarbeiter: mandant.mitarbeiter ?? [],
   };
 
   const { zustand, tippt, beschaeftigt, ausloesen } = useChat(umgebung);
@@ -258,23 +258,42 @@ function Aktionsleiste({
         </div>
       );
 
-    case "rueckruf":
+    // Der Mieter wählt nur das Thema – nicht die Person und nicht die Uhrzeit.
+    // Wer zurückruft, entscheidet die Verwaltung im Dashboard.
+    case "rueckrufGrund":
       return (
         <div className="flex flex-col gap-2 px-3 pb-1 sm:px-4">
-          {angebot.fenster.map((f, index) => (
+          {rueckrufGruende.map((grund) => (
             <Schnellknopf
-              key={f.beginn}
+              key={grund.id}
               breit
               onClick={() =>
-                onEreignis({ art: "rueckrufTermin", index }, { text: f.beschriftung })
+                onEreignis(
+                  { art: "rueckrufGrund", grundId: grund.id },
+                  { text: grund.bezeichnung },
+                )
               }
             >
-              <span className="flex w-full items-center justify-between gap-3">
-                <span>{f.beschriftung}</span>
-                <span className="text-xs opacity-70">
-                  {f.mitarbeiter} · {f.bereich}
-                </span>
-              </span>
+              {grund.bezeichnung}
+            </Schnellknopf>
+          ))}
+        </div>
+      );
+
+    case "rueckrufZeit":
+      return (
+        <div className={rahmen}>
+          {zeitwuensche.map((zeit) => (
+            <Schnellknopf
+              key={zeit.id}
+              onClick={() =>
+                onEreignis(
+                  { art: "rueckrufZeit", zeitwunschId: zeit.id },
+                  { text: zeit.bezeichnung },
+                )
+              }
+            >
+              {zeit.bezeichnung}
             </Schnellknopf>
           ))}
         </div>

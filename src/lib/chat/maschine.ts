@@ -30,9 +30,10 @@
 import { chatRahmen } from "@config/chat-rahmen";
 import { demoKonfiguration } from "@config/demo";
 import { szenarioAusText, szenarioNach, type Szenario } from "@config/scenarios";
+import { grundNach, zeitwunschNach } from "@config/rueckruf-gruende";
 
-import type { HandwerkerVorlage, MitarbeiterVorlage } from "@/lib/daten/typen";
-import { handwerkerfenster, rueckruffenster } from "./termine";
+import type { HandwerkerVorlage } from "@/lib/daten/typen";
+import { handwerkerfenster } from "./termine";
 import type {
   Ausgabe,
   ChatEreignis,
@@ -47,7 +48,6 @@ const { tippenKurz, tippenLang, bildAnalyse } = demoKonfiguration.chat;
 export type Umgebung = {
   firma: string;
   handwerker: HandwerkerVorlage[];
-  mitarbeiter: MitarbeiterVorlage[];
   /** Bezugszeitpunkt – als Parameter, damit Tests reproduzierbar sind. */
   jetzt?: Date;
 };
@@ -64,6 +64,7 @@ export function anfangszustand(): ChatZustand {
     zweitanfahrtVermieden: false,
     zweitfotoFehlversuche: 0,
     gewaehlterTermin: null,
+    rueckruf: null,
   };
 }
 
@@ -339,28 +340,58 @@ export function schritt(
     }
 
     // -----------------------------------------------------------------------
+    // Rückruf in zwei Schritten: erst das Thema, dann die Erreichbarkeit.
+    // Bewusst kein fester Termin bei einer namentlich genannten Person –
+    // die Zuordnung macht die Verwaltung im Dashboard.
     case "rueckruf":
       return {
         zustand: {
           ...zustand,
-          phase: "rueckrufwahl",
-          angebot: {
-            art: "rueckruf",
-            fenster: rueckruffenster(umgebung.mitarbeiter, umgebung.jetzt),
-          },
+          phase: "rueckrufGrund",
+          rueckruf: {},
+          angebot: { art: "rueckrufGrund" },
         },
         ausgabe: [sagen(chatRahmen.rueckrufFrage, tippenKurz)],
       };
 
-    case "rueckrufTermin": {
-      if (zustand.angebot.art !== "rueckruf") return { zustand, ausgabe: [] };
-      const gewaehlt = zustand.angebot.fenster[ereignis.index];
+    case "rueckrufGrund": {
+      const grund = grundNach.get(ereignis.grundId);
+      if (!grund) return { zustand, ausgabe: [] };
 
       return {
-        zustand: { ...zustand, phase: "frei", angebot: { art: "frei" } },
+        zustand: {
+          ...zustand,
+          phase: "rueckrufZeit",
+          rueckruf: { grundId: grund.id, grundBezeichnung: grund.bezeichnung },
+          angebot: { art: "rueckrufZeit" },
+        },
+        ausgabe: [sagen(chatRahmen.rueckrufZeitFrage, tippenKurz)],
+      };
+    }
+
+    case "rueckrufZeit": {
+      const zeit = zeitwunschNach.get(ereignis.zeitwunschId);
+      if (!zeit || !zustand.rueckruf?.grundBezeichnung) {
+        return { zustand, ausgabe: [] };
+      }
+
+      return {
+        zustand: {
+          ...zustand,
+          phase: "frei",
+          angebot: { art: "frei" },
+          rueckruf: {
+            ...zustand.rueckruf,
+            zeitwunschId: zeit.id,
+            zeitwunschBezeichnung: zeit.bezeichnung,
+          },
+        },
         ausgabe: [
           sagen(
-            chatRahmen.rueckrufBestaetigt(gewaehlt.beschriftung, gewaehlt.mitarbeiter),
+            chatRahmen.rueckrufBestaetigt(
+              zustand.rueckruf.grundBezeichnung,
+              zeit.bezeichnung,
+            ),
             tippenKurz,
           ),
         ],

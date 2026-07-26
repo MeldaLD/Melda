@@ -22,6 +22,7 @@ import { demoKonfiguration } from "@config/demo";
 
 import type {
   Einheit,
+  Fachbereich,
   Freigabe,
   Handwerker,
   Mandant,
@@ -466,6 +467,9 @@ export function bestandErzeugen(
         beginn: inStunden(start),
         ende: inStunden(start + 2),
         status: "bestaetigt",
+        grund: null,
+        zeitwunsch: null,
+        bereich_vorschlag: null,
         ist_seed: true,
       });
     }
@@ -500,27 +504,69 @@ export function bestandErzeugen(
     erstellt_am: vorStunden(6),
   });
 
-  // --- Rückruftermine ------------------------------------------------------
-  const rueckrufe: [Mitarbeiter, number, string][] = [
-    [technik, 26, "Rückruf: Frage zur Nebenkostenabrechnung"],
-    [buchhaltung, 50, "Rückruf: Änderung der Bankverbindung"],
-    [technik, 74, "Rückruf: Termin Rauchmelderprüfung"],
+  // --- Rückrufwünsche -----------------------------------------------------
+  // Der Mieter nennt nur Thema und Erreichbarkeit. Zwei davon sind bereits
+  // zugeordnet und terminiert, zwei warten auf die Zuordnung durch die
+  // Verwaltung – genau die Arbeit, die das Dashboard sichtbar machen soll.
+  const rueckrufwuensche: {
+    grund: string;
+    thema: string;
+    zeitwunsch: string;
+    bereich: Fachbereich;
+    zugeordnet: Mitarbeiter | null;
+    inStundenAb: number | null;
+  }[] = [
+    {
+      grund: "abrechnung",
+      thema: "Nebenkosten- oder Heizkostenabrechnung",
+      zeitwunsch: "vormittag",
+      bereich: "buchhaltung",
+      zugeordnet: buchhaltung,
+      inStundenAb: 26,
+    },
+    {
+      grund: "schaden",
+      thema: "Frage zu einer Reparatur oder Meldung",
+      zeitwunsch: "nachmittag",
+      bereich: "technik",
+      zugeordnet: technik,
+      inStundenAb: 50,
+    },
+    {
+      grund: "vertrag",
+      thema: "Mietvertrag, Kündigung oder Nachmieter",
+      zeitwunsch: "egal",
+      bereich: "allgemein",
+      zugeordnet: null,
+      inStundenAb: null,
+    },
+    {
+      grund: "zahlung",
+      thema: "Miete, Zahlung oder Mahnung",
+      zeitwunsch: "vormittag",
+      bereich: "buchhaltung",
+      zugeordnet: null,
+      inStundenAb: null,
+    },
   ];
 
-  rueckrufe.forEach(([person, start, titel], index) => {
+  rueckrufwuensche.forEach((wunsch, index) => {
     const einheit = einheiten[(index + 5) % einheiten.length];
     termine.push({
       id: stabileUuid(`termin:rueckruf:${vorlage.slug}:${index}`),
       tenant_id: tenantId,
       vorgang_id: null,
       typ: "rueckruf",
-      titel: `${titel} – ${einheit.mieter_name}`,
-      mitarbeiter_id: person.id,
+      titel: `${wunsch.thema} – ${einheit.mieter_name}`,
+      mitarbeiter_id: wunsch.zugeordnet?.id ?? null,
       handwerker_id: null,
       einheit_id: einheit.id,
-      beginn: inStunden(start),
-      ende: inStunden(start + 0.25),
-      status: "bestaetigt",
+      beginn: wunsch.inStundenAb === null ? null : inStunden(wunsch.inStundenAb),
+      ende: wunsch.inStundenAb === null ? null : inStunden(wunsch.inStundenAb + 0.25),
+      status: wunsch.zugeordnet ? "bestaetigt" : "geplant",
+      grund: wunsch.grund,
+      zeitwunsch: wunsch.zeitwunsch,
+      bereich_vorschlag: wunsch.bereich,
       ist_seed: true,
     });
   });

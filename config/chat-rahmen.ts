@@ -56,13 +56,20 @@ export const chatRahmen = {
     "aktuellen Stand. Für ein persönliches Gespräch mit der Verwaltung tippen " +
     "Sie auf Rückruf.",
 
+  /**
+   * Rückruf: Der Mieter nennt nur das Thema und seine Erreichbarkeit.
+   * Wer zurückruft, entscheidet die Verwaltung im Dashboard – wir kennen die
+   * interne Zuständigkeit und die Urlaubsvertretungen nicht.
+   */
   rueckrufFrage:
-    "Gern. Wann sollen wir Sie zurückrufen? Das sind die freien Zeiten der " +
-    "Hausverwaltung:",
+    "Gern. Worum geht es? Dann landet Ihre Anfrage gleich bei der richtigen " +
+    "Stelle in der Verwaltung.",
 
-  rueckrufBestaetigt: (fenster: string, person: string) =>
-    `Notiert: ${person} ruft Sie am ${fenster} an. Sie bekommen kurz vorher noch ` +
-    "eine Erinnerung.",
+  rueckrufZeitFrage: "Und wann erreichen wir Sie am besten?",
+
+  rueckrufBestaetigt: (grund: string, zeit: string) =>
+    `Notiert: Rückruf zum Thema „${grund}", Erreichbarkeit ${zeit.toLowerCase()}. ` +
+    "Die Verwaltung meldet sich in der Regel innerhalb eines Werktags bei Ihnen.",
 
   statusEinleitung: "Hier der aktuelle Stand Ihrer Meldung:",
 
