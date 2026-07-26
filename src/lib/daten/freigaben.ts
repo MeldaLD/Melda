@@ -15,6 +15,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { terminanfrageAnlegen } from "./terminanfrage";
 import type { Freigabe, Vorgang } from "./typen";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -94,6 +95,22 @@ export async function freigabeWirkungAnwenden(
       }
 
       beschreibung = `Auftrag an ${freigabe.empfaenger ?? "den Partnerbetrieb"} freigegeben und versendet${zusatz}`;
+
+      // Genau hier – und nur hier – geht etwas an den Betrieb raus.
+      //
+      // Die Terminabstimmung ist keine eigene Handlung neben der Freigabe,
+      // sondern deren Ausführung: Wer den Auftrag freigibt, gibt frei, dass
+      // der Betrieb angesprochen wird. Ohne diese Kopplung ließe sich die
+      // Freigabe umgehen, und das Versprechen "die KI entscheidet nichts
+      // allein" wäre eines auf dem Papier.
+      const angelegt = betriebId
+        ? await terminlinkVerschicken(db, freigabe.tenant_id, v.id, betriebId)
+        : null;
+      if (angelegt) {
+        beschreibung +=
+          `. Terminlink an ${freigabe.empfaenger ?? "den Betrieb"} verschickt – ` +
+          "der Betrieb nennt drei Fenster, der Mieter wählt";
+      }
       break;
     }
 
@@ -157,6 +174,83 @@ export async function freigabeWirkungAnwenden(
     ist_seed: false,
     zeitpunkt: new Date().toISOString(),
   });
+}
+
+/**
+ * Sammelt die Angaben für den Terminlink und schickt ihn los.
+ *
+ * Betriebe ohne Zustimmung überspringt das stillschweigend – dort ruft die
+ * Verwaltung selbst an, wofür in der Übergabe die Bausteine bereitliegen.
+ */
+export async function terminlinkVerschicken(
+  db: Db,
+  tenantId: string,
+  vorgangId: string,
+  handwerkerId: string,
+): Promise<{ token: string; link: string } | null> {
+  const { data: betrieb } = await db
+    .from("handwerker")
+    .select(
+      "firma, ansprechpartner, reaktionszeit_h, kontakt_kanal, abstimmung_erlaubt",
+    )
+    .eq("id", handwerkerId)
+    .maybeSingle();
+  if (!betrieb?.abstimmung_erlaubt) return null;
+
+  const [{ data: mandant }, { data: vorgang }] = await Promise.all([
+    db.from("demo_tenants").select("firma").eq("id", tenantId).maybeSingle(),
+    db
+      .from("vorgaenge")
+      .select("nummer, titel, einheit_id, ki_zusammenfassung")
+      .eq("id", vorgangId)
+      .maybeSingle(),
+  ]);
+
+  const { data: einheit } = vorgang?.einheit_id
+    ? await db
+        .from("einheiten")
+        .select("bezeichnung, mieter_name, objekt_id")
+        .eq("id", vorgang.einheit_id)
+        .maybeSingle()
+    : { data: null };
+  const { data: objekt } = einheit
+    ? await db.from("objekte").select("name").eq("id", einheit.objekt_id).maybeSingle()
+    : { data: null };
+
+  const { data: wunsch } = await db
+    .from("termine")
+    .select("beginn, ende")
+    .eq("vorgang_id", vorgangId)
+    .eq("typ", "handwerkertermin")
+    .maybeSingle();
+
+  return terminanfrageAnlegen(
+    db,
+    {
+      firma: mandant?.firma ?? "Ihre Hausverwaltung",
+      vorgangsnummer: vorgang?.nummer ?? 0,
+      titel: vorgang?.titel ?? "Auftrag",
+      objekt: objekt?.name ?? "",
+      einheit: einheit?.bezeichnung ?? "",
+      mieterName: einheit?.mieter_name ?? "Mieter",
+      betrieb: betrieb.firma,
+      ansprechpartner: betrieb.ansprechpartner,
+      wunsch:
+        wunsch?.beginn && wunsch?.ende
+          ? { beginn: new Date(wunsch.beginn), ende: new Date(wunsch.ende) }
+          : null,
+      reaktionszeitH: betrieb.reaktionszeit_h ?? 24,
+      zusammenfassung: vorgang?.ki_zusammenfassung ?? null,
+      erkenntnis: null,
+    },
+    {
+      tenantId,
+      vorgangId,
+      handwerkerId,
+      kontaktKanal: betrieb.kontakt_kanal ?? "email",
+      abstimmungErlaubt: true,
+    },
+  );
 }
 
 /** Verlaufseintrag für eine abgelehnte Freigabe. */

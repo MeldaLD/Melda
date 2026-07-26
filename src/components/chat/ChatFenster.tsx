@@ -466,17 +466,20 @@ function Schnellknopf({
   hervorgehoben?: boolean;
   breit?: boolean;
 }) {
+  // bg-white nur für die nicht hervorgehobenen Knöpfe. Sonst überschreibt es
+  // die Markenfarbe des hervorgehobenen Knopfes, dessen Schrift weiß bleibt –
+  // Ergebnis war weiß auf weiß, der wichtigste Knopf des Chats unlesbar.
+  const form = breit
+    ? "h-auto w-full justify-start rounded-lg py-2.5 text-left whitespace-normal"
+    : "rounded-full";
+
   return (
     <Button
       type="button"
       size="sm"
       variant={hervorgehoben ? "marke" : "outline"}
       onClick={onClick}
-      className={
-        breit
-          ? "h-auto w-full justify-start rounded-lg bg-white py-2.5 text-left whitespace-normal"
-          : "rounded-full bg-white"
-      }
+      className={hervorgehoben ? form : `${form} bg-white`}
     >
       {children}
     </Button>

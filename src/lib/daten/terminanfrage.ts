@@ -15,7 +15,12 @@ import "server-only";
 
 import { randomBytes } from "node:crypto";
 
+import { anfrageAnBetrieb, type Abstimmungsdaten } from "@config/abstimmung";
+import { basisUrl } from "@/lib/basis-url";
 import type { Terminvorschlag } from "./typen";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+type Db = any;
 
 /** Erzeugt einen nicht erratbaren Token für die öffentliche URL. */
 export function tokenErzeugen(): string {
@@ -27,6 +32,72 @@ export function tokenErzeugen(): string {
 /** Öffentliche Adresse, die der Betrieb bekommt. */
 export function terminLink(basis: string, token: string): string {
   return `${basis.replace(/\/$/, "")}/termin/${token}`;
+}
+
+/**
+ * Verschickt den Terminlink an einen Betrieb.
+ *
+ * Bewusst hier und nicht in einer Server Action: Ausgelöst wird das von der
+ * Freigabe des Handwerkerauftrags, und die Freigabe wird an zwei Stellen
+ * erteilt – im Freigabe-Center und über eine Automatikregel. Beide sollen
+ * denselben Weg gehen.
+ *
+ * Gibt null zurück, wenn nichts zu tun war: Betrieb ohne Zustimmung, oder es
+ * läuft bereits eine Anfrage.
+ */
+export async function terminanfrageAnlegen(
+  db: Db,
+  daten: Abstimmungsdaten,
+  bezug: {
+    tenantId: string;
+    vorgangId: string;
+    handwerkerId: string;
+    kontaktKanal: string;
+    abstimmungErlaubt: boolean;
+  },
+): Promise<{ token: string; link: string } | null> {
+  if (!bezug.abstimmungErlaubt) return null;
+
+  // Eine offene Anfrage reicht – sonst bekäme der Betrieb zwei Links.
+  const { data: vorhanden } = await db
+    .from("terminanfragen")
+    .select("id")
+    .eq("vorgang_id", bezug.vorgangId)
+    .in("status", ["offen", "beantwortet"])
+    .maybeSingle();
+  if (vorhanden) return null;
+
+  const token = tokenErzeugen();
+  const link = terminLink(basisUrl(), token);
+  const jetzt = new Date().toISOString();
+
+  const { error } = await db.from("terminanfragen").insert({
+    tenant_id: bezug.tenantId,
+    vorgang_id: bezug.vorgangId,
+    handwerker_id: bezug.handwerkerId,
+    token,
+    status: "offen",
+    vorschlaege: [],
+    wunsch_beginn: daten.wunsch?.beginn.toISOString() ?? null,
+    wunsch_ende: daten.wunsch?.ende.toISOString() ?? null,
+    ist_seed: false,
+    erstellt_am: jetzt,
+  });
+  if (error) throw new Error(error.message);
+
+  await db.from("nachrichten").insert({
+    tenant_id: bezug.tenantId,
+    vorgang_id: bezug.vorgangId,
+    einheit_id: null,
+    handwerker_id: bezug.handwerkerId,
+    richtung: "verwalter",
+    kanal: bezug.kontaktKanal,
+    text: anfrageAnBetrieb(daten, link),
+    ist_seed: false,
+    gesendet_am: jetzt,
+  });
+
+  return { token, link };
 }
 
 /**

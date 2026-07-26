@@ -2,19 +2,14 @@
 
 import { revalidatePath } from "next/cache";
 
-import {
-  anfrageAnBetrieb,
-  vorschlaegeVorbelegen,
-  type Abstimmungsdaten,
-} from "@config/abstimmung";
+import { vorschlaegeVorbelegen } from "@config/abstimmung";
 import { vorschlaegeSenden } from "@/app/termin/[token]/aktionen";
-import { basisUrl } from "@/lib/basis-url";
 import {
   entscheiderName,
   freigabeAblehnungVermerken,
   freigabeWirkungAnwenden,
+  terminlinkVerschicken,
 } from "@/lib/daten/freigaben";
-import { terminLink, tokenErzeugen } from "@/lib/daten/terminanfrage";
 import { istSchreibenMoeglich } from "@/lib/daten/quelle";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type {
@@ -317,15 +312,23 @@ export async function vorgangWeiterschieben(eingabe: {
 }
 
 // --- Abstimmung mit dem Betrieb --------------------------------------------
+//
+// Der Terminlink geht nicht über einen eigenen Knopf raus, sondern als
+// Wirkung der Freigabe des Handwerkerauftrags – siehe
+// src/lib/daten/freigaben.ts. So gibt es genau eine Stelle, an der jemand
+// entscheidet, ob ein Auftrag den Betrieb erreicht.
+//
+// Hier stehen nur noch die Aktionen, die es danach braucht.
 
 /**
- * Schickt dem Betrieb einen Link, unter dem er drei Zeitfenster nennen kann.
+ * Schickt den Terminlink erneut.
  *
- * Nur möglich, wenn der Betrieb zugestimmt hat. Ab hier läuft die Abstimmung
- * ohne die Verwaltung: Der Betrieb schlägt vor, der Mieter wählt, und erst
- * das Ergebnis kommt als Terminbestätigung ins Freigabe-Center.
+ * Rückfallebene für den Fall, dass der Auftrag längst freigegeben ist, aber
+ * keine Anfrage vorliegt – abgelaufener Link, oder ein Vorgang aus den
+ * Beispieldaten. Setzt voraus, dass der Auftrag bereits raus ist: Vor der
+ * Freigabe gibt es hier nichts zu schicken.
  */
-export async function terminanfrageStellen(eingabe: {
+export async function terminlinkErneutSenden(eingabe: {
   slug: string;
   vorgangId: string;
 }): Promise<Ergebnis> {
@@ -334,19 +337,25 @@ export async function terminanfrageStellen(eingabe: {
   try {
     const db = supabaseAdmin();
     const mandant = await mandantOderNull(eingabe.slug);
-    if (!mandant) return fehler("Terminanfrage", "Unbekannter Mandant");
+    if (!mandant) return fehler("Terminlink", "Unbekannter Mandant");
 
     const { data: vorgang } = await db
       .from("vorgaenge")
-      .select(
-        "id, nummer, titel, gewerk, einheit_id, handwerker_id, ki_zusammenfassung",
-      )
+      .select("id, status, gewerk, handwerker_id")
       .eq("id", eingabe.vorgangId)
       .eq("tenant_id", mandant.id)
       .maybeSingle();
-    if (!vorgang) return fehler("Terminanfrage", "Diesen Vorgang gibt es nicht.");
+    if (!vorgang) return fehler("Terminlink", "Diesen Vorgang gibt es nicht.");
 
-    // Betrieb bestimmen: der zugeordnete, sonst der Standardbetrieb.
+    if (vorgang.status === "neu" || vorgang.status === "in_pruefung") {
+      return {
+        gespeichert: false,
+        fehlgeschlagen: true,
+        hinweis:
+          "Der Auftrag ist noch nicht freigegeben. Solange geht nichts an den Betrieb.",
+      };
+    }
+
     let betriebId = vorgang.handwerker_id;
     if (!betriebId) {
       const { data: standard } = await db
@@ -359,92 +368,33 @@ export async function terminanfrageStellen(eingabe: {
       betriebId = standard?.[0]?.id ?? null;
     }
     if (!betriebId) {
-      return fehler("Terminanfrage", "Für dieses Gewerk ist kein Betrieb hinterlegt.");
+      return fehler("Terminlink", "Für dieses Gewerk ist kein Betrieb hinterlegt.");
     }
 
-    const { data: betrieb } = await db
-      .from("handwerker")
-      .select("*")
-      .eq("id", betriebId)
-      .maybeSingle();
-    if (!betrieb) return fehler("Terminanfrage", "Betrieb nicht gefunden.");
-
-    if (!betrieb.abstimmung_erlaubt) {
+    const angelegt = await terminlinkVerschicken(db, mandant.id, vorgang.id, betriebId);
+    if (!angelegt) {
       return {
         gespeichert: false,
         fehlgeschlagen: true,
         hinweis:
-          `${betrieb.firma} hat der direkten Abstimmung noch nicht zugestimmt. ` +
-          "Unter Handwerker & Dienstleister lässt sich das freischalten.",
+          "Entweder hat der Betrieb nicht zugestimmt, oder es läuft bereits eine Anfrage.",
       };
     }
-
-    // Eine offene Anfrage reicht – sonst bekäme der Betrieb zwei Links.
-    const { data: vorhanden } = await db
-      .from("terminanfragen")
-      .select("id, token, status")
-      .eq("vorgang_id", vorgang.id)
-      .in("status", ["offen", "beantwortet"])
-      .maybeSingle();
-    if (vorhanden) {
-      return {
-        gespeichert: true,
-        hinweis:
-          vorhanden.status === "offen"
-            ? `${betrieb.firma} hat den Link bereits und antwortet noch.`
-            : `${betrieb.firma} hat geantwortet, der Mieter wählt noch aus.`,
-      };
-    }
-
-    const daten = await abstimmungsdaten(db, mandant, vorgang, betrieb);
-    const wunsch = daten.wunsch;
-    const token = tokenErzeugen();
-    const link = terminLink(basisUrl(), token);
-    const jetzt = new Date();
-
-    const { error: anfrageFehler } = await db.from("terminanfragen").insert({
-      tenant_id: mandant.id,
-      vorgang_id: vorgang.id,
-      handwerker_id: betrieb.id,
-      token,
-      status: "offen",
-      vorschlaege: [],
-      wunsch_beginn: wunsch?.beginn.toISOString() ?? null,
-      wunsch_ende: wunsch?.ende.toISOString() ?? null,
-      ist_seed: false,
-      erstellt_am: jetzt.toISOString(),
-    });
-    if (anfrageFehler) return fehler("Terminanfrage", anfrageFehler.message);
-
-    await db.from("nachrichten").insert({
-      tenant_id: mandant.id,
-      vorgang_id: vorgang.id,
-      einheit_id: null,
-      handwerker_id: betrieb.id,
-      richtung: "verwalter",
-      kanal: betrieb.kontakt_kanal ?? "email",
-      text: anfrageAnBetrieb(daten, link),
-      ist_seed: false,
-      gesendet_am: jetzt.toISOString(),
-    });
 
     await db.from("vorgang_verlauf").insert({
       tenant_id: mandant.id,
       vorgang_id: vorgang.id,
       ereignis: "terminanfrage",
-      beschreibung: `Terminlink an ${betrieb.firma} verschickt – drei Fenster erbeten`,
-      akteur: "KI-Assistent",
+      beschreibung: "Terminlink erneut an den Betrieb verschickt",
+      akteur: await entscheiderName(db, mandant.id),
       ist_seed: false,
-      zeitpunkt: jetzt.toISOString(),
+      zeitpunkt: new Date().toISOString(),
     });
 
     neuLaden(eingabe.slug);
-    return {
-      gespeichert: true,
-      hinweis: `Link an ${betrieb.firma} verschickt.`,
-    };
+    return { gespeichert: true, hinweis: "Link verschickt." };
   } catch (ausnahme) {
-    return fehler("Terminanfrage", meldungVon(ausnahme));
+    return fehler("Terminlink", meldungVon(ausnahme));
   }
 }
 
@@ -528,61 +478,6 @@ export async function demoBetriebAntwortenLassen(eingabe: {
   } catch (ausnahme) {
     return fehler("Antwort", meldungVon(ausnahme));
   }
-}
-
-/** Sammelt die Angaben, aus denen die Abstimmungstexte gebaut werden. */
-async function abstimmungsdaten(
-  db: ReturnType<typeof supabaseAdmin>,
-  mandant: { id: string; firma: string },
-  vorgang: {
-    id: string;
-    nummer: number;
-    titel: string;
-    einheit_id: string | null;
-    ki_zusammenfassung: string | null;
-  },
-  betrieb: {
-    firma: string;
-    ansprechpartner: string | null;
-    reaktionszeit_h: number | null;
-  },
-): Promise<Abstimmungsdaten> {
-  const { data: einheit } = vorgang.einheit_id
-    ? await db
-        .from("einheiten")
-        .select("bezeichnung, mieter_name, objekt_id")
-        .eq("id", vorgang.einheit_id)
-        .maybeSingle()
-    : { data: null };
-
-  const { data: objekt } = einheit
-    ? await db.from("objekte").select("name").eq("id", einheit.objekt_id).maybeSingle()
-    : { data: null };
-
-  const { data: wunschtermin } = await db
-    .from("termine")
-    .select("beginn, ende")
-    .eq("vorgang_id", vorgang.id)
-    .eq("typ", "handwerkertermin")
-    .maybeSingle();
-
-  return {
-    firma: mandant.firma,
-    vorgangsnummer: vorgang.nummer,
-    titel: vorgang.titel,
-    objekt: objekt?.name ?? "–",
-    einheit: einheit?.bezeichnung ?? "–",
-    mieterName: einheit?.mieter_name ?? "Mieter",
-    betrieb: betrieb.firma,
-    ansprechpartner: betrieb.ansprechpartner,
-    wunsch:
-      wunschtermin?.beginn && wunschtermin?.ende
-        ? { beginn: new Date(wunschtermin.beginn), ende: new Date(wunschtermin.ende) }
-        : null,
-    reaktionszeitH: betrieb.reaktionszeit_h ?? 24,
-    zusammenfassung: vorgang.ki_zusammenfassung,
-    erkenntnis: null,
-  };
 }
 
 /**

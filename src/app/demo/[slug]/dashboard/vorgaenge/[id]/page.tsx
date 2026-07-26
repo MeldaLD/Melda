@@ -72,7 +72,16 @@ export default async function VorgangDetail({
   const frist = slaZustand(vorgang);
 
   const zustaendig = handwerker ?? vorgeschlagenerBetrieb ?? null;
-  const abstimmung = await abstimmungsstand(vorgang.id, zustaendig);
+  // "Freigegeben" heißt hier: Der Auftrag hat das Freigabe-Center passiert.
+  // Vorher darf nichts an den Betrieb gehen – auch nicht automatisch.
+  const auftragFreigegeben =
+    vorgang.status !== "neu" && vorgang.status !== "in_pruefung";
+  const abstimmung = await abstimmungsstand(
+    vorgang.id,
+    zustaendig,
+    auftragFreigegeben,
+    `${basis}/freigaben`,
+  );
 
   return (
     <div className="p-4 sm:p-6">
@@ -298,9 +307,15 @@ export default async function VorgangDetail({
 async function abstimmungsstand(
   vorgangId: string,
   betrieb: Handwerker | null | undefined,
+  /** Solange der Auftrag nicht freigegeben ist, geht nichts an den Betrieb. */
+  freigegeben: boolean,
+  freigabenPfad: string,
 ): Promise<Abstimmungsstand> {
   if (!betrieb?.abstimmung_erlaubt) {
     return { art: "nicht_erlaubt", betrieb: betrieb?.firma ?? null };
+  }
+  if (!freigegeben) {
+    return { art: "wartet_auf_freigabe", betrieb: betrieb.firma, freigabenPfad };
   }
   if (!istSchreibenMoeglich()) {
     return { art: "moeglich", betrieb: betrieb.firma };

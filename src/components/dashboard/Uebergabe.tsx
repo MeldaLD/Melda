@@ -19,10 +19,12 @@ import {
   telefonleitfaden,
   type Bausteindaten,
 } from "@config/bausteine";
+import Link from "next/link";
+
 import {
   demoBetriebAntwortenLassen,
   notizEintragen,
-  terminanfrageStellen,
+  terminlinkErneutSenden,
   vorgangWeiterschieben,
   type Ergebnis,
 } from "@/app/demo/[slug]/dashboard/aktionen";
@@ -150,6 +152,9 @@ export function Uebergabe({
 
 export type Abstimmungsstand =
   | { art: "nicht_erlaubt"; betrieb: string | null }
+  /** Betrieb hat zugestimmt, der Auftrag wartet aber noch auf die Freigabe. */
+  | { art: "wartet_auf_freigabe"; betrieb: string; freigabenPfad: string }
+  /** Auftrag ist freigegeben, es liegt aber keine Anfrage vor. */
   | { art: "moeglich"; betrieb: string }
   | { art: "wartet"; betrieb: string; seit: string; link: string }
   | { art: "vorgeschlagen"; betrieb: string; anzahl: number }
@@ -188,6 +193,27 @@ function Abstimmung({
 
   const rahmen =
     "space-y-2 rounded-md border border-marke-rand bg-marke-sanft px-3 py-2.5";
+
+  // Der Betrieb hat zugestimmt – aber nichts geht raus, bevor der Auftrag
+  // freigegeben ist. Das ist die eine Stelle, an der ein Mensch entscheidet,
+  // und sie liegt bewusst nicht hier, sondern im Freigabe-Center.
+  if (stand.art === "wartet_auf_freigabe") {
+    return (
+      <div className="space-y-2 rounded-md border border-border bg-slate-50 px-3 py-2.5">
+        <p className="text-sm font-medium text-slate-800">
+          Noch geht nichts an {stand.betrieb}
+        </p>
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          {stand.betrieb} hat zugestimmt, dass wir Termine direkt abstimmen. Sobald Sie
+          den Auftrag freigeben, bekommt der Betrieb automatisch einen Link, nennt drei
+          Zeitfenster, und der Mieter wählt eines aus. Bis dahin passiert nichts.
+        </p>
+        <Button asChild size="sm" variant="marke">
+          <Link href={stand.freigabenPfad}>Auftrag im Freigabe-Center ansehen</Link>
+        </Button>
+      </div>
+    );
+  }
 
   if (stand.art === "wartet") {
     return (
@@ -293,15 +319,18 @@ function Abstimmung({
     );
   }
 
+  // Bleibt als Rueckfallebene: Betrieb hat zugestimmt, der Auftrag ist
+  // freigegeben, aber es liegt keine Anfrage vor - etwa weil sie abgelaufen
+  // ist oder der Vorgang aus dem Seed stammt.
   return (
     <div className={rahmen}>
       <p className="text-sm font-medium text-slate-800">
         {stand.betrieb} stimmt Termine direkt mit uns ab
       </p>
       <p className="text-xs leading-relaxed text-muted-foreground">
-        Wir schicken dem Betrieb einen Link, unter dem er drei Zeitfenster nennt – ohne
-        Anmeldung, in zwanzig Sekunden auf dem Telefon erledigt. Der Mieter wählt eines
-        aus, und Sie bekommen nur noch die Bestätigung vorgelegt.
+        Der Auftrag ist freigegeben, es liegt aber keine offene Terminanfrage vor. Sie
+        können den Link erneut schicken – der Betrieb nennt dann drei Fenster, der
+        Mieter wählt eines aus.
       </p>
       <Button
         size="sm"
@@ -309,7 +338,7 @@ function Abstimmung({
         disabled={laeuft}
         onClick={() =>
           starten(async () => {
-            const ergebnis = await terminanfrageStellen({ slug, vorgangId });
+            const ergebnis = await terminlinkErneutSenden({ slug, vorgangId });
             if (ergebnis.fehlgeschlagen) {
               setFehler(ergebnis.hinweis ?? "Hat nicht geklappt.");
               return;
@@ -324,7 +353,7 @@ function Abstimmung({
         }
       >
         {laeuft ? <Loader2Icon className="animate-spin" /> : <SendIcon />}
-        Abstimmung übernehmen
+        Terminlink schicken
       </Button>
       {meldung && (
         <p className="flex items-center gap-1.5 text-xs text-marke">
