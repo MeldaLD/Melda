@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Blase, TippIndikator } from "./Blase";
 import { FotoDialog } from "./FotoDialog";
 import { NutzerAuswahl, type ChatNutzer } from "./NutzerAuswahl";
+import { tourMelden } from "@/lib/tour/ereignisse";
 
 export function ChatFenster({
   mandant,
@@ -54,6 +55,13 @@ function Gespraech({ mandant, nutzer }: { mandant: Mandant; nutzer: ChatNutzer }
     ende.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [zustand.nachrichten.length, zustand.angebot, tippt, beschaeftigt]);
 
+  // Die Erkenntnis-Karte ist der Punkt, um den es in der Tour geht.
+  useEffect(() => {
+    if (zustand.nachrichten.some((n) => n.karte?.art === "erkenntnis")) {
+      tourMelden("chat:erkenntnis");
+    }
+  }, [zustand.nachrichten]);
+
   const absenden = () => {
     const text = entwurf.trim();
     if (!text || beschaeftigt) return;
@@ -63,6 +71,7 @@ function Gespraech({ mandant, nutzer }: { mandant: Mandant; nutzer: ChatNutzer }
 
   const fotoWaehlen = (datei: string, beschriftung: string) => {
     setFotoOffen(false);
+    tourMelden("chat:foto-gesendet");
     void ausloesen(
       { art: "foto", datei },
       { foto: datei, fotoBeschriftung: beschriftung },
@@ -239,7 +248,7 @@ function Aktionsleiste({
   switch (angebot.art) {
     case "eingabe":
       return (
-        <div className={rahmen}>
+        <div className={rahmen} data-tour="foto-knopf">
           <Schnellknopf onClick={onFotoOeffnen}>{chatRahmen.knoepfe.foto}</Schnellknopf>
         </div>
       );

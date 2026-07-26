@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { alterKurz } from "@/lib/dashboard/kennzahlen";
+import { tourMelden } from "@/lib/tour/ereignisse";
 import {
   FREIGABE_TYP_BEZEICHNUNG,
   type Freigabe,
@@ -66,9 +67,10 @@ export function FreigabeListe({
               onAutomatik={(an) =>
                 setAutomatik((alt) => ({ ...alt, [zeile.freigabe.typ]: an }))
               }
-              onEntscheiden={(wahl) =>
-                setEntschieden((alt) => ({ ...alt, [zeile.freigabe.id]: wahl }))
-              }
+              onEntscheiden={(wahl) => {
+                setEntschieden((alt) => ({ ...alt, [zeile.freigabe.id]: wahl }));
+                if (wahl === "freigegeben") tourMelden("dashboard:freigegeben");
+              }}
             />
           ))}
         </div>
@@ -179,6 +181,7 @@ function Karte({
           <Button
             variant="marke"
             size="sm"
+            data-tour="freigabe-knopf"
             onClick={() => onEntscheiden("freigegeben")}
           >
             <CheckIcon /> Freigeben

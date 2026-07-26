@@ -44,7 +44,9 @@ const baustand = [
   { schritt: "Live-Verbindung Chat und Dashboard", fertig: true },
   { schritt: "Kleinreparaturen und Selbsthilfe", fertig: true },
   { schritt: "Mandanten-Personalisierung und Admin", fertig: true },
-  { schritt: "Deployment-Anleitung (Punkt 7)", fertig: false },
+  { schritt: "Deployment-Anleitung", fertig: true },
+  { schritt: "Geführte Tour", fertig: true },
+  { schritt: "Echte Demo-Fotos", fertig: false },
 ];
 
 function Zeile({ text, erfuellt }: { text: string; erfuellt: boolean }) {

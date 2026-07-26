@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 
 import { Aufrufzaehler } from "@/components/demo/Aufrufzaehler";
 import { DemoLeiste } from "@/components/demo/DemoLeiste";
+import { Tour } from "@/components/demo/Tour";
+import { demoKonfiguration } from "@config/demo";
 import { markenPalette } from "@/lib/branding/farben";
 import { istDatenbankKonfiguriert, mandantLaden } from "@/lib/daten/quelle";
 
@@ -50,6 +52,8 @@ export default async function DemoLayout({ children, params }: Eigenschaften) {
       <div className="min-h-0 overflow-y-auto">{children}</div>
       {/* Meldet still, ob und wie lange die Demo angesehen wird. */}
       <Aufrufzaehler slug={slug} />
+      {/* Führt Betrachter, die allein auf den Link geklickt haben. */}
+      <Tour slug={slug} automatisch={demoKonfiguration.flags.tourAutomatischStarten} />
     </div>
   );
 }
