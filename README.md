@@ -15,6 +15,7 @@ wird eine personalisierte Demo unter einem eigenen Link erzeugt.
 | Mieter-Chat | `/demo/[slug]/chat` | WhatsApp-ähnliche Schadensmeldung, mobile-first |
 | Verwalter-Dashboard | `/demo/[slug]/dashboard` | Vorgänge, Freigabe-Center, Termine, Postfach |
 | Mandantenverwaltung | `/admin` | Neue Demo in unter 10 Minuten erzeugen |
+| Diagnose | `/status` | Was ist konfiguriert, welcher Stand läuft |
 
 Was im Chat gemeldet wird, erscheint über Supabase Realtime unmittelbar im
 Dashboard – das ist der Moment, der bei einer Live-Vorführung zieht.
@@ -78,6 +79,11 @@ deployen.
 ```
 config/            Von Hand pflegbare Inhalte – hier ändern Sie die Demo
   scenarios.ts       die Schadensszenarien (Texte des Chats, Basis der Vorgänge)
+  chat-rahmen.ts     generische Gesprächstexte des Mieter-Chats
+  kleinreparaturen.ts Grenzbeträge und Selbsthilfe-Anleitungen
+  rueckruf-gruende.ts Themen, aus denen der Mieter beim Rückruf wählt
+  email-vorlage.ts   die drei Anschreiben für den Vertrieb
+  strassen.ts        echte Straßen je Stadt für die Personalisierung
   muster-mandant.ts  der Beispielmandant, zugleich Rückfalldatensatz
   namen.ts           Namenspools für plausible Beispieldaten
   demo.ts            Timings, Feature-Schalter, Nutzenannahmen
@@ -115,6 +121,12 @@ wie es shadcn/ui vorsieht. Weitere Komponenten holen Sie sich mit
 | `npm run format:check` | Prettier prüfend (läuft auch in der CI) |
 | `npm run seed:sql` | Beispieldaten neu erzeugen (`supabase/seed/`) |
 | `npm run typen:datenbank` | Typen aus der verknüpften Datenbank erzeugen |
+
+## Deployment
+
+Vercel, Schritt für Schritt inklusive Umgebungsvariablen, eigener Domain und
+einer Checkliste vor dem ersten Kundenlink:
+[docs/deployment.md](./docs/deployment.md).
 
 ## Datenbank
 

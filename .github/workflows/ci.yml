@@ -40,3 +40,5 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://platzhalter.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: platzhalter
           NEXT_PUBLIC_BASIS_URL: http://localhost:3000
+          ADMIN_PASSWORT: platzhalter
+          ADMIN_SESSION_SECRET: platzhalter-nur-fuer-den-build
