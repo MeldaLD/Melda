@@ -156,7 +156,17 @@ export default async function TermineSeite({
                   );
                   return (
                     <li key={termin.id} className="py-2.5">
-                      <p className="text-sm font-medium">{termin.titel}</p>
+                      <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                        {termin.titel}
+                        {/* Ein vorgemerkter Termin ist noch keiner. Ohne diese
+                            Unterscheidung stünde hier ein Wunsch des Mieters
+                            wie eine feste Zusage. */}
+                        {termin.status === "bestaetigt" ? (
+                          <Badge variant="marke">Bestätigt</Badge>
+                        ) : (
+                          <Badge variant="outline">Vorgemerkt</Badge>
+                        )}
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         {mieter(termin.einheit_id)} · {betrieb?.firma} ·{" "}
                         {alsDatum(termin.beginn)},{" "}

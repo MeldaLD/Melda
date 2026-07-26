@@ -1,11 +1,15 @@
 import type { Terminfenster } from "./typen";
 
 /**
- * Terminvorschläge für den Chat.
+ * Zeitfenster, aus denen der Mieter seinen Wunsch wählt.
  *
- * DEMO: Es gibt keinen Kalenderabgleich mit dem Handwerksbetrieb. Die
- * Vorschläge sind die nächsten drei Werktagsfenster ab morgen. Beim echten
- * System kommen sie aus der Schnittstelle des jeweiligen Betriebs.
+ * Ausdrücklich kein Angebot des Betriebs: Zu diesem Zeitpunkt ist der Auftrag
+ * noch nicht freigegeben und niemand gefragt worden. Es sind schlicht die
+ * nächsten drei Werktagsfenster – der Mieter sagt, was ihm lieb wäre.
+ *
+ * Was der Betrieb tatsächlich anbieten kann, kommt später über den Terminlink
+ * zurück (siehe config/abstimmung.ts). Der Wunsch von hier steht dort oben auf
+ * der Seite und wird meistens einfach übernommen.
  */
 
 const WOCHENTAGE = [

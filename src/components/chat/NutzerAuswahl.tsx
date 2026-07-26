@@ -17,20 +17,26 @@ export type ChatNutzer = {
  *
  * Im Echtbetrieb ist das klar: Der Mieter schreibt von seiner Nummer, und die
  * Zuordnung ergibt sich daraus. In der Demo fehlt diese Information – ohne
- * Auswahl weiß der Betrachter nicht, in wessen Rolle er steckt, und im
- * Dashboard taucht die Meldung bei einer beliebigen Wohnung auf.
+ * Zuordnung wüsste der Betrachter nicht, in wessen Rolle er steckt, und im
+ * Dashboard tauchte die Meldung bei einer beliebigen Wohnung auf.
  *
- * Deshalb zu Beginn diese Auswahl. Sie erklärt zugleich, wie die Zuordnung
- * später funktioniert.
+ * Der Chat startet deshalb von selbst im Namen eines Mieters. Diese Auswahl
+ * erscheint nur, wenn jemand wechseln möchte – vorgeschaltet stünde sie im
+ * Weg, gerade bei einer geführten Vorführung.
  */
 export function NutzerAuswahl({
   mandant,
   nutzer,
+  aktuell,
   onWaehlen,
+  onAbbrechen,
 }: {
   mandant: Mandant;
   nutzer: ChatNutzer[];
+  /** Wer gerade schreibt – wird hervorgehoben. */
+  aktuell?: string;
   onWaehlen: (nutzer: ChatNutzer) => void;
+  onAbbrechen: () => void;
 }) {
   return (
     <div className="flex h-full flex-col justify-center bg-slate-50 px-5 py-8">
@@ -43,8 +49,8 @@ export function NutzerAuswahl({
         </h1>
         <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
           Im laufenden Betrieb erkennt der Assistent den Mieter an seiner Mobilnummer –
-          niemand muss sich anmelden. Für diese Demo wählen Sie bitte eine Wohnung aus,
-          dann sehen Sie im Dashboard, wo Ihre Meldung landet.
+          niemand muss sich anmelden. Hier wählen Sie die Wohnung selbst, dann sehen Sie
+          im Dashboard, wo Ihre Meldung landet. Ein Wechsel beginnt ein neues Gespräch.
         </p>
 
         <ul className="mt-5 space-y-2">
@@ -53,7 +59,12 @@ export function NutzerAuswahl({
               <button
                 type="button"
                 onClick={() => onWaehlen(eintrag)}
-                className="flex w-full items-center gap-3 rounded-lg border border-border bg-white px-3.5 py-3 text-left transition-colors hover:border-marke focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                aria-current={eintrag.einheitId === aktuell}
+                className={
+                  eintrag.einheitId === aktuell
+                    ? "flex w-full items-center gap-3 rounded-lg border border-marke bg-marke-sanft px-3.5 py-3 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    : "flex w-full items-center gap-3 rounded-lg border border-border bg-white px-3.5 py-3 text-left transition-colors hover:border-marke focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                }
               >
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-marke-sanft">
                   <UserIcon className="size-4 text-marke" aria-hidden />
@@ -75,6 +86,14 @@ export function NutzerAuswahl({
             </li>
           ))}
         </ul>
+
+        <button
+          type="button"
+          onClick={onAbbrechen}
+          className="mt-4 text-sm text-muted-foreground underline-offset-2 hover:text-marke hover:underline"
+        >
+          Zurück zum Gespräch
+        </button>
 
         <p className="mt-5 text-xs text-muted-foreground">
           Alle Namen und Nummern sind erfunden. Objekte tragen Straßennamen aus{" "}

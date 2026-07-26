@@ -84,11 +84,22 @@ export const chatRahmen = {
   selbsthilfeNichtGeklappt:
     "Kein Problem, das war einen Versuch wert. Ich kümmere mich jetzt darum.",
 
-  terminfrage: "Der Betrieb hat freie Zeitfenster. Welches passt Ihnen am besten?",
+  /**
+   * Bewusst eine Frage nach dem Wunsch, nicht nach einem Termin.
+   *
+   * Es ist zu diesem Zeitpunkt noch nichts freigegeben und kein Betrieb
+   * gefragt worden – ein angebotenes Zeitfenster wäre ein Versprechen, das
+   * niemand gegeben hat. Der Wunsch ist trotzdem wertvoll: Er steht später
+   * auf der Seite des Betriebs und wird meistens einfach übernommen.
+   */
+  terminfrage:
+    "Damit wir dem Betrieb gleich etwas mitgeben können: Wann würde es Ihnen " +
+    "am besten passen? Verbindlich ist das noch nicht.",
 
   terminBestaetigt: (fenster: string) =>
-    `Ihr Termin am ${fenster} ist notiert. Der Betrieb bekommt die Bestätigung ` +
-    "und meldet sich, falls sich etwas ändert.",
+    `Ihr Wunsch für ${fenster} ist notiert und geht an den Betrieb. Sobald Ihre ` +
+    "Hausverwaltung den Auftrag freigegeben hat und der Betrieb Termine nennt, " +
+    "melde ich mich hier – dann können Sie auswählen.",
 
   /**
    * Der Betrieb hat sich gemeldet und Zeitfenster genannt.

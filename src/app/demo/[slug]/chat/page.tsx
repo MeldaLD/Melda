@@ -30,5 +30,13 @@ export default async function ChatSeite({
     })
     .slice(0, 5);
 
-  return <ChatFenster mandant={bestand.mandant} nutzer={nutzer} />;
+  if (!nutzer.length) notFound();
+
+  // Wer schreibt, wird hier bestimmt und nicht im Browser: Eine zufällige
+  // Auswahl auf beiden Seiten würde unterschiedlich ausfallen und die
+  // Hydratation zerlegen. Zufällig deshalb, damit die zweite Vorführung nicht
+  // dieselbe wird wie die erste.
+  const start = nutzer[Math.floor(Math.random() * nutzer.length)];
+
+  return <ChatFenster mandant={bestand.mandant} nutzer={nutzer} start={start} />;
 }

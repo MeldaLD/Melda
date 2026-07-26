@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeftIcon, CameraIcon, SendIcon } from "lucide-react";
+import { ArrowLeftIcon, CameraIcon, ChevronDownIcon, SendIcon } from "lucide-react";
 import Link from "next/link";
 
 import { chatRahmen } from "@config/chat-rahmen";
@@ -19,21 +19,55 @@ import { tourMelden } from "@/lib/tour/ereignisse";
 export function ChatFenster({
   mandant,
   nutzer,
+  start,
 }: {
   mandant: Mandant;
   nutzer: ChatNutzer[];
+  /** Wer schreibt, wenn niemand etwas anderes wählt. Kommt vom Server. */
+  start: ChatNutzer;
 }) {
-  const [gewaehlt, setGewaehlt] = useState<ChatNutzer | null>(null);
+  const [gewaehlt, setGewaehlt] = useState<ChatNutzer>(start);
+  const [wechseln, setWechseln] = useState(false);
 
-  // Erst die Rolle wählen, dann den Chat aufbauen. Der Hook startet die
-  // Begrüßung beim ersten Rendern – deshalb darf er vorher nicht laufen.
-  if (!gewaehlt) {
-    return <NutzerAuswahl mandant={mandant} nutzer={nutzer} onWaehlen={setGewaehlt} />;
+  // Das Gespräch beginnt sofort. Wer davor eine Auswahlseite sieht, muss erst
+  // etwas entscheiden, bevor er versteht, worum es geht – bei einer geführten
+  // Vorführung steht das im Weg. Gewechselt wird über die Kopfzeile.
+  if (wechseln) {
+    return (
+      <NutzerAuswahl
+        mandant={mandant}
+        nutzer={nutzer}
+        aktuell={gewaehlt.einheitId}
+        onWaehlen={(neu) => {
+          setGewaehlt(neu);
+          setWechseln(false);
+        }}
+        onAbbrechen={() => setWechseln(false)}
+      />
+    );
   }
-  return <Gespraech mandant={mandant} nutzer={gewaehlt} />;
+
+  return (
+    // Der Schlüssel setzt das Gespräch beim Wechsel zurück: Ein anderer Mieter
+    // hat einen eigenen Verlauf und eigene Meldungen.
+    <Gespraech
+      key={gewaehlt.einheitId}
+      mandant={mandant}
+      nutzer={gewaehlt}
+      onWechseln={() => setWechseln(true)}
+    />
+  );
 }
 
-function Gespraech({ mandant, nutzer }: { mandant: Mandant; nutzer: ChatNutzer }) {
+function Gespraech({
+  mandant,
+  nutzer,
+  onWechseln,
+}: {
+  mandant: Mandant;
+  nutzer: ChatNutzer;
+  onWechseln: () => void;
+}) {
   const umgebung: Umgebung = {
     firma: mandant.firma,
     handwerker: mandant.handwerker ?? [],
@@ -89,7 +123,12 @@ function Gespraech({ mandant, nutzer }: { mandant: Mandant; nutzer: ChatNutzer }
     // h-full statt h-svh: Die Demo-Kennzeichnung im Layout darüber belegt
     // bereits einen Teil des Bildschirms.
     <div className="flex h-full flex-col bg-chat-hintergrund">
-      <Kopfzeile mandant={mandant} tippt={tippt} nutzer={nutzer} />
+      <Kopfzeile
+        mandant={mandant}
+        tippt={tippt}
+        nutzer={nutzer}
+        onWechseln={onWechseln}
+      />
 
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3 sm:px-4">
         <Datumstrenner />
@@ -160,10 +199,12 @@ function Kopfzeile({
   mandant,
   tippt,
   nutzer,
+  onWechseln,
 }: {
   mandant: Mandant;
   tippt: boolean;
   nutzer: ChatNutzer;
+  onWechseln: () => void;
 }) {
   const initialen = mandant.firma
     .split(" ")
@@ -204,14 +245,31 @@ function Kopfzeile({
         </p>
       </div>
 
-      {/* Wer hier schreibt – ohne diese Zeile weiß der Betrachter nicht,
-          in wessen Rolle er gerade steckt. */}
-      <div className="hidden max-w-[40%] shrink-0 text-right sm:block">
-        <p className="truncate text-xs leading-tight font-medium">{nutzer.name}</p>
-        <p className="truncate text-[11px] opacity-75">
-          {nutzer.objekt} · {nutzer.lage}
-        </p>
-      </div>
+      {/* Wer hier schreibt – ohne diese Zeile weiß der Betrachter nicht, in
+          wessen Rolle er gerade steckt. Zugleich der Weg zum Wechsel. */}
+      <button
+        type="button"
+        onClick={onWechseln}
+        title="Als anderen Mieter schreiben"
+        // Auf dem Telefon steht nur ein Zeichen – ohne Beschriftung wüsste
+        // niemand mit Screenreader, wessen Rolle er gerade hat.
+        aria-label={`Sie schreiben als ${nutzer.name}, ${nutzer.objekt} ${nutzer.lage}. Mieter wechseln`}
+        className="flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-right transition-colors hover:bg-white/15"
+      >
+        {/* Auf dem Telefon nur das Zeichen – sonst bricht der Firmenname um,
+            und der gehört in einem Mieter-Chat nach vorn. */}
+        <span className="hidden max-w-[9rem] min-w-0 sm:block">
+          <span className="block truncate text-xs leading-tight font-medium">
+            {nutzer.name}
+          </span>
+          <span className="block truncate text-[11px] opacity-75">
+            {nutzer.lage} · wechseln
+          </span>
+        </span>
+        <span className="flex size-8 items-center justify-center rounded-full bg-white/15 sm:size-auto sm:bg-transparent">
+          <ChevronDownIcon className="size-4 opacity-90 sm:size-3.5" aria-hidden />
+        </span>
+      </button>
     </header>
   );
 }
