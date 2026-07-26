@@ -331,6 +331,18 @@ export function bestandErzeugen(
   });
 
   // --- Handwerksbetriebe ---------------------------------------------------
+  /** Plausible Sammeladresse aus dem Firmennamen – rein für die Anzeige. */
+  const briefkasten = (firma: string) =>
+    `buero@${firma
+      .toLowerCase()
+      .replace(/ä/g, "ae")
+      .replace(/ö/g, "oe")
+      .replace(/ü/g, "ue")
+      .replace(/ß/g, "ss")
+      .replace(/\b(gmbh|kg|ohg|ug|e\.?k\.?|gbr|&|co)\b/g, "")
+      .replace(/[^a-z0-9]+/g, "")
+      .slice(0, 24)}.de`;
+
   const gesehen = new Set<string>();
   const handwerker: Handwerker[] = vorlage.handwerker.map((h, index) => {
     const erster = !gesehen.has(h.gewerk);
@@ -344,6 +356,13 @@ export function bestandErzeugen(
       reaktionszeit_h: h.reaktionszeit_h ?? 24,
       bewertung: h.bewertung ?? 4.3,
       ist_standard: erster,
+      ansprechpartner: h.ansprechpartner ?? null,
+      email: h.email ?? briefkasten(h.firma),
+      kontakt_kanal: h.kontaktKanal ?? "email",
+      // Vorgabe ist "nicht erlaubt". Welche Betriebe zugestimmt haben, steht
+      // in der Mandantenvorlage – siehe config/muster-mandant.ts.
+      abstimmung_erlaubt: h.abstimmungErlaubt ?? false,
+      arbeitszeiten: h.arbeitszeiten ?? null,
     };
   });
 
@@ -631,6 +650,7 @@ export function bestandErzeugen(
       tenant_id: tenantId,
       vorgang_id: null,
       einheit_id: einheit.id,
+      handwerker_id: null,
       richtung: "mieter",
       kanal,
       text,
@@ -694,6 +714,7 @@ function chatverlauf(e: ChatEingabe): Nachricht[] {
       tenant_id: tenantId,
       vorgang_id: vorgangId,
       einheit_id: einheit.id,
+      handwerker_id: null,
       richtung,
       kanal: "whatsapp",
       text,

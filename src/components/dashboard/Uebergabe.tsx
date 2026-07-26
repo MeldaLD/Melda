@@ -5,9 +5,12 @@ import {
   AlertCircleIcon,
   CheckIcon,
   CopyIcon,
+  ExternalLinkIcon,
+  Loader2Icon,
   MailIcon,
   MessageSquareIcon,
   PhoneIcon,
+  SendIcon,
 } from "lucide-react";
 
 import {
@@ -17,7 +20,9 @@ import {
   type Bausteindaten,
 } from "@config/bausteine";
 import {
+  demoBetriebAntwortenLassen,
   notizEintragen,
+  terminanfrageStellen,
   vorgangWeiterschieben,
   type Ergebnis,
 } from "@/app/demo/[slug]/dashboard/aktionen";
@@ -48,12 +53,15 @@ export function Uebergabe({
   status,
   daten,
   betriebTelefon,
+  abstimmung,
 }: {
   slug: string;
   vorgangId: string;
   status: VorgangStatus;
   daten: Bausteindaten;
   betriebTelefon: string | null;
+  /** Stand der direkten Abstimmung mit dem Betrieb, falls er zugestimmt hat. */
+  abstimmung: Abstimmungsstand;
 }) {
   const [reiter, setReiter] = useState<Reiter>("email");
   const email = handwerkerEmail(daten);
@@ -71,6 +79,7 @@ export function Uebergabe({
       </CardHeader>
 
       <CardContent className="space-y-3">
+        <Abstimmung slug={slug} vorgangId={vorgangId} stand={abstimmung} />
         <div className="flex flex-wrap gap-1.5" role="tablist">
           <ReiterKnopf
             aktiv={reiter === "email"}
@@ -138,6 +147,200 @@ export function Uebergabe({
 }
 
 // ---------------------------------------------------------------------------
+
+export type Abstimmungsstand =
+  | { art: "nicht_erlaubt"; betrieb: string | null }
+  | { art: "moeglich"; betrieb: string }
+  | { art: "wartet"; betrieb: string; seit: string; link: string }
+  | { art: "vorgeschlagen"; betrieb: string; anzahl: number }
+  | { art: "gewaehlt"; betrieb: string; fenster: string };
+
+/**
+ * Der Weg, der der Verwaltung die eigentliche Arbeit abnimmt.
+ *
+ * Nicht das Beauftragen kostet Zeit, sondern das Hin und Her, bis Betrieb und
+ * Mieter denselben Termin haben. Wo der Betrieb zugestimmt hat, übernimmt der
+ * Assistent genau dieses Stück: Link an den Betrieb, drei Fenster zurück,
+ * Auswahl durch den Mieter – und erst das Ergebnis kommt hierher zurück.
+ */
+function Abstimmung({
+  slug,
+  vorgangId,
+  stand,
+}: {
+  slug: string;
+  vorgangId: string;
+  stand: Abstimmungsstand;
+}) {
+  const [meldung, setMeldung] = useState<string | null>(null);
+  const [fehler, setFehler] = useState<string | null>(null);
+  const [laeuft, starten] = useTransition();
+
+  if (stand.art === "nicht_erlaubt") {
+    return (
+      <p className="rounded-md bg-slate-50 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+        {stand.betrieb ?? "Dieser Betrieb"} hat der direkten Terminabstimmung nicht
+        zugestimmt – Sie rufen selbst an. Unter Handwerker &amp; Dienstleister lässt
+        sich das umstellen, sobald der Betrieb einverstanden ist.
+      </p>
+    );
+  }
+
+  const rahmen =
+    "space-y-2 rounded-md border border-marke-rand bg-marke-sanft px-3 py-2.5";
+
+  if (stand.art === "wartet") {
+    return (
+      <div className={rahmen}>
+        <p className="flex items-center gap-1.5 text-sm font-medium text-marke">
+          <SendIcon className="size-3.5 shrink-0" aria-hidden />
+          Terminlink an {stand.betrieb} verschickt
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {stand.seit} · Der Betrieb nennt uns drei Zeitfenster, danach wählt der
+          Mieter. Sie hören erst wieder von uns, wenn ein Termin feststeht.
+        </p>
+
+        {/* DEMO: In einer Vorführung wartet niemand auf einen echten Betrieb.
+            Beide Wege führen durch dieselbe Logik – der Link ist die Seite,
+            die der Betrieb bekommt, der Knopf nimmt nur den Menschen vorweg. */}
+        <div className="flex flex-wrap gap-2 border-t border-marke-rand pt-2">
+          <Button asChild size="sm" variant="outline">
+            <a href={stand.link} target="_blank" rel="noreferrer">
+              <ExternalLinkIcon />
+              Seite des Betriebs öffnen
+            </a>
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={laeuft}
+            onClick={() =>
+              starten(async () => {
+                const ergebnis = await demoBetriebAntwortenLassen({ slug, vorgangId });
+                if (ergebnis.fehlgeschlagen) {
+                  setFehler(ergebnis.hinweis ?? "Hat nicht geklappt.");
+                  return;
+                }
+                setFehler(null);
+                setMeldung(ergebnis.hinweis ?? "Antwort eingegangen.");
+              })
+            }
+          >
+            {laeuft && <Loader2Icon className="animate-spin" />}
+            Betrieb antworten lassen
+          </Button>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Für die Vorführung: Der Link führt zu der Seite, die der Betrieb per WhatsApp
+          oder E-Mail bekommt – Sie können sie auf Ihrem Telefon selbst ausfüllen. Der
+          Knopf daneben nimmt Ihnen das ab und legt drei Fenster an.
+        </p>
+        {meldung && (
+          <p className="flex items-center gap-1.5 text-xs text-marke">
+            <CheckIcon className="size-3.5 shrink-0" aria-hidden />
+            {meldung}
+          </p>
+        )}
+        {fehler && (
+          <p className="flex items-start gap-1.5 text-xs text-prio-notfall">
+            <AlertCircleIcon className="mt-px size-3.5 shrink-0" aria-hidden />
+            {fehler}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (stand.art === "vorgeschlagen") {
+    return (
+      <div className={rahmen}>
+        <p className="flex items-center gap-1.5 text-sm font-medium text-marke">
+          <CheckIcon className="size-3.5 shrink-0" aria-hidden />
+          {stand.betrieb} hat {stand.anzahl} Zeitfenster genannt
+        </p>
+        <p className="text-xs text-muted-foreground">
+          Der Mieter wählt gerade aus. Danach liegt die Bestätigung im Freigabe-Center.
+        </p>
+        {/* DEMO: Damit man den Kreis in einer Vorführung schließen kann, ohne
+            zu suchen, wo der Mieter jetzt hinschauen müsste. */}
+        <Button asChild size="sm" variant="outline">
+          <a href={`/demo/${slug}/chat`} target="_blank" rel="noreferrer">
+            <ExternalLinkIcon />
+            Im Mieter-Chat ansehen
+          </a>
+        </Button>
+        <p className="text-[11px] text-muted-foreground">
+          Der Mieter bekommt die Auswahl über WhatsApp. In der Demo tippen Sie im Chat
+          auf „Status“, dann erscheinen die drei Fenster zum Antippen.
+        </p>
+      </div>
+    );
+  }
+
+  if (stand.art === "gewaehlt") {
+    return (
+      <div className={rahmen}>
+        <p className="flex items-center gap-1.5 text-sm font-medium text-marke">
+          <CheckIcon className="size-3.5 shrink-0" aria-hidden />
+          Termin abgestimmt: {stand.fenster}
+        </p>
+        <p className="text-xs text-muted-foreground">
+          {stand.betrieb} und der Mieter sind sich einig. Die Bestätigung wartet im
+          Freigabe-Center auf Sie.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={rahmen}>
+      <p className="text-sm font-medium text-slate-800">
+        {stand.betrieb} stimmt Termine direkt mit uns ab
+      </p>
+      <p className="text-xs leading-relaxed text-muted-foreground">
+        Wir schicken dem Betrieb einen Link, unter dem er drei Zeitfenster nennt – ohne
+        Anmeldung, in zwanzig Sekunden auf dem Telefon erledigt. Der Mieter wählt eines
+        aus, und Sie bekommen nur noch die Bestätigung vorgelegt.
+      </p>
+      <Button
+        size="sm"
+        variant="marke"
+        disabled={laeuft}
+        onClick={() =>
+          starten(async () => {
+            const ergebnis = await terminanfrageStellen({ slug, vorgangId });
+            if (ergebnis.fehlgeschlagen) {
+              setFehler(ergebnis.hinweis ?? "Hat nicht geklappt.");
+              return;
+            }
+            setFehler(null);
+            setMeldung(
+              ergebnis.gespeichert
+                ? (ergebnis.hinweis ?? "Link verschickt.")
+                : "In dieser Vorschau nicht verschickt.",
+            );
+          })
+        }
+      >
+        {laeuft ? <Loader2Icon className="animate-spin" /> : <SendIcon />}
+        Abstimmung übernehmen
+      </Button>
+      {meldung && (
+        <p className="flex items-center gap-1.5 text-xs text-marke">
+          <CheckIcon className="size-3.5 shrink-0" aria-hidden />
+          {meldung}
+        </p>
+      )}
+      {fehler && (
+        <p className="flex items-start gap-1.5 text-xs text-prio-notfall">
+          <AlertCircleIcon className="mt-px size-3.5 shrink-0" aria-hidden />
+          {fehler}
+        </p>
+      )}
+    </div>
+  );
+}
 
 function ReiterKnopf({
   aktiv,

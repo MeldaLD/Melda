@@ -122,6 +122,12 @@ export type HandwerkerVorlage = {
   gewerk: Gewerk;
   reaktionszeit_h?: number;
   bewertung?: number;
+  ansprechpartner?: string;
+  email?: string;
+  kontaktKanal?: Kanal;
+  /** Betrieb hat der direkten Terminabstimmung zugestimmt. */
+  abstimmungErlaubt?: boolean;
+  arbeitszeiten?: string;
 };
 
 export type MandantEinstellungen = {
@@ -179,6 +185,14 @@ export type Handwerker = {
   reaktionszeit_h: number;
   bewertung: number;
   ist_standard: boolean;
+  ansprechpartner: string | null;
+  email: string | null;
+  /** Über welchen Weg der Betrieb angesprochen werden möchte. */
+  kontakt_kanal: Kanal;
+  /** Betrieb hat der direkten Terminabstimmung zugestimmt. */
+  abstimmung_erlaubt: boolean;
+  /** Übliche Arbeitszeiten als Freitext, z. B. "Mo–Do 7–16 Uhr". */
+  arbeitszeiten: string | null;
 };
 
 export type Zeitfenster = {
@@ -223,6 +237,8 @@ export type Nachricht = {
   tenant_id: string;
   vorgang_id: string | null;
   einheit_id: string | null;
+  /** Gesetzt bei Nachrichten an oder von einem Handwerksbetrieb. */
+  handwerker_id: string | null;
   richtung: NachrichtRichtung;
   kanal: Kanal;
   text: string;
@@ -281,6 +297,32 @@ export type Termin = {
   /** Zuordnungsvorschlag aus dem Thema, im Dashboard überschreibbar. */
   bereich_vorschlag: Fachbereich | null;
   ist_seed: boolean;
+};
+
+export type TerminanfrageStatus = "offen" | "beantwortet" | "bestaetigt" | "abgelaufen";
+
+/** Ein Zeitfenster, das der Betrieb vorgeschlagen hat. */
+export type Terminvorschlag = { beginn: string; ende: string };
+
+/**
+ * Der Link an einen Handwerksbetrieb: drei Vorschläge ohne Anmeldung.
+ * Siehe supabase/migrations/…_terminanfragen.sql
+ */
+export type Terminanfrage = {
+  id: string;
+  tenant_id: string;
+  vorgang_id: string;
+  handwerker_id: string;
+  token: string;
+  status: TerminanfrageStatus;
+  vorschlaege: Terminvorschlag[];
+  gewaehlt: number | null;
+  wunsch_beginn: string | null;
+  wunsch_ende: string | null;
+  ist_seed: boolean;
+  erstellt_am: string;
+  beantwortet_am: string | null;
+  gueltig_bis: string;
 };
 
 /** Vollständiger Datenbestand eines Mandanten – Ergebnis des Generators. */

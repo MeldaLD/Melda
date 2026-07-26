@@ -613,7 +613,7 @@ export function schritt(
     }
 
     // -----------------------------------------------------------------------
-    case "status":
+    case "status": {
       if (!zustand.meldungen.length) {
         return {
           zustand,
@@ -622,21 +622,80 @@ export function schritt(
           ],
         };
       }
-      return {
-        zustand,
-        ausgabe: [
-          {
-            nachricht: {
-              text:
-                zustand.meldungen.length === 1
-                  ? chatRahmen.statusEinleitung
-                  : chatRahmen.statusEinleitungMehrere(zustand.meldungen.length),
-              karte: { art: "status", meldungen: zustand.meldungen },
-            },
-            tippdauer: tippenKurz,
+
+      const ausgabe: Ausgabe[] = [
+        {
+          nachricht: {
+            text:
+              zustand.meldungen.length === 1
+                ? chatRahmen.statusEinleitung
+                : chatRahmen.statusEinleitungMehrere(zustand.meldungen.length),
+            karte: { art: "status", meldungen: zustand.meldungen },
           },
+          tippdauer: tippenKurz,
+        },
+      ];
+
+      // Hat ein Betrieb inzwischen Zeitfenster genannt, ist das die
+      // wichtigste Nachricht des Tages – deshalb direkt hinter dem Status
+      // und nicht irgendwo im Verlauf vergraben.
+      const offen = zustand.meldungen.find(
+        (m) => m.terminauswahl && m.terminauswahl.vorschlaege.length,
+      );
+      if (offen?.terminauswahl) {
+        ausgabe.push(sagen(chatRahmen.terminauswahlFrage(offen.titel), tippenKurz));
+        return {
+          zustand: {
+            ...zustand,
+            angebot: {
+              art: "terminauswahl",
+              token: offen.terminauswahl.token,
+              fenster: offen.terminauswahl.vorschlaege,
+            },
+          },
+          ausgabe,
+        };
+      }
+
+      return { zustand, ausgabe };
+    }
+
+    // -----------------------------------------------------------------------
+    case "terminauswahl": {
+      if (zustand.angebot.art !== "terminauswahl") return { zustand, ausgabe: [] };
+      const { token } = zustand.angebot;
+      const gewaehlt = zustand.angebot.fenster[ereignis.index];
+      if (!gewaehlt) return { zustand, ausgabe: [] };
+
+      return {
+        zustand: {
+          ...zustand,
+          phase: "frei",
+          angebot: { art: "frei" },
+          gewaehlterTermin: gewaehlt,
+          // Die Auswahl ist erledigt – sie soll beim nächsten Status nicht
+          // erneut angeboten werden.
+          meldungen: zustand.meldungen.map((m) =>
+            m.terminauswahl?.token === token
+              ? {
+                  ...m,
+                  terminauswahl: null,
+                  schritte: [
+                    ...m.schritte,
+                    {
+                      was: `Termin gewählt: ${gewaehlt.beschriftung}`,
+                      zeit: new Date().toISOString(),
+                    },
+                  ],
+                }
+              : m,
+          ),
+        },
+        ausgabe: [
+          sagen(chatRahmen.terminauswahlBestaetigt(gewaehlt.beschriftung), tippenKurz),
         ],
       };
+    }
 
     // -----------------------------------------------------------------------
     case "neueMeldung":

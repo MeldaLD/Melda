@@ -90,6 +90,21 @@ export const chatRahmen = {
     `Ihr Termin am ${fenster} ist notiert. Der Betrieb bekommt die Bestätigung ` +
     "und meldet sich, falls sich etwas ändert.",
 
+  /**
+   * Der Betrieb hat sich gemeldet und Zeitfenster genannt.
+   *
+   * Für den Mieter ist das der Moment, in dem sichtbar wird, dass jemand
+   * gearbeitet hat, ohne dass er etwas tun musste – deshalb steht das
+   * ausdrücklich in der Nachricht.
+   */
+  terminauswahlFrage: (titel: string) =>
+    `Gute Nachrichten zu „${titel}": Der Betrieb hat uns Termine genannt. ` +
+    "Welcher passt Ihnen am besten?",
+
+  terminauswahlBestaetigt: (fenster: string) =>
+    `${fenster} ist vorgemerkt. Ihre Hausverwaltung bestätigt den Termin, ` +
+    "danach bekommen Sie von uns die verbindliche Zusage.",
+
   abschluss:
     "Sie können mir jederzeit STATUS schreiben, dann zeige ich Ihnen den " +
     "aktuellen Stand. Für ein persönliches Gespräch mit der Verwaltung tippen " +

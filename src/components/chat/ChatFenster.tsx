@@ -361,6 +361,27 @@ function Aktionsleiste({
         </div>
       );
 
+    // Zeitfenster, die der Handwerksbetrieb selbst genannt hat.
+    case "terminauswahl":
+      return (
+        <div className="flex flex-col gap-2 px-3 pb-1 sm:px-4">
+          {angebot.fenster.map((f, index) => (
+            <Schnellknopf
+              key={f.beginn}
+              breit
+              onClick={() =>
+                onEreignis(
+                  { art: "terminauswahl", token: angebot.token, index },
+                  { text: f.beschriftung },
+                )
+              }
+            >
+              {f.beschriftung}
+            </Schnellknopf>
+          ))}
+        </div>
+      );
+
     // Der Mieter wählt nur das Thema – nicht die Person und nicht die Uhrzeit.
     // Wer zurückruft, entscheidet die Verwaltung im Dashboard.
     case "rueckrufGrund":

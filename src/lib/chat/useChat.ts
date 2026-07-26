@@ -193,6 +193,10 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
         void rueckrufSpeichern(slug, einheitId, ergebnis.zustand.rueckruf);
       }
 
+      if (ereignis.art === "terminauswahl") {
+        void terminauswahlSenden(ereignis.token, ereignis.index);
+      }
+
       // Was während der Antwort hereinkam, jetzt abarbeiten.
       const naechste = warteschlange.current.shift();
       if (naechste) {
@@ -303,6 +307,44 @@ async function terminSpeichern(
   }
 }
 
+/** Macht aus zwei Zeitstempeln die Beschriftung, die im Chat steht. */
+function beschriften(v: { beginn: string; ende: string }): Terminfenster {
+  const tag = new Intl.DateTimeFormat("de-DE", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    timeZone: "Europe/Berlin",
+  }).format(new Date(v.beginn));
+  const zeit = new Intl.DateTimeFormat("de-DE", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Europe/Berlin",
+  });
+  return {
+    beschriftung: `${tag}, ${zeit.format(new Date(v.beginn))}–${zeit.format(new Date(v.ende))} Uhr`,
+    beginn: v.beginn,
+    ende: v.ende,
+  };
+}
+
+/**
+ * Meldet die Wahl des Mieters zurück.
+ *
+ * Daraus entsteht serverseitig die Terminbestätigung im Freigabe-Center –
+ * verbindlich wird der Termin erst mit der Freigabe der Verwaltung.
+ */
+async function terminauswahlSenden(token: string, index: number): Promise<void> {
+  try {
+    await fetch("/api/chat/terminauswahl", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, index }),
+    });
+  } catch {
+    // Der Mieter hat seine Bestätigung schon gesehen.
+  }
+}
+
 /** Legt den Rückrufwunsch an. Hängt an keinem Vorgang, nur an der Wohnung. */
 async function rueckrufSpeichern(
   slug: string,
@@ -342,7 +384,14 @@ async function statusAbgleichen(meldungen: Meldung[]): Promise<Meldung[] | null>
 
     const staende = ergebnis.staende as Record<
       string,
-      { status: Meldung["status"]; schritte: { was: string; zeit: string }[] }
+      {
+        status: Meldung["status"];
+        schritte: { was: string; zeit: string }[];
+        terminauswahl?: {
+          token: string;
+          vorschlaege: { beginn: string; ende: string }[];
+        };
+      }
     >;
 
     return meldungen.map((meldung) => {
@@ -355,6 +404,12 @@ async function statusAbgleichen(meldungen: Meldung[]): Promise<Meldung[] | null>
         // Die Historie aus der Datenbank ist die verlässlichere Quelle,
         // weil dort auch steht, was die Verwaltung getan hat.
         schritte: frisch.schritte.length ? frisch.schritte : meldung.schritte,
+        terminauswahl: frisch.terminauswahl
+          ? {
+              token: frisch.terminauswahl.token,
+              vorschlaege: frisch.terminauswahl.vorschlaege.map(beschriften),
+            }
+          : null,
       };
     });
   } catch {

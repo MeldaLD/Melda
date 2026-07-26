@@ -48,6 +48,7 @@ const baustand = [
   { schritt: "Geführte Tour", fertig: true },
   { schritt: "Alle Eingaben landen in der Datenbank", fertig: true },
   { schritt: "Übergabe an die Mitarbeitenden mit Textbausteinen", fertig: true },
+  { schritt: "Terminabstimmung mit den Handwerksbetrieben", fertig: true },
   { schritt: "Echte Demo-Fotos", fertig: false },
 ];
 

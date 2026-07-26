@@ -61,6 +61,11 @@ export type Meldung = {
   betrieb: string | null;
   /** Was wann passiert ist – die Zeitleiste der Statusanzeige. */
   schritte: Meldungsschritt[];
+  /**
+   * Zeitfenster, die der Handwerksbetrieb angeboten hat und aus denen der
+   * Mieter noch wählen muss. Kommt beim Statusabgleich aus der Datenbank.
+   */
+  terminauswahl?: { token: string; vorschlaege: Terminfenster[] } | null;
 };
 
 export type Meldungsschritt = {
@@ -91,6 +96,7 @@ export type Angebot =
   | { art: "selbsthilfe" }
   | { art: "selbsthilfeErgebnis" }
   | { art: "termin"; fenster: Terminfenster[] }
+  | { art: "terminauswahl"; token: string; fenster: Terminfenster[] }
   | { art: "rueckrufGrund" }
   | { art: "rueckrufZeit" }
   | { art: "frei" }; // Freitext, Status, Rückruf
@@ -142,6 +148,7 @@ export type ChatEreignis =
   | { art: "selbsthilfe"; annehmen: boolean }
   | { art: "selbsthilfeErfolg"; geklappt: boolean }
   | { art: "termin"; index: number }
+  | { art: "terminauswahl"; token: string; index: number }
   | { art: "rueckruf" }
   | { art: "rueckrufGrund"; grundId: string }
   | { art: "rueckrufZeit"; zeitwunschId: string }

@@ -50,24 +50,37 @@ export const MUSTER_MANDANT: MandantVorlage = {
     { name: "Kevin Bartsch", rolle: "Assistenz", bereich: "allgemein" },
   ],
 
+  // "abstimmungErlaubt" heißt: Der Betrieb hat zugesagt, dass der Assistent
+  // Termine direkt mit ihm abstimmen darf. Bewusst nicht bei allen – so ist
+  // in der Vorführung beides zu sehen: der Betrieb, den die Verwaltung selbst
+  // anruft, und der, bei dem nur noch das Ergebnis bestätigt wird.
   handwerker: [
     {
       firma: "Sanitär Krause GmbH",
       gewerk: "sanitaer",
       reaktionszeit_h: 4,
       bewertung: 4.6,
+      ansprechpartner: "Frau Krause",
+      kontaktKanal: "whatsapp",
+      abstimmungErlaubt: true,
+      arbeitszeiten: "Mo–Do 7–16 Uhr, Fr 7–13 Uhr",
     },
     {
       firma: "Heizungsbau Nolte",
       gewerk: "heizung",
       reaktionszeit_h: 8,
       bewertung: 4.3,
+      ansprechpartner: "Herr Nolte",
+      kontaktKanal: "email",
+      abstimmungErlaubt: true,
+      arbeitszeiten: "Mo–Fr 8–17 Uhr",
     },
     {
       firma: "Elektro Sander & Sohn",
       gewerk: "elektro",
       reaktionszeit_h: 12,
       bewertung: 4.8,
+      ansprechpartner: "Herr Sander",
     },
     {
       firma: "Malerbetrieb Ziegler",

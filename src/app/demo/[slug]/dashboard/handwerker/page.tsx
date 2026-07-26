@@ -1,11 +1,9 @@
 import { notFound } from "next/navigation";
-import { StarIcon } from "lucide-react";
 
 import { Seitenkopf } from "@/components/dashboard/Anzeigen";
-import { Badge } from "@/components/ui/badge";
+import { BetriebZeile } from "@/components/dashboard/BetriebZeile";
 import { istOffen } from "@/lib/dashboard/kennzahlen";
 import { bestandLaden } from "@/lib/daten/quelle";
-import { GEWERK_BEZEICHNUNG } from "@/lib/daten/typen";
 
 export default async function HandwerkerSeite({
   params,
@@ -25,8 +23,15 @@ export default async function HandwerkerSeite({
         beschreibung="Der als Standard markierte Betrieb wird bei diesem Gewerk automatisch vorgeschlagen."
       />
 
+      <p className="mb-4 max-w-3xl rounded-md border border-marke-rand bg-marke-sanft p-3 text-sm leading-relaxed text-slate-700">
+        Wo ein Betrieb zugestimmt hat, übernehmen wir die Terminabstimmung: Der Betrieb
+        bekommt einen Link, nennt dort drei Zeitfenster, der Mieter wählt eines aus. Auf
+        Ihrem Tisch landet nur noch die Bestätigung. Ohne Zustimmung des Betriebs geht
+        keine Nachricht raus.
+      </p>
+
       <div className="overflow-x-auto rounded-lg border border-border bg-white">
-        <table className="w-full min-w-[44rem] text-sm">
+        <table className="w-full min-w-[52rem] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs text-muted-foreground">
               <th className="py-2 pr-3 pl-3 font-medium">Betrieb</th>
@@ -34,47 +39,23 @@ export default async function HandwerkerSeite({
               <th className="py-2 pr-3 font-medium">Reaktionszeit</th>
               <th className="py-2 pr-3 font-medium">Bewertung</th>
               <th className="py-2 pr-3 font-medium">Laufende Aufträge</th>
-              <th className="py-2 pr-3 font-medium">Telefon</th>
+              <th className="py-2 pr-3 font-medium">Terminabstimmung</th>
+              <th className="py-2 pr-3 font-medium"></th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {bestand.handwerker.map((betrieb) => {
-              const laufend = bestand.vorgaenge.filter(
-                (v) => v.handwerker_id === betrieb.id && istOffen(v),
-              ).length;
-
-              return (
-                <tr key={betrieb.id} className="hover:bg-slate-50">
-                  <td className="py-2.5 pr-3 pl-3">
-                    <span className="font-medium">{betrieb.firma}</span>
-                    {betrieb.ist_standard && (
-                      <Badge variant="marke" className="ml-2">
-                        Standard
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="py-2.5 pr-3">{GEWERK_BEZEICHNUNG[betrieb.gewerk]}</td>
-                  <td className="tabellenziffern py-2.5 pr-3">
-                    ⌀ {betrieb.reaktionszeit_h} Std.
-                  </td>
-                  <td className="py-2.5 pr-3">
-                    <span className="flex items-center gap-1">
-                      <StarIcon
-                        className="size-3.5 fill-amber-400 text-amber-400"
-                        aria-hidden
-                      />
-                      <span className="tabellenziffern">
-                        {betrieb.bewertung.toFixed(1)}
-                      </span>
-                    </span>
-                  </td>
-                  <td className="tabellenziffern py-2.5 pr-3">{laufend}</td>
-                  <td className="py-2.5 pr-3 text-muted-foreground">
-                    {betrieb.telefon}
-                  </td>
-                </tr>
-              );
-            })}
+            {bestand.handwerker.map((betrieb) => (
+              <BetriebZeile
+                key={betrieb.id}
+                slug={slug}
+                betrieb={betrieb}
+                laufend={
+                  bestand.vorgaenge.filter(
+                    (v) => v.handwerker_id === betrieb.id && istOffen(v),
+                  ).length
+                }
+              />
+            ))}
           </tbody>
         </table>
       </div>

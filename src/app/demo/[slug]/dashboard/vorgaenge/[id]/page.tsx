@@ -11,14 +11,17 @@ import { szenarioNach } from "@config/scenarios";
 import { DemoFoto } from "@/components/chat/DemoFoto";
 import { PrioBadge, StatusBadge } from "@/components/dashboard/Anzeigen";
 import { Fotostreifen, type Beleg } from "@/components/dashboard/Fotostreifen";
-import { Uebergabe } from "@/components/dashboard/Uebergabe";
+import { Uebergabe, type Abstimmungsstand } from "@/components/dashboard/Uebergabe";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { alsDatumZeit } from "@/lib/dashboard/format";
 import { alterKurz, slaZustand } from "@/lib/dashboard/kennzahlen";
-import { bestandLaden } from "@/lib/daten/quelle";
-import { GEWERK_BEZEICHNUNG } from "@/lib/daten/typen";
+import { bestandLaden, istSchreibenMoeglich } from "@/lib/daten/quelle";
+import { basisUrl } from "@/lib/basis-url";
+import { terminLink, vorschlaegeLesen } from "@/lib/daten/terminanfrage";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { GEWERK_BEZEICHNUNG, type Handwerker } from "@/lib/daten/typen";
 
 export default async function VorgangDetail({
   params,
@@ -67,6 +70,9 @@ export default async function VorgangDetail({
 
   const basis = `/demo/${slug}/dashboard`;
   const frist = slaZustand(vorgang);
+
+  const zustaendig = handwerker ?? vorgeschlagenerBetrieb ?? null;
+  const abstimmung = await abstimmungsstand(vorgang.id, zustaendig);
 
   return (
     <div className="p-4 sm:p-6">
@@ -165,6 +171,7 @@ export default async function VorgangDetail({
             vorgangId={vorgang.id}
             status={vorgang.status}
             betriebTelefon={handwerker?.telefon ?? null}
+            abstimmung={abstimmung}
             daten={{
               firma: bestand.mandant.firma,
               vorgangsnummer: vorgang.nummer,
@@ -279,6 +286,65 @@ export default async function VorgangDetail({
       </div>
     </div>
   );
+}
+
+/**
+ * Wie weit die direkte Abstimmung mit dem Betrieb ist.
+ *
+ * Wird eigens abgefragt statt über bestandLaden mitgeladen: Terminanfragen
+ * hängen an einem einzelnen Vorgang und gehören nicht in den Bestand, den
+ * jede Dashboard-Seite lädt.
+ */
+async function abstimmungsstand(
+  vorgangId: string,
+  betrieb: Handwerker | null | undefined,
+): Promise<Abstimmungsstand> {
+  if (!betrieb?.abstimmung_erlaubt) {
+    return { art: "nicht_erlaubt", betrieb: betrieb?.firma ?? null };
+  }
+  if (!istSchreibenMoeglich()) {
+    return { art: "moeglich", betrieb: betrieb.firma };
+  }
+
+  const { data: anfrage } = await supabaseAdmin()
+    .from("terminanfragen")
+    .select("status, vorschlaege, gewaehlt, erstellt_am, token")
+    .eq("vorgang_id", vorgangId)
+    .order("erstellt_am", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!anfrage || anfrage.status === "abgelaufen") {
+    return { art: "moeglich", betrieb: betrieb.firma };
+  }
+
+  const vorschlaege = vorschlaegeLesen(anfrage.vorschlaege);
+
+  if (anfrage.status === "offen") {
+    return {
+      art: "wartet",
+      betrieb: betrieb.firma,
+      seit: `seit ${alterKurz(anfrage.erstellt_am)}`,
+      link: terminLink(basisUrl(), anfrage.token),
+    };
+  }
+  if (anfrage.status === "beantwortet") {
+    return {
+      art: "vorgeschlagen",
+      betrieb: betrieb.firma,
+      anzahl: vorschlaege.length,
+    };
+  }
+
+  const gewaehlt =
+    anfrage.gewaehlt !== null ? vorschlaege[anfrage.gewaehlt] : undefined;
+  return {
+    art: "gewaehlt",
+    betrieb: betrieb.firma,
+    fenster: gewaehlt
+      ? `${alsDatumZeit(gewaehlt.beginn)} – ${alsDatumZeit(gewaehlt.ende)}`
+      : "Termin steht",
+  };
 }
 
 /** Eckdatum in der Kopfzeile der Zusammenfassung. */
