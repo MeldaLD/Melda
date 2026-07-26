@@ -25,7 +25,10 @@ export default async function DashboardLayout({
       <main className="min-w-0 flex-1">{children}</main>
       <Assistent bestand={bestand} />
       {/* Hört auf Änderungen, die aus dem Mieter-Chat kommen. */}
-      <LiveAktualisierung tenantId={bestand.mandant.id} />
+      <LiveAktualisierung
+        tenantId={bestand.mandant.id}
+        basis={`/demo/${slug}/dashboard`}
+      />
     </div>
   );
 }

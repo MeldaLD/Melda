@@ -6,6 +6,7 @@ import { SearchIcon } from "lucide-react";
 
 import { PrioBadge, SlaPunkt, StatusBadge, LeerHinweis } from "./Anzeigen";
 import { alterKurz, nachDringlichkeit, slaZustand } from "@/lib/dashboard/kennzahlen";
+import { alsDatumZeit } from "@/lib/dashboard/format";
 import {
   GEWERK_BEZEICHNUNG,
   PRIORITAET_BEZEICHNUNG,
@@ -54,6 +55,7 @@ export function VorgangsTabelle({
   const [objekt, setObjekt] = useState(vorgabe.objekt ?? "alle");
   const [mitarbeiter, setMitarbeiter] = useState("alle");
   const [sla, setSla] = useState(vorgabe.sla ?? "alle");
+  const [sortierung, setSortierung] = useState("dringlichkeit");
 
   const gefiltert = useMemo(() => {
     const suchtext = suche.trim().toLowerCase();
@@ -90,8 +92,16 @@ export function VorgangsTabelle({
 
         return true;
       })
-      .sort((a, b) => nachDringlichkeit(a.vorgang, b.vorgang));
-  }, [zeilen, suche, prioritaet, status, objekt, mitarbeiter, sla]);
+      .sort((a, b) => {
+        if (sortierung === "neueste") {
+          return b.vorgang.erstellt_am.localeCompare(a.vorgang.erstellt_am);
+        }
+        if (sortierung === "aelteste") {
+          return a.vorgang.erstellt_am.localeCompare(b.vorgang.erstellt_am);
+        }
+        return nachDringlichkeit(a.vorgang, b.vorgang);
+      });
+  }, [zeilen, suche, prioritaet, status, objekt, mitarbeiter, sla, sortierung]);
 
   return (
     <div className="space-y-3">
@@ -153,6 +163,12 @@ export function VorgangsTabelle({
           <option value="gelb">Läuft bald ab</option>
           <option value="gruen">Im Rahmen</option>
         </Auswahl>
+
+        <Auswahl wert={sortierung} setzen={setSortierung} bezeichnung="Sortierung">
+          <option value="dringlichkeit">Nach Dringlichkeit</option>
+          <option value="neueste">Neueste zuerst</option>
+          <option value="aelteste">Älteste zuerst</option>
+        </Auswahl>
       </div>
 
       <p className="text-xs text-muted-foreground">
@@ -174,7 +190,7 @@ export function VorgangsTabelle({
                 <Kopfzelle>Priorität</Kopfzelle>
                 <Kopfzelle>Status</Kopfzelle>
                 <Kopfzelle>Zuständig</Kopfzelle>
-                <Kopfzelle>Alter</Kopfzelle>
+                <Kopfzelle>Eingang</Kopfzelle>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -220,8 +236,11 @@ export function VorgangsTabelle({
                     <StatusBadge status={z.vorgang.status} />
                   </td>
                   <td className="py-2.5 pr-3 text-xs">{z.mitarbeiter}</td>
-                  <td className="tabellenziffern py-2.5 pr-3 text-xs text-muted-foreground">
-                    {alterKurz(z.vorgang.erstellt_am)}
+                  <td className="tabellenziffern py-2.5 pr-3 text-xs whitespace-nowrap text-muted-foreground">
+                    {alsDatumZeit(z.vorgang.erstellt_am)}
+                    <span className="block">
+                      vor {alterKurz(z.vorgang.erstellt_am)}
+                    </span>
                   </td>
                 </tr>
               ))}

@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BellIcon, XIcon } from "lucide-react";
+import Link from "next/link";
+import { ArrowRightIcon, BellIcon, XIcon } from "lucide-react";
 
 import { supabaseBrowser } from "@/lib/supabase/browser";
 
@@ -18,9 +19,19 @@ import { supabaseBrowser } from "@/lib/supabase/browser";
  * würde der Moment untergehen: Die Zahlen ändern sich still, und der
  * Betrachter merkt nicht, dass gerade seine eigene Chat-Meldung angekommen ist.
  */
-export function LiveAktualisierung({ tenantId }: { tenantId: string }) {
+export function LiveAktualisierung({
+  tenantId,
+  basis,
+}: {
+  tenantId: string;
+  /** Basispfad des Dashboards, für den Sprung zum neuen Vorgang. */
+  basis: string;
+}) {
   const router = useRouter();
-  const [neueMeldung, setNeueMeldung] = useState(false);
+  const [neuerVorgang, setNeuerVorgang] = useState<{
+    id: string;
+    titel: string;
+  } | null>(null);
   // Ohne Datenbank gibt es nichts zu abonnieren.
   const aktiv = Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
@@ -51,7 +62,12 @@ export function LiveAktualisierung({ tenantId }: { tenantId: string }) {
           filter: `tenant_id=eq.${tenantId}`,
         },
         (ereignis) => {
-          if (ereignis.eventType === "INSERT") setNeueMeldung(true);
+          if (ereignis.eventType === "INSERT") {
+            const neu = ereignis.new as { id?: string; titel?: string };
+            if (neu?.id) {
+              setNeuerVorgang({ id: neu.id, titel: neu.titel ?? "Neue Meldung" });
+            }
+          }
           aktualisieren();
         },
       )
@@ -82,22 +98,37 @@ export function LiveAktualisierung({ tenantId }: { tenantId: string }) {
     };
   }, [aktiv, tenantId, router]);
 
-  if (!neueMeldung) return null;
+  if (!neuerVorgang) return null;
 
   return (
-    <div className="fixed top-14 left-1/2 z-50 -translate-x-1/2">
-      <div className="flex items-center gap-2.5 rounded-full border border-marke-rand bg-white py-2 pr-2 pl-4 shadow-lg">
-        <span className="relative flex size-2">
+    <div className="fixed top-14 left-1/2 z-50 w-[min(26rem,calc(100vw-2rem))] -translate-x-1/2">
+      <div className="flex items-center gap-2 rounded-full border border-marke-rand bg-white py-1.5 pr-1.5 pl-4 shadow-lg">
+        <span className="relative flex size-2 shrink-0">
           <span className="absolute inline-flex size-full animate-ping rounded-full bg-marke opacity-60" />
           <span className="relative inline-flex size-2 rounded-full bg-marke" />
         </span>
-        <BellIcon className="size-4 text-marke" aria-hidden />
-        <span className="text-sm font-medium">Neue Meldung eingegangen</span>
+        <BellIcon className="size-4 shrink-0 text-marke" aria-hidden />
+
+        {/* Anklickbar: führt direkt zum eben eingegangenen Vorgang. */}
+        <Link
+          href={`${basis}/vorgaenge/${neuerVorgang.id}`}
+          onClick={() => setNeuerVorgang(null)}
+          className="min-w-0 flex-1 text-left"
+        >
+          <span className="block text-sm leading-tight font-medium">
+            Neue Meldung eingegangen
+          </span>
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {neuerVorgang.titel} · ansehen
+          </span>
+        </Link>
+
+        <ArrowRightIcon className="size-3.5 shrink-0 text-marke" aria-hidden />
         <button
           type="button"
-          onClick={() => setNeueMeldung(false)}
+          onClick={() => setNeuerVorgang(null)}
           aria-label="Hinweis schließen"
-          className="rounded-full p-1 text-slate-400 hover:text-slate-700"
+          className="shrink-0 rounded-full p-1.5 text-slate-400 hover:text-slate-700"
         >
           <XIcon className="size-3.5" />
         </button>

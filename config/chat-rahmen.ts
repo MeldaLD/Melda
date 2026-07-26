@@ -79,6 +79,9 @@ export const chatRahmen = {
 
   statusEinleitung: "Hier der aktuelle Stand Ihrer Meldung:",
 
+  statusEinleitungMehrere: (anzahl: number) =>
+    `Sie haben ${anzahl} Meldungen bei uns. Hier der aktuelle Stand:`,
+
   /** Beschriftungen der Schnellantwort-Knöpfe. */
   knoepfe: {
     ja: "Ja, das stimmt",

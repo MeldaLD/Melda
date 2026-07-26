@@ -13,14 +13,36 @@ import type { Mandant } from "@/lib/daten/typen";
 import { Button } from "@/components/ui/button";
 import { Blase, TippIndikator } from "./Blase";
 import { FotoDialog } from "./FotoDialog";
+import { NutzerAuswahl, type ChatNutzer } from "./NutzerAuswahl";
 
-export function ChatFenster({ mandant }: { mandant: Mandant }) {
+export function ChatFenster({
+  mandant,
+  nutzer,
+}: {
+  mandant: Mandant;
+  nutzer: ChatNutzer[];
+}) {
+  const [gewaehlt, setGewaehlt] = useState<ChatNutzer | null>(null);
+
+  // Erst die Rolle wählen, dann den Chat aufbauen. Der Hook startet die
+  // Begrüßung beim ersten Rendern – deshalb darf er vorher nicht laufen.
+  if (!gewaehlt) {
+    return <NutzerAuswahl mandant={mandant} nutzer={nutzer} onWaehlen={setGewaehlt} />;
+  }
+  return <Gespraech mandant={mandant} nutzer={gewaehlt} />;
+}
+
+function Gespraech({ mandant, nutzer }: { mandant: Mandant; nutzer: ChatNutzer }) {
   const umgebung: Umgebung = {
     firma: mandant.firma,
     handwerker: mandant.handwerker ?? [],
   };
 
-  const { zustand, tippt, beschaeftigt, ausloesen } = useChat(umgebung, mandant.slug);
+  const { zustand, tippt, beschaeftigt, ausloesen } = useChat(
+    umgebung,
+    mandant.slug,
+    nutzer.einheitId,
+  );
   const [entwurf, setEntwurf] = useState("");
   const [fotoOffen, setFotoOffen] = useState(false);
   const ende = useRef<HTMLDivElement>(null);
@@ -57,7 +79,7 @@ export function ChatFenster({ mandant }: { mandant: Mandant }) {
     // h-full statt h-svh: Die Demo-Kennzeichnung im Layout darüber belegt
     // bereits einen Teil des Bildschirms.
     <div className="flex h-full flex-col bg-chat-hintergrund">
-      <Kopfzeile mandant={mandant} tippt={tippt} />
+      <Kopfzeile mandant={mandant} tippt={tippt} nutzer={nutzer} />
 
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3 sm:px-4">
         <Datumstrenner />
@@ -124,7 +146,15 @@ export function ChatFenster({ mandant }: { mandant: Mandant }) {
 
 // ---------------------------------------------------------------------------
 
-function Kopfzeile({ mandant, tippt }: { mandant: Mandant; tippt: boolean }) {
+function Kopfzeile({
+  mandant,
+  tippt,
+  nutzer,
+}: {
+  mandant: Mandant;
+  tippt: boolean;
+  nutzer: ChatNutzer;
+}) {
   const initialen = mandant.firma
     .split(" ")
     .map((w) => w[0])
@@ -161,6 +191,15 @@ function Kopfzeile({ mandant, tippt }: { mandant: Mandant; tippt: boolean }) {
         </p>
         <p className="text-xs opacity-80">
           {tippt ? "tippt gerade…" : "Serviceassistent · antwortet sofort"}
+        </p>
+      </div>
+
+      {/* Wer hier schreibt – ohne diese Zeile weiß der Betrachter nicht,
+          in wessen Rolle er gerade steckt. */}
+      <div className="hidden max-w-[40%] shrink-0 text-right sm:block">
+        <p className="truncate text-xs leading-tight font-medium">{nutzer.name}</p>
+        <p className="truncate text-[11px] opacity-75">
+          {nutzer.objekt} · {nutzer.lage}
         </p>
       </div>
     </header>

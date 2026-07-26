@@ -6,9 +6,8 @@ import {
   MIETER_FORTSCHRITT,
   PRIORITAET_BEZEICHNUNG,
   type Prioritaet,
-  type VorgangStatus,
 } from "@/lib/daten/typen";
-import type { Karte } from "@/lib/chat/typen";
+import type { Karte, Meldung } from "@/lib/chat/typen";
 import { cn } from "@/lib/utils";
 
 /** Die eingebetteten Karten im Chat. Mehr als Text, aber im Stil der Blasen. */
@@ -27,7 +26,7 @@ export function ChatKarte({ karte }: { karte: Karte }) {
         />
       );
     case "status":
-      return <StatusKarte status={karte.status} nummer={karte.nummer} />;
+      return <StatusKarte meldungen={karte.meldungen} />;
   }
 }
 
@@ -98,54 +97,61 @@ function KlassifizierungsKarte({
   );
 }
 
-/** Fortschrittsanzeige wie bei einer Paketverfolgung. */
-function StatusKarte({
-  status,
-  nummer,
-}: {
-  status: VorgangStatus;
-  nummer: number | null;
-}) {
+/**
+ * Fortschrittsanzeige wie bei einer Paketverfolgung.
+ *
+ * Zeigt alle laufenden Meldungen des Mieters, nicht nur die letzte: Wer
+ * Heizung und Wasserhahn gemeldet hat, will beides sehen. Jede Meldung trägt
+ * denselben Titel wie im Dashboard, damit Mieter und Verwalter am Telefon
+ * über dasselbe reden, und die Zeitstempel sagen, wann was passiert ist.
+ */
+function StatusKarte({ meldungen }: { meldungen: Meldung[] }) {
+  return (
+    <div className="mt-2 space-y-2">
+      {meldungen.map((meldung) => (
+        <MeldungsKarte key={meldung.id} meldung={meldung} />
+      ))}
+    </div>
+  );
+}
+
+function MeldungsKarte({ meldung }: { meldung: Meldung }) {
   const aktuellerIndex = MIETER_FORTSCHRITT.findIndex((stufe) =>
-    stufe.status.includes(status),
+    stufe.status.includes(meldung.status),
   );
 
   return (
-    <div className="mt-2 rounded-md border border-slate-200 bg-white px-3 py-3">
-      {nummer !== null && (
-        <p className="mb-2 text-[11px] text-slate-500">Vorgang {nummer}</p>
-      )}
-      <ol className="space-y-0">
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-sm leading-snug font-medium text-slate-900">
+            {meldung.titel}
+          </p>
+          <p className="text-[11px] text-slate-500">
+            {meldung.nummer !== null ? `Vorgang ${meldung.nummer}` : "Wird angelegt"}
+            {meldung.betrieb ? ` · ${meldung.betrieb}` : ""}
+          </p>
+        </div>
+        {meldung.prioritaet === "notfall" && <Badge variant="notfall">Notfall</Badge>}
+      </div>
+
+      {/* Die vier Stufen zeigen, wie weit es ist. Sie sind bewusst grob –
+          ein Mieter will nicht die interne Prozesskette sehen. */}
+      <ol className="flex items-center gap-1">
         {MIETER_FORTSCHRITT.map((stufe, index) => {
           const erledigt = index <= aktuellerIndex;
           const istAktuell = index === aktuellerIndex;
-          const letzte = index === MIETER_FORTSCHRITT.length - 1;
-
           return (
-            <li key={stufe.beschriftung} className="flex gap-2.5">
-              <div className="flex flex-col items-center">
-                <span
-                  className={cn(
-                    "flex size-4 items-center justify-center rounded-full border",
-                    erledigt
-                      ? "border-marke bg-marke text-marke-kontrast"
-                      : "border-slate-300 bg-white",
-                  )}
-                >
-                  {erledigt && <CheckIcon className="size-2.5" aria-hidden />}
-                </span>
-                {!letzte && (
-                  <span
-                    className={cn(
-                      "h-6 w-px",
-                      index < aktuellerIndex ? "bg-marke" : "bg-slate-200",
-                    )}
-                  />
-                )}
-              </div>
+            <li key={stufe.beschriftung} className="flex flex-1 flex-col gap-1">
               <span
                 className={cn(
-                  "pb-2 text-xs",
+                  "h-1 rounded-full",
+                  erledigt ? "bg-marke" : "bg-slate-200",
+                )}
+              />
+              <span
+                className={cn(
+                  "text-[10px] leading-tight",
                   istAktuell
                     ? "font-semibold text-slate-900"
                     : erledigt
@@ -159,6 +165,37 @@ function StatusKarte({
           );
         })}
       </ol>
+
+      {/* Darunter, was wann tatsächlich passiert ist. Das beantwortet die
+          Frage, die ein Mieter wirklich hat: Tut sich da überhaupt etwas? */}
+      {meldung.schritte.length > 0 && (
+        <ul className="mt-3 space-y-1 border-t border-slate-100 pt-2.5">
+          {meldung.schritte.map((schritt, index) => (
+            <li key={index} className="flex items-start justify-between gap-3">
+              <span className="flex min-w-0 items-start gap-1.5">
+                <CheckIcon className="mt-0.5 size-3 shrink-0 text-marke" aria-hidden />
+                <span className="text-[11px] leading-snug text-slate-600">
+                  {schritt.was}
+                </span>
+              </span>
+              <span className="tabellenziffern shrink-0 text-[11px] whitespace-nowrap text-slate-400">
+                {zeitstempel(schritt.zeit)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
+}
+
+/** Kurzer Zeitstempel: heute nur die Uhrzeit, sonst mit Datum. */
+function zeitstempel(iso: string): string {
+  const zeit = new Date(iso);
+  const heute = new Date().toDateString() === zeit.toDateString();
+  return new Intl.DateTimeFormat("de-DE", {
+    ...(heute ? {} : { day: "2-digit", month: "2-digit" }),
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(zeit);
 }

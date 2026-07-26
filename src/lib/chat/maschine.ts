@@ -38,6 +38,7 @@ import type {
   Ausgabe,
   ChatEreignis,
   ChatZustand,
+  Meldung,
   SchrittErgebnis,
   Terminfenster,
 } from "./typen";
@@ -59,8 +60,7 @@ export function anfangszustand(): ChatZustand {
     angebot: { art: "keins" },
     szenarioId: null,
     betrieb: null,
-    status: null,
-    nummer: null,
+    meldungen: [],
     zweitanfahrtVermieden: false,
     zweitfotoFehlversuche: 0,
     gewaehlterTermin: null,
@@ -78,6 +78,25 @@ function betriebFuer(umgebung: Umgebung, gewerk: string): string {
 
 function sagen(text: string, tippdauer: number = tippenKurz): Ausgabe {
   return { nachricht: { text }, tippdauer };
+}
+
+function meldungErgaenzen(
+  zustand: ChatZustand,
+  aenderung: Partial<Meldung>,
+  schritt?: string,
+): Meldung[] {
+  const meldungen = [...zustand.meldungen];
+  const letzte = meldungen[meldungen.length - 1];
+  if (!letzte) return meldungen;
+
+  meldungen[meldungen.length - 1] = {
+    ...letzte,
+    ...aenderung,
+    schritte: schritt
+      ? [...letzte.schritte, { was: schritt, zeit: new Date().toISOString() }]
+      : letzte.schritte,
+  };
+  return meldungen;
 }
 
 /**
@@ -124,7 +143,13 @@ function weiterleiten(
         ...zustand,
         phase: "frei",
         betrieb,
-        status: "an_handwerker",
+        // Beim Notfall faehrt der Notdienst sofort – hier ist der Auftrag
+        // wirklich raus, ohne Freigabe.
+        meldungen: meldungErgaenzen(
+          zustand,
+          { status: "an_handwerker", betrieb },
+          `Notdienst von ${betrieb} alarmiert`,
+        ),
         angebot: { art: "frei" },
       },
       ausgabe,
@@ -138,7 +163,14 @@ function weiterleiten(
       ...zustand,
       phase: "terminwahl",
       betrieb,
-      status: "an_handwerker",
+      // Wichtig: NICHT "an_handwerker". Der Auftrag ist vorbereitet, nicht
+      // erteilt. Erst die Freigabe im Dashboard schiebt ihn weiter – sonst
+      // verspricht der Chat dem Mieter etwas, das noch gar nicht passiert ist.
+      meldungen: meldungErgaenzen(
+        zustand,
+        { status: "in_pruefung", betrieb },
+        `Auftrag für ${betrieb} vorbereitet, wartet auf Freigabe`,
+      ),
       angebot: { art: "termin", fenster: handwerkerfenster(umgebung.jetzt) },
     },
     ausgabe,
@@ -147,12 +179,23 @@ function weiterleiten(
 
 /** Diagnose eines erkannten Szenarios – erste Reaktion auf das Foto. */
 function diagnostizieren(zustand: ChatZustand, szenario: Szenario): SchrittErgebnis {
+  const neue: Meldung = {
+    id: `m${zustand.meldungen.length + 1}`,
+    szenarioId: szenario.id,
+    titel: szenario.titel,
+    nummer: null,
+    status: "neu",
+    prioritaet: szenario.prioritaet,
+    betrieb: null,
+    schritte: [{ was: "Meldung aufgenommen", zeit: new Date().toISOString() }],
+  };
+
   return {
     zustand: {
       ...zustand,
       phase: "bestaetigung",
       szenarioId: szenario.id,
-      status: "neu",
+      meldungen: [...zustand.meldungen, neue],
       angebot: { art: "bestaetigung" },
     },
     ausgabe: [sagen(szenario.erkennung, bildAnalyse)],
@@ -184,7 +227,7 @@ export function schritt(
       const text = ereignis.text.trim();
 
       // "Status" funktioniert jederzeit, sobald eine Meldung existiert.
-      if (/^status\b/i.test(text) && zustand.status) {
+      if (/^status\b/i.test(text) && zustand.meldungen.length) {
         return schritt(zustand, { art: "status" }, umgebung);
       }
       if (/r(ü|ue)ckruf/i.test(text) && zustand.phase === "frei") {
@@ -287,7 +330,8 @@ export function schritt(
             ...zustand,
             phase: "eingabe",
             szenarioId: null,
-            status: null,
+            // Die gerade begonnene Meldung wieder verwerfen – sie war falsch.
+            meldungen: zustand.meldungen.slice(0, -1),
             angebot: { art: "eingabe" },
           },
           ausgabe: [sagen(chatRahmen.korrekturAngebot, tippenKurz)],
@@ -328,8 +372,12 @@ export function schritt(
         zustand: {
           ...zustand,
           phase: "frei",
-          status: "termin_vereinbart",
           gewaehlterTermin: gewaehlt,
+          meldungen: meldungErgaenzen(
+            zustand,
+            {},
+            `Wunschtermin gewählt: ${gewaehlt.beschriftung}`,
+          ),
           angebot: { art: "frei" },
         },
         ausgabe: [
@@ -400,7 +448,7 @@ export function schritt(
 
     // -----------------------------------------------------------------------
     case "status":
-      if (!zustand.status) {
+      if (!zustand.meldungen.length) {
         return {
           zustand,
           ausgabe: [
@@ -413,8 +461,11 @@ export function schritt(
         ausgabe: [
           {
             nachricht: {
-              text: chatRahmen.statusEinleitung,
-              karte: { art: "status", status: zustand.status, nummer: zustand.nummer },
+              text:
+                zustand.meldungen.length === 1
+                  ? chatRahmen.statusEinleitung
+                  : chatRahmen.statusEinleitungMehrere(zustand.meldungen.length),
+              karte: { art: "status", meldungen: zustand.meldungen },
             },
             tippdauer: tippenKurz,
           },
@@ -428,6 +479,9 @@ export function schritt(
           ...anfangszustand(),
           phase: "eingabe",
           nachrichten: zustand.nachrichten,
+          // Bestehende Meldungen bleiben erhalten – der Mieter kann mehrere
+          // Sachen gleichzeitig laufen haben.
+          meldungen: zustand.meldungen,
           angebot: { art: "eingabe" },
         },
         ausgabe: [sagen(chatRahmen.aufforderung, tippenKurz)],

@@ -37,9 +37,31 @@ export async function bestandSchreiben(bestand: Mandantenbestand): Promise<void>
     if (!zeilen.length) continue;
     const { error } = await db.from(name).insert(zeilen);
     if (error) {
-      throw new Error(`Konnte ${name} nicht schreiben: ${error.message}`);
+      throw new Error(
+        `Konnte ${name} nicht schreiben: ${verstaendlich(error.message)}`,
+      );
     }
   }
+}
+
+/**
+ * Übersetzt die häufigste Ursache in eine Anweisung.
+ *
+ * "Could not find the 'x' column … in the schema cache" heißt in der Praxis
+ * fast immer: Eine Migration wurde noch nicht eingespielt. Die Rohmeldung
+ * hilft dabei niemandem weiter.
+ */
+function verstaendlich(meldung: string): string {
+  const spalte = meldung.match(/Could not find the '([^']+)' column/)?.[1];
+  if (spalte) {
+    return (
+      `Die Spalte "${spalte}" fehlt in der Datenbank. Vermutlich ist eine ` +
+      `Migration noch nicht eingespielt – bitte alle Dateien aus ` +
+      `supabase/migrations in der Nummernfolge ausführen. Sind sie schon ` +
+      `eingespielt, hilft im Supabase SQL Editor: notify pgrst, 'reload schema';`
+    );
+  }
+  return meldung;
 }
 
 /** Leert alle Bewegungsdaten eines Mandanten über die Datenbankfunktion. */

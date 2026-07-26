@@ -25,7 +25,35 @@ export type Karte =
       gewerk: Gewerk;
       kategorie: string;
     }
-  | { art: "status"; status: VorgangStatus; nummer: number | null };
+  | { art: "status"; meldungen: Meldung[] };
+
+/**
+ * Eine Schadensmeldung des Mieters.
+ *
+ * Ein Mieter kann mehrere gleichzeitig laufen haben – Heizung im Wohnzimmer
+ * und tropfender Hahn in der Küche sind zwei Vorgänge. Die Statusanzeige
+ * muss deshalb eine Liste zeigen und nicht einen einzelnen Zustand.
+ */
+export type Meldung = {
+  /** Nur intern, bis die Vorgangsnummer aus der Datenbank zurückkommt. */
+  id: string;
+  szenarioId: string;
+  /** Derselbe Titel wie im Dashboard – Mieter und Verwalter reden über dasselbe. */
+  titel: string;
+  /** Vorgangsnummer aus der Datenbank, sobald gespeichert. */
+  nummer: number | null;
+  status: VorgangStatus;
+  prioritaet: Prioritaet;
+  betrieb: string | null;
+  /** Was wann passiert ist – die Zeitleiste der Statusanzeige. */
+  schritte: Meldungsschritt[];
+};
+
+export type Meldungsschritt = {
+  /** Kurzer Text, z. B. "Meldung aufgenommen". */
+  was: string;
+  zeit: string;
+};
 
 export type ChatNachricht = {
   id: string;
@@ -71,14 +99,12 @@ export type ChatZustand = {
   nachrichten: ChatNachricht[];
   angebot: Angebot;
 
-  /** Laufendes Szenario, sobald erkannt. */
+  /** Szenario der Meldung, an der gerade gearbeitet wird. */
   szenarioId: string | null;
-  /** Betrieb, an den weitergeleitet wurde. */
+  /** Betrieb, für den der Auftrag vorbereitet wurde. */
   betrieb: string | null;
-  /** Stand der Meldung – speist die Fortschrittsanzeige. */
-  status: VorgangStatus | null;
-  /** Vorgangsnummer, sobald in der Datenbank angelegt. */
-  nummer: number | null;
+  /** Alle Meldungen dieses Mieters, neueste zuletzt. */
+  meldungen: Meldung[];
   /** Wurde durch das zweite Foto eine Anfahrt gespart? */
   zweitanfahrtVermieden: boolean;
   /** Ein Fehlversuch beim zweiten Foto wird abgefangen, danach nicht mehr. */

@@ -23,6 +23,8 @@ import type { Mandant } from "@/lib/daten/typen";
 
 type Eingang = {
   slug: string;
+  /** Wer meldet – wird beim Start des Chats gewählt. */
+  einheitId: string | null;
   szenarioId: string;
   zweitanfahrtVermieden: boolean;
   nachrichten: {
@@ -64,10 +66,9 @@ export async function POST(anfrage: Request) {
     }
     const tenant = mandant as Mandant;
 
-    // --- Einheit auswählen -------------------------------------------------
-    // DEMO: Im Echtbetrieb ergibt sich die Einheit aus der Telefonnummer des
-    // Absenders. Hier nehmen wir eine Einheit ohne offenen Vorgang, damit bei
-    // mehrfachem Vorführen nicht immer dieselbe Wohnung betroffen ist.
+    // --- Einheit bestimmen -------------------------------------------------
+    // Im Echtbetrieb ergibt sich der Absender aus seiner Telefonnummer. In der
+    // Demo wählt der Betrachter zu Beginn des Chats, als wer er meldet.
     const { data: einheiten } = await db
       .from("einheiten")
       .select("id, bezeichnung, mieter_name")
@@ -81,17 +82,25 @@ export async function POST(anfrage: Request) {
       );
     }
 
-    const { data: belegt } = await db
-      .from("vorgaenge")
-      .select("einheit_id")
-      .eq("tenant_id", tenant.id)
-      .not("status", "in", '("erledigt","storniert")');
+    const gewaehlt = eingang.einheitId
+      ? einheiten.find((e) => e.id === eingang.einheitId)
+      : undefined;
 
-    const belegteIds = new Set((belegt ?? []).map((v) => v.einheit_id));
-    const frei = einheiten.filter((e) => !belegteIds.has(e.id));
-    const einheit = frei.length
-      ? frei[Math.floor(Math.random() * frei.length)]
-      : einheiten[Math.floor(Math.random() * einheiten.length)];
+    // Ohne Auswahl (alter Aufruf, direkter Link) eine Wohnung ohne offenen
+    // Vorgang nehmen, damit bei mehrfachem Vorführen Abwechslung entsteht.
+    let einheit = gewaehlt;
+    if (!einheit) {
+      const { data: belegt } = await db
+        .from("vorgaenge")
+        .select("einheit_id")
+        .eq("tenant_id", tenant.id)
+        .not("status", "in", '("erledigt","storniert")');
+
+      const belegteIds = new Set((belegt ?? []).map((v) => v.einheit_id));
+      const frei = einheiten.filter((e) => !belegteIds.has(e.id));
+      const auswahl = frei.length ? frei : einheiten;
+      einheit = auswahl[Math.floor(Math.random() * auswahl.length)];
+    }
 
     // --- Zuständigkeiten ---------------------------------------------------
     const { data: betriebe } = await db
