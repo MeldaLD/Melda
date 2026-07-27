@@ -1,5 +1,7 @@
 import { CheckCheckIcon, ImageIcon } from "lucide-react";
 
+import { KiMarke } from "./KiMarke";
+
 import { ChatKarte } from "./Karten";
 import { DemoFoto } from "./DemoFoto";
 import type { ChatNachricht } from "@/lib/chat/typen";
@@ -12,15 +14,24 @@ function uhrzeit(iso: string): string {
   }).format(new Date(iso));
 }
 
-export function Blase({ nachricht }: { nachricht: ChatNachricht }) {
+export function Blase({
+  nachricht,
+  technik,
+}: {
+  nachricht: ChatNachricht;
+  /** Technikansicht: zeigt unter der Blase, wer sie erzeugt hat. */
+  technik?: boolean;
+}) {
   const eigen = nachricht.von === "mieter";
 
   // Sicherheitsnetz: Eine Blase ohne Text, Foto und Karte wäre im Gespräch
   // ein leerer Kasten. Lieber gar nichts zeigen als etwas Kaputtes.
   if (!nachricht.text && !nachricht.foto && !nachricht.karte) return null;
 
+  const marke = technik && !eigen && nachricht.kiSchritt;
+
   return (
-    <div className={cn("flex", eigen ? "justify-end" : "justify-start")}>
+    <div className={cn("flex flex-col", eigen ? "items-end" : "items-start")}>
       <div
         className={cn(
           "relative max-w-[85%] rounded-lg px-2.5 py-1.5 shadow-sm sm:max-w-[75%]",
@@ -58,6 +69,8 @@ export function Blase({ nachricht }: { nachricht: ChatNachricht }) {
           )}
         </div>
       </div>
+
+      {marke && <KiMarke schritt={nachricht.kiSchritt!} />}
     </div>
   );
 }

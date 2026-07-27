@@ -124,6 +124,8 @@ export type Stand =
   | "vorlaeufig";
 
 export type Einsatz = {
+  /** Stabiler Schlüssel. Chatnachrichten verweisen darauf. */
+  id: string;
   schritt: string;
   /** Kennung aus stufen – wohin der Schritt gehört, wenn alles steht. */
   stufe: string;
@@ -139,6 +141,7 @@ export type Einsatz = {
 
 export const einsaetze: Einsatz[] = [
   {
+    id: "einstieg",
     schritt: "Begrüßung und Themenauswahl",
     stufe: "skript",
     stand: "endgueltig",
@@ -147,6 +150,7 @@ export const einsaetze: Einsatz[] = [
       "Geld für eine Antwort, die der Mieter schon gegeben hat.",
   },
   {
+    id: "freitext",
     schritt: "Freitext einem Thema zuordnen",
     stufe: "verstehen",
     stand: "vorlaeufig",
@@ -157,6 +161,7 @@ export const einsaetze: Einsatz[] = [
       "genau dafür ist das Modell da.",
   },
   {
+    id: "bild",
     schritt: "Foto auswerten und Diagnose stellen",
     stufe: "sehen",
     stand: "vorlaeufig",
@@ -167,6 +172,7 @@ export const einsaetze: Einsatz[] = [
       "an dem später wirklich etwas passiert.",
   },
   {
+    id: "zweitfoto",
     schritt: "Entscheiden, ob ein zweites Foto etwas bringt",
     stufe: "sehen",
     stand: "vorlaeufig",
@@ -176,6 +182,18 @@ export const einsaetze: Einsatz[] = [
       "das bestimmt, was der Betrieb einpackt?",
   },
   {
+    id: "sofortmassnahme",
+    schritt: "Sofortmaßnahme im Notfall",
+    stufe: "skript",
+    stand: "endgueltig",
+    hinweis:
+      "„Stellen Sie einen Eimer unter“, „schalten Sie die Sicherung aus“ – " +
+      "eine Handlungsanweisung mit Sicherheitsfolgen. Ein frei erzeugter Satz " +
+      "an dieser Stelle wäre der teuerste Fehler, den das System machen " +
+      "könnte. Steht je Szenario in config/scenarios.ts.",
+  },
+  {
+    id: "auskunft",
     schritt: "Auskunft zu Abrechnung, Vertrag, Hausordnung",
     stufe: "skript",
     stand: "endgueltig",
@@ -185,6 +203,7 @@ export const einsaetze: Einsatz[] = [
       "darunter. Diese Texte schreibt ein Mensch und liest ein Mensch gegen.",
   },
   {
+    id: "kleinreparatur",
     schritt: "Kleinreparatur und Selbsthilfe",
     stufe: "skript",
     stand: "endgueltig",
@@ -193,6 +212,7 @@ export const einsaetze: Einsatz[] = [
       "gleich lauten – siehe config/kleinreparaturen.ts.",
   },
   {
+    id: "mieterantwort",
     schritt: "Antwort an den Mieter in seine Worte bringen",
     stufe: "formulieren",
     stand: "vorlaeufig",
@@ -203,6 +223,7 @@ export const einsaetze: Einsatz[] = [
       "Antwort stehen.",
   },
   {
+    id: "zusammenfassung",
     schritt: "Zusammenfassung des Vorgangs für die Verwaltung",
     stufe: "formulieren",
     stand: "vorlaeufig",
@@ -212,6 +233,7 @@ export const einsaetze: Einsatz[] = [
       "Original daneben lesen und trägt die Entscheidung ohnehin selbst.",
   },
   {
+    id: "betrieb",
     schritt: "Nachricht an den Handwerksbetrieb",
     stufe: "formulieren",
     stand: "vorlaeufig",
@@ -222,6 +244,7 @@ export const einsaetze: Einsatz[] = [
       "Zeiten erfinden.",
   },
   {
+    id: "zusagen",
     schritt: "Terminbestätigung und Zusagen",
     stufe: "skript",
     stand: "endgueltig",
@@ -230,6 +253,7 @@ export const einsaetze: Einsatz[] = [
       "nicht formuliert.",
   },
   {
+    id: "freigabe",
     schritt: "Freigabe über der Kostengrenze",
     stufe: "mensch",
     stand: "endgueltig",
@@ -238,6 +262,8 @@ export const einsaetze: Einsatz[] = [
       "Modell bereitet vor und legt vor – mehr nicht.",
   },
 ];
+
+export const einsatzNach = new Map(einsaetze.map((e) => [e.id, e]));
 
 /**
  * Was das Modell nie zu sehen bekommt.

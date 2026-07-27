@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { ArrowLeftIcon, CameraIcon, ChevronDownIcon, SendIcon } from "lucide-react";
 import Link from "next/link";
 
@@ -14,6 +15,8 @@ import type { Taetigkeit } from "@/lib/chat/typen";
 import type { Mandant } from "@/lib/daten/typen";
 import { Button } from "@/components/ui/button";
 import { AuswertungsIndikator, Blase, TippIndikator } from "./Blase";
+import { KiLegende } from "./KiMarke";
+import { TECHNIK_PARAMETER } from "@/components/demo/TechnikSchalter";
 import { FotoDialog } from "./FotoDialog";
 import { NutzerAuswahl, type ChatNutzer } from "./NutzerAuswahl";
 import { tourMelden } from "@/lib/tour/ereignisse";
@@ -83,6 +86,8 @@ function Gespraech({
   );
   const [entwurf, setEntwurf] = useState("");
   const [fotoOffen, setFotoOffen] = useState(false);
+  // Nur für uns: siehe src/components/demo/TechnikSchalter.tsx
+  const technik = useSearchParams().get(TECHNIK_PARAMETER) === "1";
   const ende = useRef<HTMLDivElement>(null);
 
   // Auch auf das Angebot hören: Die Knopfleiste erscheint erst, wenn die
@@ -134,8 +139,9 @@ function Gespraech({
 
       <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3 sm:px-4">
         <Datumstrenner />
+        {technik && <KiLegende />}
         {zustand.nachrichten.map((nachricht) => (
-          <Blase key={nachricht.id} nachricht={nachricht} />
+          <Blase key={nachricht.id} nachricht={nachricht} technik={technik} />
         ))}
         {taetigkeit === "tippen" && <TippIndikator />}
         {taetigkeit === "auswerten" && <AuswertungsIndikator />}

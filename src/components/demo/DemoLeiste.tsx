@@ -1,5 +1,6 @@
 import { InfoIcon } from "lucide-react";
 
+import { TechnikSchalter } from "./TechnikSchalter";
 import { ZuruecksetzenKnopf } from "./ZuruecksetzenKnopf";
 
 /**
@@ -26,6 +27,9 @@ export function DemoLeiste({
         <InfoIcon className="size-3 shrink-0" aria-hidden />
         Demo-Ansicht – Beispieldaten{hinweis ? ` · ${hinweis}` : ""}
       </span>
+      {/* Nur für uns: macht im Chat sichtbar, welcher Schritt später an ein
+          Modell geht. Vor einem Kunden bleibt sie aus. */}
+      <TechnikSchalter />
       {zuruecksetzenZeigen && <ZuruecksetzenKnopf slug={slug} />}
     </div>
   );

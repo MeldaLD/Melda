@@ -89,6 +89,14 @@ export type ChatNachricht = {
   zeit: string;
   /** Nur bei eigenen Nachrichten: blaue Haken. */
   gelesen?: boolean;
+  /**
+   * Welcher Schritt aus config/ki-einsatz.ts diese Nachricht erzeugt hat.
+   *
+   * Nur für die zuschaltbare Technikansicht der Demo. Der Mieter sieht davon
+   * nichts; wer testet, sieht an jeder Blase, ob hier später ein Modell
+   * arbeitet und was es zu sehen bekäme.
+   */
+  kiSchritt?: string;
 };
 
 /** Was der Mieter gerade tun kann. Steuert die Knopfleiste unter dem Verlauf. */

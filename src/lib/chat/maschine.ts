@@ -94,8 +94,20 @@ function betriebFuer(umgebung: Umgebung, gewerk: string): string {
   );
 }
 
-function sagen(text: string, tippdauer: number = tippenKurz): Ausgabe {
-  return { nachricht: { text }, tippdauer };
+/**
+ * Eine Nachricht des Assistenten.
+ *
+ * Der dritte Parameter markiert, welcher Schritt aus config/ki-einsatz.ts
+ * diese Zeile erzeugt hat. Er ist nur für die zuschaltbare Technikansicht
+ * da – der Mieter sieht davon nichts. Bleibt er leer, gilt der Schritt als
+ * hinterlegter Text ohne Besonderheit.
+ */
+function sagen(
+  text: string,
+  tippdauer: number = tippenKurz,
+  kiSchritt?: string,
+): Ausgabe {
+  return { nachricht: { text, kiSchritt }, tippdauer };
 }
 
 /**
@@ -107,7 +119,11 @@ function sagen(text: string, tippdauer: number = tippenKurz): Ausgabe {
  * geduldiger, weil er weiß, worauf.
  */
 function auswerten(text: string): Ausgabe {
-  return { nachricht: { text }, tippdauer: bildAnalyse, taetigkeit: "auswerten" };
+  return {
+    nachricht: { text, kiSchritt: "bild" },
+    tippdauer: bildAnalyse,
+    taetigkeit: "auswerten",
+  };
 }
 
 function meldungErgaenzen(
@@ -134,6 +150,7 @@ function klassifizierung(szenario: Szenario): Ausgabe {
   return {
     nachricht: {
       text: "Ich habe die Meldung eingeordnet:",
+      kiSchritt: "bild",
       karte: {
         art: "klassifizierung",
         prioritaet: szenario.prioritaet,
@@ -188,6 +205,7 @@ function selbsthilfeAnbieten(
             szenario.kostenschaetzungEuro,
             grenzeEuro,
           ),
+          kiSchritt: "kleinreparatur",
           karte: {
             art: "kleinreparatur",
             kostenEuro: szenario.kostenschaetzungEuro,
@@ -196,7 +214,11 @@ function selbsthilfeAnbieten(
         },
         tippdauer: tippenLang,
       },
-      sagen(chatRahmen.selbsthilfeFrage(tipp.dauerMinuten), tippenKurz),
+      sagen(
+        chatRahmen.selbsthilfeFrage(tipp.dauerMinuten),
+        tippenKurz,
+        "kleinreparatur",
+      ),
     ],
   };
 }
@@ -224,6 +246,7 @@ function beauftragen(
         ? chatRahmen.weiterleitungNotfall(betrieb)
         : chatRahmen.weiterleitung(betrieb),
       tippenLang,
+      "mieterantwort",
     ),
   );
 
@@ -266,7 +289,7 @@ function beauftragen(
     };
   }
 
-  ausgabe.push(sagen(chatRahmen.erreichbarkeitFrage, tippenKurz));
+  ausgabe.push(sagen(chatRahmen.erreichbarkeitFrage, tippenKurz, "zusagen"));
 
   return {
     zustand: {
@@ -338,8 +361,8 @@ export function schritt(
       return {
         zustand: { ...zustand, phase: "anliegen", angebot: { art: "anliegen" } },
         ausgabe: [
-          sagen(chatRahmen.begruessung(umgebung.firma), tippenKurz),
-          sagen(chatRahmen.anliegenFrage, tippenKurz),
+          sagen(chatRahmen.begruessung(umgebung.firma), tippenKurz, "einstieg"),
+          sagen(chatRahmen.anliegenFrage, tippenKurz, "einstieg"),
         ],
       };
 
@@ -353,7 +376,7 @@ export function schritt(
       if (gewaehlt.istSchaden) {
         return {
           zustand: { ...zustand, phase: "eingabe", angebot: { art: "eingabe" } },
-          ausgabe: [sagen(chatRahmen.aufforderung, tippenKurz)],
+          ausgabe: [sagen(chatRahmen.aufforderung, tippenKurz, "einstieg")],
         };
       }
 
@@ -371,7 +394,9 @@ export function schritt(
             anliegenId: gewaehlt.id,
             angebot: { art: "frei" },
           },
-          ausgabe: [sagen(gewaehlt.auskunft ?? chatRahmen.aufforderung, tippenLang)],
+          ausgabe: [
+            sagen(gewaehlt.auskunft ?? chatRahmen.aufforderung, tippenLang, "auskunft"),
+          ],
         };
       }
 
@@ -386,6 +411,7 @@ export function schritt(
           {
             nachricht: {
               text: gewaehlt.auskunft ?? "",
+              kiSchritt: "auskunft",
               karte: {
                 art: "auskunft",
                 titel: gewaehlt.bezeichnung,
@@ -394,7 +420,7 @@ export function schritt(
             },
             tippdauer: tippenLang,
           },
-          sagen(chatRahmen.auskunftNachfrage, tippenKurz),
+          sagen(chatRahmen.auskunftNachfrage, tippenKurz, "auskunft"),
         ],
       };
     }
@@ -461,7 +487,7 @@ export function schritt(
         if (!gefunden) {
           return {
             zustand,
-            ausgabe: [sagen(chatRahmen.nichtVerstanden, tippenKurz)],
+            ausgabe: [sagen(chatRahmen.nichtVerstanden, tippenKurz, "freitext")],
           };
         }
         return diagnostizieren(zustand, gefunden);
@@ -482,7 +508,7 @@ export function schritt(
               zweitfotoFehlversuche: 1,
               angebot: { art: "zweitfoto", optionen: zweitfoto.optionen },
             },
-            ausgabe: [sagen(chatRahmen.zweitfotoUnpassend, tippenKurz)],
+            ausgabe: [sagen(chatRahmen.zweitfotoUnpassend, tippenKurz, "zweitfoto")],
           };
         }
 
@@ -502,6 +528,7 @@ export function schritt(
                   {
                     nachricht: {
                       text: "Das erspart dem Betrieb voraussichtlich eine zweite Anfahrt.",
+                      kiSchritt: "zweitfoto",
                       karte: {
                         art: "erkenntnis" as const,
                         vorher: erkenntnis.vorher,
@@ -545,6 +572,7 @@ export function schritt(
         ausgabe.push({
           nachricht: {
             text: szenario.sofortmassnahme,
+            kiSchritt: "sofortmassnahme",
             karte: { art: "sofortmassnahme", text: szenario.sofortmassnahme },
           },
           tippdauer: tippenKurz,
@@ -557,13 +585,17 @@ export function schritt(
       // auch mal nicht nachfragt, macht die übrigen Nachfragen glaubwürdig.
       if (!szenario.zweitfoto) {
         ausgabe.push(
-          sagen(szenario.ohneZweitfoto ?? chatRahmen.keineWeitereFrage, tippenKurz),
+          sagen(
+            szenario.ohneZweitfoto ?? chatRahmen.keineWeitereFrage,
+            tippenKurz,
+            "zweitfoto",
+          ),
         );
         const weiter = weiterleiten(zustand, szenario, umgebung);
         return { zustand: weiter.zustand, ausgabe: [...ausgabe, ...weiter.ausgabe] };
       }
 
-      ausgabe.push(sagen(szenario.zweitfoto.frage, tippenLang));
+      ausgabe.push(sagen(szenario.zweitfoto.frage, tippenLang, "zweitfoto"));
 
       return {
         zustand: {
@@ -675,7 +707,11 @@ export function schritt(
           angebot: { art: "frei" },
         },
         ausgabe: [
-          sagen(chatRahmen.erreichbarkeitNotiert(zeit.bezeichnung), tippenKurz),
+          sagen(
+            chatRahmen.erreichbarkeitNotiert(zeit.bezeichnung),
+            tippenKurz,
+            "zusagen",
+          ),
           sagen(chatRahmen.abschluss, tippenKurz),
         ],
       };
@@ -796,7 +832,9 @@ export function schritt(
         (m) => m.terminauswahl && m.terminauswahl.vorschlaege.length,
       );
       if (offen?.terminauswahl) {
-        ausgabe.push(sagen(chatRahmen.terminauswahlFrage(offen.titel), tippenKurz));
+        ausgabe.push(
+          sagen(chatRahmen.terminauswahlFrage(offen.titel), tippenKurz, "zusagen"),
+        );
         return {
           zustand: {
             ...zustand,
@@ -844,7 +882,11 @@ export function schritt(
           ),
         },
         ausgabe: [
-          sagen(chatRahmen.terminauswahlBestaetigt(gewaehlt.beschriftung), tippenKurz),
+          sagen(
+            chatRahmen.terminauswahlBestaetigt(gewaehlt.beschriftung),
+            tippenKurz,
+            "zusagen",
+          ),
         ],
       };
     }
@@ -863,7 +905,7 @@ export function schritt(
           meldungen: zustand.meldungen,
           angebot: { art: "eingabe" },
         },
-        ausgabe: [sagen(chatRahmen.aufforderung, tippenKurz)],
+        ausgabe: [sagen(chatRahmen.aufforderung, tippenKurz, "einstieg")],
       };
   }
 }
