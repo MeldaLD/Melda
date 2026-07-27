@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect } from "react";
 import { AlertCircleIcon, CheckIcon, Loader2Icon } from "lucide-react";
 
 import { grenzenSpeichern, type Ergebnis } from "@/app/demo/[slug]/dashboard/aktionen";
 import { Button } from "@/components/ui/button";
+import { tourMelden } from "@/lib/tour/ereignisse";
 import {
   GEWERK_BEZEICHNUNG,
   type Gewerk,
@@ -39,6 +40,15 @@ export function GrenzenFormular({
     null,
   );
 
+  // Die ausführliche Tour ist an dieser Stelle erst fertig, wenn abgeschickt
+  // wurde – nicht schon beim Tippen. Bewusst unabhängig davon, ob die
+  // Datenbank es angenommen hat: Ohne angebundene Datenbank quittiert die
+  // Vorschau ehrlich mit "nicht gespeichert", und die Tour bliebe sonst genau
+  // dort hängen, wo der Betrachter alles richtig gemacht hat.
+  useEffect(() => {
+    if (ergebnis) tourMelden("verwalter:grenze-gespeichert");
+  }, [ergebnis]);
+
   const gesetzt = new Set(einstellungen.immer_vorlegen_gewerke ?? []);
   const betrag = einstellungen.freigabe_ab_euro ?? standardBetrag;
 
@@ -51,6 +61,7 @@ export function GrenzenFormular({
             <input
               type="number"
               name="freigabe_ab_euro"
+              data-tour="grenze-feld"
               aria-label="Betrag, ab dem vorgelegt wird, in Euro"
               min={0}
               max={100000}

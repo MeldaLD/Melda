@@ -137,6 +137,75 @@ export const tourStationen: TourStation[] = [
   },
 ];
 
+/**
+ * Die ausführliche Tour durch die Verwaltersicht.
+ *
+ * Die kurze Tour beantwortet eine Frage: Was ändert sich für meine Mieter?
+ * Diese hier beantwortet die andere, die im Verkaufsgespräch danach kommt:
+ * Was ändert sich für mich – und was gebe ich dabei aus der Hand?
+ *
+ * Sie ist länger, und das ist in Ordnung. Die Regel, dass Touren ab fünf
+ * Schritten abgebrochen werden, gilt für aufgedrängte Touren. Diese hier
+ * wählt der Betrachter ausdrücklich, und wer sie wählt, will Einzelheiten.
+ *
+ * Jede Station benennt die Entlastung, nicht die Funktion. "Grenzen" ist
+ * eine Funktion; "einmal entscheiden statt bei jedem Auftrag neu" ist der
+ * Grund, warum jemand dafür bezahlt.
+ */
+export const detailStationen: TourStation[] = [
+  {
+    id: "ausnahmen",
+    aufgabe: "Öffnen Sie den ersten Punkt, der Ihre Aufmerksamkeit braucht.",
+    begruendung:
+      "Diese Liste ist die ganze Idee: Hier steht nur, was abweicht. Alles Übrige läuft, ohne dass Sie es ansehen müssen.",
+    pfad: "dashboard",
+    markierung: "ausnahme-ansehen",
+    erledigtBei: ["verwalter:vorgang-geoeffnet"],
+    uebergang:
+      "Sie sind jetzt in einem einzelnen Vorgang. Alles, was dazu passiert " +
+      "ist, steht untereinander – Meldung, Fotos, Auftrag, Rückfragen, " +
+      "Termin. Kein Suchen in WhatsApp, E-Mail und Notizzettel.",
+  },
+  {
+    id: "eingreifen",
+    aufgabe: "Öffnen Sie unten rechts „Ich möchte eingreifen“.",
+    begruendung:
+      "Ihre Kontrollpflicht lässt sich nicht mit auslagern. Deshalb halten Sie jeden Vorgang mit einem Klick an – oder geben ihn ausdrücklich frei.",
+    pfad: "dashboard/vorgaenge",
+    markierung: "eingreifen-knopf",
+    erledigtBei: ["verwalter:eingreifen-geoeffnet"],
+  },
+  {
+    id: "grenze",
+    aufgabe: "Setzen Sie den Betrag, ab dem wir Sie fragen, und speichern Sie.",
+    begruendung:
+      "Einmal entscheiden statt bei jedem Auftrag neu. Darunter beauftragen wir, darüber legen wir Ihnen vor.",
+    pfad: "dashboard/grenzen",
+    markierung: "grenze-feld",
+    erledigtBei: ["verwalter:grenze-gespeichert"],
+    uebergang:
+      "Daneben steht sofort, wie viele Vorgänge der letzten Wochen mit " +
+      "dieser Grenze auf Ihrem Tisch gelandet wären. Die Einstellung ist " +
+      "damit keine Zahl, sondern eine Entscheidung mit sichtbarer Folge.",
+  },
+  {
+    id: "nachweis",
+    aufgabe: "Sehen Sie sich den Nachweis an.",
+    begruendung:
+      "Was Sie sonst für den Eigentümer zusammensuchen – wer hat wann was gemeldet, was hat es gekostet, wie lange hat es gedauert – steht hier fertig.",
+    pfad: "dashboard/nachweis",
+    erledigtBei: ["verwalter:nachweis-geoeffnet"],
+  },
+  {
+    id: "hintergrund",
+    aufgabe: "Zum Schluss: was im Hintergrund läuft.",
+    begruendung:
+      "Freigaben, Terminabstimmung mit den Betrieben, Rückrufe, Postfach. Das ist die Arbeit, für die Sie sonst jemanden einstellen müssten.",
+    pfad: "leitstand",
+    erledigtBei: ["verwalter:leitstand-geoeffnet"],
+  },
+];
+
 export const tourTexte = {
   /**
    * Der Einstieg beschreibt erst die Welt des Betrachters und den Ärger
@@ -168,7 +237,22 @@ export const tourTexte = {
     text:
       "Ihre Mieter melden über WhatsApp, wir fragen nach, was dem Handwerker " +
       "sonst fehlt, beauftragen den Betrieb und stimmen den Termin ab.",
-    weiter: "Weiter umsehen",
+    weiter: "Selbst umschauen",
+    /**
+     * Die Weggabelung.
+     *
+     * Vorher gab es einen Hauptknopf und darunter Kleingedrucktes. Wer an
+     * dieser Stelle überzeugt ist, will sprechen; wer noch prüft, will
+     * Einzelheiten; wer sich nicht drängen lassen mag, will in Ruhe klicken.
+     * Alle drei sind gute Ausgänge, also stehen sie gleichrangig nebeneinander
+     * und nicht einer davon versteckt.
+     */
+    wege: {
+      detail: "Alles im Einzelnen ansehen",
+      detailHinweis:
+        "Fünf Stationen durch Ihre Sicht: was Ihnen abgenommen wird, was auf " +
+        "Ihrem Tisch landet und was Sie in der Hand behalten.",
+    },
     /**
      * Bis hierhin zeigt die Übersicht nur, was der Betrachter selbst gemeldet
      * hat – sonst wäre im Gewimmel der Beispieldaten nicht zu erkennen, dass
@@ -184,6 +268,23 @@ export const tourTexte = {
     },
     /** Führt in den Leitstand, damit sichtbar wird, wohin die Arbeit wandert. */
     leitstand: "Zeigen, was im Hintergrund läuft",
+  },
+
+  /**
+   * Der Abschluss der ausführlichen Tour.
+   *
+   * Kein zweites "kurz zusammengefasst": Wer bis hierhin gekommen ist, hat
+   * alles gesehen und braucht keine Wiederholung, sondern einen Satz dazu,
+   * was jetzt sinnvoll wäre.
+   */
+  detailAbschluss: {
+    titel: "Das war alles Wesentliche",
+    text:
+      "Sie haben jetzt beide Seiten gesehen: wie eine Meldung hereinkommt " +
+      "und was davon bei Ihnen ankommt. Wie das mit Ihren Objekten, Ihren " +
+      "Betrieben und Ihren Abläufen aussieht, klären wir am besten im " +
+      "Gespräch – zwanzig Minuten genügen.",
+    weiter: "Schließen",
   },
 
   leiste: {

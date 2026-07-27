@@ -6,6 +6,7 @@ import { AlertCircleIcon, CheckIcon, Loader2Icon } from "lucide-react";
 import { eingreifen, type Eingriff } from "@/app/demo/[slug]/dashboard/aktionen";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { tourMelden } from "@/lib/tour/ereignisse";
 
 /**
  * Der Griff ins Steuer.
@@ -66,7 +67,17 @@ export function Eingreifen({
             Sie sich melden.
           </p>
         ) : !offen ? (
-          <Button variant="outline" size="sm" onClick={() => setOffen(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            data-tour="eingreifen-knopf"
+            onClick={() => {
+              setOffen(true);
+              // Die ausführliche Tour wartet genau darauf. Ohne laufende Tour
+              // verpufft der Aufruf.
+              tourMelden("verwalter:eingreifen-geoeffnet");
+            }}
+          >
             Ich möchte eingreifen
           </Button>
         ) : (

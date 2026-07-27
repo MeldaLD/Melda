@@ -8,10 +8,16 @@ import {
   CheckIcon,
   LayersIcon,
   PauseIcon,
+  RouteIcon,
   XIcon,
 } from "lucide-react";
 
-import { tourStationen, tourTexte } from "@config/tour";
+import {
+  detailStationen,
+  tourStationen,
+  tourTexte,
+  type TourStation,
+} from "@config/tour";
 import { beispieleUmschalten } from "@/app/demo/[slug]/aktionen";
 import {
   Erweiterbar,
@@ -100,7 +106,17 @@ export function Tour({
   /** Unterkante der festen Kopfleisten – dort beginnt der freie Bereich. */
   const [grenze, setGrenze] = useState(64);
   const kasten = useRef<HTMLDivElement>(null);
-  const station = tourStationen[index];
+  /**
+   * Welche der beiden Touren gerade läuft.
+   *
+   * Die kurze beantwortet "was ändert sich für meine Mieter", die
+   * ausführliche "was ändert sich für mich". Beide benutzen dieselbe
+   * Mechanik – Stationen, wandernder Hinweis, Pause, Wächter –, nur die
+   * Liste ist eine andere.
+   */
+  const [welche, setWelche] = useState<"kurz" | "detail">("kurz");
+  const stationen = welche === "detail" ? detailStationen : tourStationen;
+  const station = stationen[index];
 
   // Entscheidung merken, aber nur für diese Sitzung: Wer den Link morgen
   // erneut öffnet, soll das Angebot wiederbekommen.
@@ -149,12 +165,12 @@ export function Tour({
     imUebergang.current = false;
     setZwischenstand(null);
     setRahmen(null);
-    if (index + 1 >= tourStationen.length) setStand("abschluss");
+    if (index + 1 >= stationen.length) setStand("abschluss");
     else {
       setStand("laeuft");
       setIndex(index + 1);
     }
-  }, [index]);
+  }, [index, stationen.length]);
 
   const weiterziehen = useCallback(
     (art: Zwischenstand) => {
@@ -300,6 +316,25 @@ export function Tour({
     if (station) router.push(ziel);
   };
 
+  /**
+   * Von der kurzen in die ausführliche Tour.
+   *
+   * Die Beispieldaten kommen dabei mit dazu, ohne zu fragen: Die
+   * ausführliche Tour beginnt mit "was braucht heute Ihre Aufmerksamkeit",
+   * und diese Liste ist ohne Bestand leer. Ein leerer Bildschirm als erste
+   * Station wäre der schlechteste denkbare Einstieg – deshalb steht der
+   * Hinweis darauf im Knopf und nicht in einer Rückfrage.
+   */
+  const detailStarten = async () => {
+    if (beispieleLadbar) await beispieleUmschalten(slug, true);
+    setWelche("detail");
+    setIndex(0);
+    setZwischenstand(null);
+    setStand("laeuft");
+    router.push(`/demo/${slug}/${detailStationen[0].pfad}`);
+    router.refresh();
+  };
+
   if (stand === "aus") return null;
 
   if (stand === "begruessung") {
@@ -318,6 +353,21 @@ export function Tour({
     );
   }
 
+  // Der Abschluss der ausführlichen Tour: kein zweites "kurz
+  // zusammengefasst", sondern der nächste Schritt und sonst nichts.
+  if (stand === "abschluss" && welche === "detail") {
+    return (
+      <Einladung
+        titel={tourTexte.detailAbschluss.titel}
+        text={tourTexte.detailAbschluss.text}
+        haupt={tourTexte.detailAbschluss.weiter}
+        onHaupt={beenden}
+        erledigt
+        fussAktion={<NaechsterSchritt />}
+      />
+    );
+  }
+
   if (stand === "abschluss") {
     return (
       <Einladung
@@ -331,28 +381,34 @@ export function Tour({
         // liegt er sonst unter der Kante, und ein Abschluss, dessen Angebot
         // niemand sieht, endet mit "interessant" und sonst nichts.
         fussAktion={<NaechsterSchritt />}
-        // Wer jetzt weiterschaut, hat den Zusammenhang zwischen Chat und
-        // Übersicht gesehen. Ab hier hilft der volle Bestand mehr, als er
-        // verdeckt – aber nur, wenn der Betrachter ihn selbst dazuholt.
-        zweiteAktion={
-          beispieleLadbar ? (
-            <BeispieleKnopf
-              slug={slug}
-              onFertig={beenden}
-              beschriftung={tourTexte.abschluss.beispiele.knopf}
-            />
-          ) : null
-        }
+        // Die zweite von drei gleichrangigen Türen: sprechen, alles ansehen,
+        // selbst umschauen. Wer hier weiterschaut, bekommt die Verwaltersicht
+        // im Einzelnen erklärt.
+        zweiteAktion={<DetailKnopf onStarten={detailStarten} />}
       >
         {/* Die Bilanz statt einer Verabschiedung: was geht weg, was bleibt,
             was ließe sich ergänzen – und wohin, wenn es überzeugt hat. */}
         <div className="space-y-4">
           <Leistungsbilanz kompakt />
           <Erweiterbar knapp />
+          <p className="rounded-md border border-dashed border-border p-3 text-xs leading-relaxed text-muted-foreground">
+            {tourTexte.abschluss.wege.detailHinweis}
+          </p>
+
+          {/* Wer selbst umschauen will, tut das besser mit vollem Bestand.
+              Der Knopf steht hier und nicht unten bei den drei Wegen: Er ist
+              kein vierter Weg, sondern eine Zutat zum dritten. */}
           {beispieleLadbar && (
-            <p className="rounded-md border border-dashed border-border p-3 text-xs leading-relaxed text-muted-foreground">
-              {tourTexte.abschluss.beispiele.hinweis}
-            </p>
+            <div className="space-y-2 rounded-md border border-dashed border-border p-3">
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {tourTexte.abschluss.beispiele.hinweis}
+              </p>
+              <BeispieleKnopf
+                slug={slug}
+                onFertig={beenden}
+                beschriftung={tourTexte.abschluss.beispiele.knopf}
+              />
+            </div>
           )}
           <Link
             href={`/demo/${slug}/leitstand`}
@@ -379,15 +435,15 @@ export function Tour({
         ref={kasten}
         className={cn(
           "fixed z-40",
-          angehalten ? "w-[min(20rem,calc(100vw-1rem))]" : "w-[min(24rem,calc(100vw-1rem))]",
+          angehalten
+            ? "w-[min(20rem,calc(100vw-1rem))]"
+            : "w-[min(24rem,calc(100vw-1rem))]",
           gleiten && "transition-[top,left] duration-500 ease-out",
           !verankert && "left-1/2 -translate-x-1/2",
         )}
         // Ohne Anker unter den festen Kopfleisten – nicht darüber. Verdeckt
         // wäre dort die Demo-Kennzeichnung oder die Kopfzeile des Chats.
-        style={
-          verankert ? { top: platz.oben, left: platz.links } : { top: grenze }
-        }
+        style={verankert ? { top: platz.oben, left: platz.links } : { top: grenze }}
       >
         <div className="relative rounded-lg bg-slate-900 px-3.5 py-2.5 text-left shadow-2xl ring-1 ring-black/20">
           {/* Kein Zeiger ohne Ring: Zwischen zwei Stationen ist die
@@ -408,7 +464,11 @@ export function Tour({
             <span className="text-[10px] font-bold tracking-[0.14em] text-demo uppercase">
               {tourTexte.leiste.kennzeichen}
             </span>
-            <Fortschritt aktuell={index} erledigt={zwischenstand !== null} />
+            <Fortschritt
+              aktuell={index}
+              erledigt={zwischenstand !== null}
+              stationen={stationen}
+            />
             <button
               type="button"
               onClick={beenden}
@@ -601,11 +661,20 @@ function gleicherPlatz(a: Platz | null, b: Platz): boolean {
 // ---------------------------------------------------------------------------
 
 /** Drei Punkte statt einer Prozentzahl – auf einen Blick erfassbar. */
-function Fortschritt({ aktuell, erledigt }: { aktuell: number; erledigt: boolean }) {
+function Fortschritt({
+  aktuell,
+  erledigt,
+  stationen,
+}: {
+  aktuell: number;
+  erledigt: boolean;
+  stationen: TourStation[];
+}) {
+  const gesamt = stationen.length;
   return (
     <div className="flex shrink-0 items-center gap-2">
       <div className="flex gap-1">
-        {tourStationen.map((s, i) => (
+        {stationen.map((s, i) => (
           <span
             key={s.id}
             className={cn(
@@ -620,7 +689,7 @@ function Fortschritt({ aktuell, erledigt }: { aktuell: number; erledigt: boolean
         ))}
       </div>
       <span className="tabellenziffern text-[10px] whitespace-nowrap text-slate-400">
-        {tourTexte.leiste.schritt(aktuell + 1, tourStationen.length)}
+        {tourTexte.leiste.schritt(aktuell + 1, gesamt)}
       </span>
     </div>
   );
@@ -648,6 +717,28 @@ function Markierung({ rahmen }: { rahmen: DOMRect }) {
     >
       <span className="absolute inset-0 animate-pulse rounded-lg bg-demo/15" />
     </div>
+  );
+}
+
+/**
+ * Führt in die ausführliche Tour.
+ *
+ * Eigene Komponente aus demselben Grund wie der Knopf darunter: Zwischen
+ * Klick und neuer Seite liegt ein Serveraufruf, und ein Knopf, der in dieser
+ * Zeit nichts tut, wird ein zweites Mal gedrückt.
+ */
+function DetailKnopf({ onStarten }: { onStarten: () => Promise<void> }) {
+  const [laeuft, starten] = useTransition();
+
+  return (
+    <Button
+      variant="outline"
+      disabled={laeuft}
+      onClick={() => starten(async () => void (await onStarten()))}
+    >
+      <RouteIcon />
+      {tourTexte.abschluss.wege.detail}
+    </Button>
   );
 }
 

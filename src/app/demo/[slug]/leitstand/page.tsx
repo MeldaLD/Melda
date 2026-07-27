@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRightIcon } from "lucide-react";
 
+import { TourMelder } from "@/components/demo/TourMelder";
 import { KpiKachel } from "@/components/gemeinsam/KpiKachel";
 import { WochenDiagramm } from "@/components/gemeinsam/WochenDiagramm";
 import { PrioBadge, Seitenkopf, SlaPunkt } from "@/components/gemeinsam/Anzeigen";
@@ -42,6 +43,8 @@ export default async function Uebersicht({
           beschreibung={`Stand für ${bestand.mandant.firma}`}
         />
         <Datenumschalter slug={slug} ansicht={ansicht} />
+        {/* Letzte Station der ausführlichen Tour. */}
+        <TourMelder was="verwalter:leitstand-geoeffnet" />
       </div>
     );
   }
@@ -59,6 +62,8 @@ export default async function Uebersicht({
       />
       <div className="mb-5">
         <Datenumschalter slug={slug} ansicht={ansicht} />
+        {/* Letzte Station der ausführlichen Tour. */}
+        <TourMelder was="verwalter:leitstand-geoeffnet" />
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

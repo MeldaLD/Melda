@@ -89,7 +89,7 @@ export default async function KontrollSeite({
                 {liste.length}
               </Badge>
             </div>
-            {[...hoch, ...mittel].map((a) => (
+            {[...hoch, ...mittel].map((a, i) => (
               <Card
                 key={a.id}
                 className={
@@ -124,7 +124,15 @@ export default async function KontrollSeite({
                     )}
                   </div>
                   {a.vorgangId && (
-                    <Button asChild size="sm" variant="outline" className="shrink-0">
+                    <Button
+                      asChild
+                      size="sm"
+                      variant="outline"
+                      className="shrink-0"
+                      // Nur der oberste Punkt trägt die Marke der Tour –
+                      // sonst zeigte sie auf fünf Stellen gleichzeitig.
+                      data-tour={i === 0 ? "ausnahme-ansehen" : undefined}
+                    >
                       <Link href={`${basis}/vorgaenge/${a.vorgangId}`}>
                         Ansehen <ArrowRightIcon />
                       </Link>

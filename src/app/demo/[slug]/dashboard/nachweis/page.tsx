@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 
+import { TourMelder } from "@/components/demo/TourMelder";
 import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
 import { Datenumschalter } from "@/components/gemeinsam/Datenumschalter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +39,8 @@ export default async function NachweisSeite({
         beschreibung={`${alsDatum(n.vonIso)} bis ${alsDatum(n.bisIso)} · zum Weitergeben an den Eigentümer`}
       />
       <Datenumschalter slug={slug} ansicht={ansicht} />
+      {/* Station der ausführlichen Tour: Hier ist das Ankommen die Aufgabe. */}
+      <TourMelder was="verwalter:nachweis-geoeffnet" />
 
       <div className="max-w-3xl space-y-4">
         <Card>
