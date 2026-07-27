@@ -50,7 +50,17 @@ const baustand = [
   { schritt: "Übergabe an die Mitarbeitenden mit Textbausteinen", fertig: true },
   { schritt: "Terminabstimmung mit den Handwerksbetrieben", fertig: true },
   { schritt: "Verwaltersicht: Kontrolle statt Kleinarbeit", fertig: true },
+  { schritt: "Übersicht zeigt zuerst nur den Fall aus dem Chat", fertig: true },
+  { schritt: "Termine nennt der Betrieb, nicht wir", fertig: true },
+  {
+    schritt: "Konzept: was Skript bleibt, was an ein Modell geht",
+    fertig: true,
+  },
   { schritt: "Echte Demo-Fotos", fertig: false },
+  // Der Chat läuft vollständig auf hinterlegten Texten. Welche Schritte
+  // damit endgültig bedient sind und welche auf die Anbindung warten, steht
+  // unter /demo/<slug>/leitstand/ki.
+  { schritt: "Modellanbindung (Verstehen, Bild, Formulieren)", fertig: false },
 ];
 
 function Zeile({ text, erfuellt }: { text: string; erfuellt: boolean }) {

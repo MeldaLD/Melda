@@ -71,9 +71,16 @@ export const anliegen: Anliegen[] = [
       "Zahlungen laufen über die Buchhaltung. Die häufigsten Fälle kann ich " +
       "Ihnen direkt abnehmen – für alles Weitere gebe ich es dorthin weiter.",
     schritte: [
-      "Geänderte Bankverbindung: Schreiben Sie mir die neue IBAN, ich lege sie zur Änderung vor.",
+      // Die Richtung war hier einmal umgekehrt: Der Mieter sollte seine neue
+      // IBAN schicken. Das ergibt in Deutschland keinen Sinn – die Miete
+      // läuft über einen Dauerauftrag, den der Mieter selbst einrichtet, und
+      // nicht über einen Einzug der Verwaltung. Gebraucht wird also die
+      // Bankverbindung der Verwaltung, nicht die des Mieters.
+      "Bankverbindung für Ihren Dauerauftrag: Ich zeige Ihnen Empfänger, IBAN und den Verwendungszweck, den Sie angeben müssen.",
       "Mahnung erhalten, obwohl gezahlt: Schicken Sie mir den Zahlungsbeleg als Foto, dann klären wir das ohne Anruf.",
-      "Sie brauchen mehr Zeit: Nennen Sie mir Betrag und Wunschtermin, ich lege es der Verwaltung vor.",
+      // Vorher stand hier nur „Sie brauchen mehr Zeit“ – Zeit wofür, war
+      // nicht zu erkennen.
+      "Sie können eine Forderung gerade nicht in voller Höhe zahlen: Nennen Sie mir den Betrag und bis wann Sie ihn aufbringen können. Ich lege der Verwaltung eine Ratenzahlung vor.",
     ],
     bereichVorschlag: "buchhaltung",
   },

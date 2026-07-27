@@ -10,6 +10,7 @@ import {
   LayoutDashboardIcon,
   ListIcon,
   SettingsIcon,
+  SparklesIcon,
   SmartphoneIcon,
   WrenchIcon,
 } from "lucide-react";
@@ -34,6 +35,7 @@ const BEREICHE = [
   { pfad: "/handwerker", name: "Handwerker", symbol: WrenchIcon },
   { pfad: "/postfach", name: "Postfach", symbol: InboxIcon },
   { pfad: "/objekte", name: "Objekte", symbol: BuildingIcon },
+  { pfad: "/ki", name: "Was die KI tut", symbol: SparklesIcon },
   { pfad: "/einstellungen", name: "Einstellungen", symbol: SettingsIcon },
 ];
 
