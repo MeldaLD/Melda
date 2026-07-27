@@ -125,6 +125,34 @@ function Gespraech({
     }
   }, [zustand.nachrichten]);
 
+  // Sobald eine Meldung existiert, ist der Schaden aufgenommen – ob per Foto
+  // oder in eigenen Worten. Die Tour zählt beides.
+  useEffect(() => {
+    if (zustand.meldungen.length > 0) tourMelden("chat:meldung-begonnen");
+  }, [zustand.meldungen.length]);
+
+  // Die Tour braucht nicht nur die Erfolge, sondern auch die Abzweigungen:
+  // Sie soll anhalten, wenn der Betrachter woandershin geht, statt eine
+  // Aufgabe stehen zu lassen, die sich nicht mehr erfüllen lässt. Abgelesen
+  // wird das am Phasenwechsel – der Zustandsautomat bleibt frei davon.
+  const vorherigePhase = useRef(zustand.phase);
+  useEffect(() => {
+    const vorher = vorherigePhase.current;
+    const jetzt = zustand.phase;
+    vorherigePhase.current = jetzt;
+    if (vorher === jetzt) return;
+
+    // Aus dem Einstieg heraus in alles außer eine Schadensaufnahme: Frage zur
+    // Abrechnung, Stand einer Meldung, Rückruf.
+    if (vorher === "anliegen" && jetzt !== "eingabe") tourMelden("chat:kein-schaden");
+
+    // Aus der Diagnose heraus: entweder zurück in die Beschreibung, weil der
+    // Mieter widersprochen hat, oder weiter ohne Nachfrage.
+    if (vorher === "bestaetigung" && jetzt !== "zweitfoto") {
+      tourMelden(jetzt === "eingabe" ? "chat:korrektur" : "chat:ohne-nachfrage");
+    }
+  }, [zustand.phase]);
+
   const absenden = () => {
     const text = entwurf.trim();
     if (!text || beschaeftigt) return;
@@ -251,7 +279,12 @@ function Kopfzeile({
     .toUpperCase();
 
   return (
-    <header className="flex items-center gap-3 bg-marke px-3 py-2.5 text-marke-kontrast">
+    <header
+      // Die Tour legt ihren Hinweis nicht über diese Zeile: Hier steht, mit
+      // wem der Mieter gerade schreibt.
+      data-tour-oben
+      className="flex items-center gap-3 bg-marke px-3 py-2.5 text-marke-kontrast"
+    >
       <Link
         href={`/demo/${mandant.slug}`}
         aria-label="Zurück zur Übersicht"

@@ -38,8 +38,31 @@ export type TourStation = {
    * data-tour-Attribut tragen. Leer lassen, wenn es nichts zu markieren gibt.
    */
   markierung?: string;
-  /** Ereignis, das die Station abschließt. Siehe src/lib/tour/ereignisse.ts */
-  erledigtBei: string;
+  /**
+   * Ereignisse, die die Station abschließen. Siehe src/lib/tour/ereignisse.ts
+   *
+   * Mehrere, weil es mehrere richtige Wege gibt: Ein Schaden lässt sich mit
+   * einem Foto melden oder in eigenen Worten beschreiben. Beides ist erledigt.
+   */
+  erledigtBei: string[];
+  /**
+   * Ereignisse, nach denen diese Station gegenstandslos ist.
+   *
+   * Nicht jede Meldung braucht eine Nachfrage. Wenn der Assistent keine
+   * stellt, darf die Tour nicht weiter "senden Sie das zweite Foto" fordern –
+   * sie sagt kurz, warum das hier entfällt, und geht weiter.
+   */
+  entfaelltBei?: string[];
+  /** Der Satz dazu. Pflicht, sobald entfaelltBei gesetzt ist. */
+  entfaellt?: string;
+  /**
+   * Ereignisse, nach denen der Betrachter erkennbar einen anderen Weg geht.
+   *
+   * Dann hält die Tour an, statt eine Aufgabe stehen zu lassen, die sich
+   * nicht mehr erfüllen lässt. Sie meldet sich von selbst zurück, sobald die
+   * Stelle wieder da ist, um die es geht.
+   */
+  pausiertBei?: string[];
   /**
    * Was zwischen dieser und der nächsten Station passiert – wird in der
    * Pause nach "Erledigt" gezeigt.
@@ -62,7 +85,13 @@ export const tourStationen: TourStation[] = [
       "So sieht es für Ihre Mieter aus. Keine App, keine Anmeldung, kein Portal.",
     pfad: "chat",
     markierung: "foto-knopf",
-    erledigtBei: "chat:foto-gesendet",
+    // Ein Foto ist der schnellere Weg, aber nicht der einzige: Wer den
+    // Schaden tippt, hat die Aufgabe genauso erfüllt.
+    erledigtBei: ["chat:foto-gesendet", "chat:meldung-begonnen"],
+    // Der Einstieg bietet sieben Themen an, und nur eines führt hierher.
+    // Wer nach der Nebenkostenabrechnung fragt, macht nichts falsch – die
+    // Tour hat hier nur nichts mehr zu sagen.
+    pausiertBei: ["chat:kein-schaden"],
   },
   {
     id: "nachfrage",
@@ -74,7 +103,18 @@ export const tourStationen: TourStation[] = [
     // Eingabefeld – der Hinweis wandert also nicht, sondern bleibt dort
     // stehen, wo geantwortet wird.
     markierung: "antwort-knopf",
-    erledigtBei: "chat:erkenntnis",
+    erledigtBei: ["chat:erkenntnis"],
+    // Müllraum, verstopfter Abfluss, Notfall: Hier fragt der Assistent nicht
+    // nach, und das ist Absicht. Die Tour macht daraus lieber ein Argument,
+    // als eine unerfüllbare Aufgabe stehen zu lassen.
+    entfaelltBei: ["chat:ohne-nachfrage"],
+    entfaellt:
+      "Hier fragt der Assistent nicht nach – bei dieser Meldung bringt ein " +
+      "zweites Foto dem Betrieb nichts. Dass er nicht immer nachfragt, macht " +
+      "die Nachfrage glaubwürdig, wenn sie kommt.",
+    // Wer der Diagnose widerspricht, beschreibt den Schaden neu. Bis dahin
+    // gibt es nichts zu bestätigen.
+    pausiertBei: ["chat:korrektur"],
     uebergang:
       "Ab hier übernehmen wir: Auftrag an den Betrieb, Termin abstimmen, " +
       "Mieter informieren. Sie bekommen davon nur das Ergebnis zu sehen.",
@@ -93,7 +133,7 @@ export const tourStationen: TourStation[] = [
       "Dieselbe Meldung, die Sie eben als Mieter geschrieben haben – aufbereitet, eingeordnet und schon unterwegs.",
     pfad: "dashboard/vorgaenge",
     markierung: "vorgang-zeile",
-    erledigtBei: "verwalter:vorgang-geoeffnet",
+    erledigtBei: ["verwalter:vorgang-geoeffnet"],
   },
 ];
 
@@ -158,5 +198,22 @@ export const tourTexte = {
      * gar nicht gibt. Ein Wort in der Demofarbe genügt, um beides zu trennen.
      */
     kennzeichen: "Vorführung",
+  },
+
+  /**
+   * Wenn der Betrachter einen anderen Weg geht.
+   *
+   * Eine Vorführung, die auf einer Aufgabe beharrt, die sich gerade nicht
+   * erfüllen lässt, wird zum Ärgernis – und ausgerechnet in dem Moment, in
+   * dem der Kunde von selbst etwas ausprobiert. Also tritt die Tour zur
+   * Seite, ohne sich zu verabschieden, und kommt zurück, sobald die Stelle
+   * wieder da ist, um die es geht.
+   */
+  angehalten: {
+    titel: "Tour angehalten",
+    text:
+      "Sie sind gerade woanders unterwegs – sehen Sie sich in Ruhe um. " +
+      "Sobald es an dieser Stelle weitergeht, melde ich mich wieder.",
+    weiter: "Nächster Schritt",
   },
 } as const;

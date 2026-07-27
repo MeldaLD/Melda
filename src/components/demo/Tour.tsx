@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowRightIcon, CheckIcon, LayersIcon, XIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  LayersIcon,
+  PauseIcon,
+  XIcon,
+} from "lucide-react";
 
 import { tourStationen, tourTexte } from "@config/tour";
 import { beispieleUmschalten } from "@/app/demo/[slug]/aktionen";
@@ -16,7 +22,22 @@ import { aufTourEreignis } from "@/lib/tour/ereignisse";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-type Stand = "begruessung" | "laeuft" | "abschluss" | "aus";
+type Stand = "begruessung" | "laeuft" | "pausiert" | "abschluss" | "aus";
+
+/** Was zwischen zwei Stationen kurz stehen bleibt. */
+type Zwischenstand = "erledigt" | "entfaellt";
+
+/**
+ * Wie lange die markierte Stelle fehlen darf, bevor die Tour anhält.
+ *
+ * Kurz weg ist normal: Der Assistent tippt, und die Knopfleiste verschwindet
+ * für einen Moment. Dauerhaft weg heißt, dass der Betrachter etwas getan hat,
+ * womit die Aufgabe nichts mehr zu tun hat. Der zweite Wert gilt, solange die
+ * Stelle überhaupt noch nie da war – beim Seitenwechsel baut sich der Chat
+ * erst auf, und ein Gespräch beginnt mit zwei getippten Sätzen.
+ */
+const GEDULD_MS = 6000;
+const GEDULD_ANFANG_MS = 15000;
 
 /**
  * Die geführte Tour durch die Demo.
@@ -37,6 +58,23 @@ type Stand = "begruessung" | "laeuft" | "abschluss" | "aus";
  * Farblich gehört er zur Demo (Bernstein), nicht zum Produkt (Mandantenfarbe).
  * Siehe src/components/demo/DemoLeiste.tsx.
  *
+ * DIE TOUR HÄLT AN, WENN DER BETRACHTER WOANDERS HINGEHT
+ *
+ * Der Chat bietet sieben Themen an, und nur eines führt auf den Weg dieser
+ * Tour. Auch innerhalb einer Schadensmeldung gibt es Fälle ohne Rückfrage.
+ * Eine Tour, die dann weiter "senden Sie das zweite Foto" fordert, macht die
+ * Vorführung kaputt – ausgerechnet in dem Moment, in dem der Kunde von selbst
+ * etwas ausprobiert. Deshalb drei Stufen, von genau nach grob:
+ *
+ *   1. erledigtBei – mehrere richtige Wege zum selben Ziel.
+ *   2. entfaelltBei / pausiertBei – benannte Abzweigungen, sofort erkannt.
+ *   3. Der Wächter in der Messschleife – fehlt die markierte Stelle dauerhaft,
+ *      obwohl der Betrachter auf der richtigen Seite ist, hält die Tour an.
+ *      Das fängt auch ab, woran beim Schreiben niemand gedacht hat.
+ *
+ * Angehalten heißt nicht beendet: Sobald die Stelle wieder da ist, läuft die
+ * Tour von selbst weiter.
+ *
  * Wer die Tour loswerden will, kommt mit einem Klick raus, und die
  * Entscheidung hält für diese Sitzung.
  */
@@ -55,10 +93,12 @@ export function Tour({
 
   const [stand, setStand] = useState<Stand>("aus");
   const [index, setIndex] = useState(0);
-  const [geradeErledigt, setGeradeErledigt] = useState(false);
+  const [zwischenstand, setZwischenstand] = useState<Zwischenstand | null>(null);
   const [rahmen, setRahmen] = useState<DOMRect | null>(null);
   const [platz, setPlatz] = useState<Platz | null>(null);
   const [gleiten, setGleiten] = useState(false);
+  /** Unterkante der festen Kopfleisten – dort beginnt der freie Bereich. */
+  const [grenze, setGrenze] = useState(64);
   const kasten = useRef<HTMLDivElement>(null);
   const station = tourStationen[index];
 
@@ -87,68 +127,113 @@ export function Tour({
   }, [speicherSchluessel]);
 
   // --- Fortschritt ---------------------------------------------------------
+  /**
+   * Station abhaken und weiterziehen.
+   *
+   * Der Zwischenstand bleibt kurz stehen, damit er wahrgenommen wird, bevor
+   * die nächste Aufgabe erscheint. Ein Übergangssatz und die Begründung, warum
+   * eine Station entfällt, wollen gelesen werden – die bekommen mehr Zeit.
+   */
+  const naechsteStation = useCallback(() => {
+    setZwischenstand(null);
+    setRahmen(null);
+    if (index + 1 >= tourStationen.length) setStand("abschluss");
+    else {
+      setStand("laeuft");
+      setIndex(index + 1);
+    }
+  }, [index]);
+
+  const weiterziehen = useCallback(
+    (art: Zwischenstand) => {
+      setZwischenstand(art);
+      setStand("laeuft");
+      setRahmen(null);
+      const pause = art === "entfaellt" || station?.uebergang ? 4200 : 1400;
+      setTimeout(naechsteStation, pause);
+    },
+    [naechsteStation, station],
+  );
+
   useEffect(() => {
-    if (stand !== "laeuft" || !station) return;
+    if ((stand !== "laeuft" && stand !== "pausiert") || !station) return;
 
     return aufTourEreignis((was) => {
-      if (was !== station.erledigtBei) return;
-
-      // Kurz stehen lassen, damit der Erfolg wahrgenommen wird, bevor die
-      // nächste Aufgabe erscheint. Steht ein Übergangssatz an, bekommt er
-      // mehr Zeit – er will gelesen werden, nicht nur wahrgenommen.
-      setGeradeErledigt(true);
-      setRahmen(null);
-      setTimeout(
-        () => {
-          setGeradeErledigt(false);
-          if (index + 1 >= tourStationen.length) {
-            setStand("abschluss");
-          } else {
-            setIndex(index + 1);
-          }
-        },
-        station.uebergang ? 4200 : 1400,
-      );
+      if (station.erledigtBei.includes(was)) return weiterziehen("erledigt");
+      if (station.entfaelltBei?.includes(was)) return weiterziehen("entfaellt");
+      // Anhalten statt beharren: Wer gerade etwas anderes tut, soll nicht
+      // gegen eine Aufgabe anlaufen, die sich hier nicht mehr erfüllen lässt.
+      if (stand === "laeuft" && station.pausiertBei?.includes(was)) {
+        setStand("pausiert");
+      }
     });
-  }, [stand, station, index]);
+  }, [stand, station, weiterziehen]);
+
+  // --- Wegweiser -----------------------------------------------------------
+  // Unterseiten zählen mit: Wer von der Vorgangsliste in einen Vorgang
+  // klickt, ist nicht plötzlich falsch – sonst blitzte dort für einen
+  // Augenblick ein "Hin"-Knopf auf, der zurück auf die Liste führt.
+  const ziel = station ? `/demo/${slug}/${station.pfad}` : "";
+  const amRichtigenOrt = !station || pfad === ziel || pfad.startsWith(`${ziel}/`);
 
   // --- Markierung und Platzierung ------------------------------------------
   // Position des hervorgehobenen Elements nachführen: Der Chat scrollt, das
   // Dashboard auch, und auf dem Telefon dreht man das Gerät. Aus dem
   // gemessenen Rechteck ergibt sich beides – der Ring um das Element und der
   // Platz für den Hinweis daneben.
+  //
+  // Dieselbe Schleife ist der Wächter der Tour: Wenn die markierte Stelle
+  // dauerhaft fehlt, obwohl der Betrachter auf der richtigen Seite ist, hat
+  // er etwas getan, womit die Aufgabe nichts mehr zu tun hat. Dann hält die
+  // Tour an – und läuft weiter, sobald die Stelle wieder da ist. Das fängt
+  // auch die Fälle ab, an die beim Schreiben der Stationen niemand gedacht
+  // hat; die benannten Abzweigungen oben wirken nur schneller.
   useEffect(() => {
-    if (stand !== "laeuft" || !station?.markierung || geradeErledigt) {
+    const beobachten = stand === "laeuft" || stand === "pausiert";
+    if (!beobachten || !station?.markierung || zwischenstand) {
       setRahmen(null);
       return;
     }
 
     let laeuft = true;
+    let jeGesehen = false;
+    let fehltSeit: number | null = null;
+
     const messen = () => {
       if (!laeuft) return;
       requestAnimationFrame(messen);
 
-      const ziel = document.querySelector(`[data-tour="${station.markierung}"]`);
-      if (!ziel) {
-        // Das Element ist gerade weg – etwa, weil der Assistent tippt und die
-        // Knopfleiste kurz verschwindet. Dann den Ring ausblenden, den
-        // Hinweis aber stehen lassen: Ein Kasten, der bei jeder Antwort quer
-        // über den Bildschirm springt, macht nervös.
+      const oben = obereGrenze();
+      setGrenze((alt) => (Math.round(alt) === Math.round(oben) ? alt : oben));
+
+      const gefunden = document.querySelector(`[data-tour="${station.markierung}"]`);
+      if (!gefunden) {
+        // Kurz weg ist normal – etwa, weil der Assistent tippt und die
+        // Knopfleiste verschwindet. Dann den Ring ausblenden, den Hinweis
+        // aber stehen lassen: Ein Kasten, der bei jeder Antwort quer über den
+        // Bildschirm springt, macht nervös.
         setRahmen((alt) => (alt === null ? alt : null));
+        // Auf dem Weg zur richtigen Seite fehlt die Stelle zu Recht; dort
+        // zeigt die Tour einen Wegweiser statt einer Pause.
+        if (!amRichtigenOrt) return;
+        fehltSeit ??= performance.now();
+        const geduld = jeGesehen ? GEDULD_MS : GEDULD_ANFANG_MS;
+        if (performance.now() - fehltSeit > geduld) {
+          setStand((alt) => (alt === "laeuft" ? "pausiert" : alt));
+        }
         return;
       }
 
-      const gemessen = ziel.getBoundingClientRect();
+      jeGesehen = true;
+      fehltSeit = null;
+      setStand((alt) => (alt === "pausiert" ? "laeuft" : alt));
+
+      const gemessen = gefunden.getBoundingClientRect();
       setRahmen((alt) => (gleicherRahmen(alt, gemessen) ? alt : gemessen));
 
       const eigen = kasten.current;
       if (!eigen) return;
-      const neu = platzBerechnen(
-        gemessen,
-        eigen.offsetWidth,
-        eigen.offsetHeight,
-        obereGrenze(),
-      );
+      const neu = platzBerechnen(gemessen, eigen.offsetWidth, eigen.offsetHeight, oben);
       setPlatz((alt) => (gleicherPlatz(alt, neu) ? alt : neu));
     };
     requestAnimationFrame(messen);
@@ -156,7 +241,7 @@ export function Tour({
     return () => {
       laeuft = false;
     };
-  }, [stand, station, geradeErledigt, pfad]);
+  }, [stand, station, zwischenstand, pfad, amRichtigenOrt]);
 
   // Nur beim Stationswechsel gleiten. Während des Scrollens muss der Hinweis
   // bildgenau am Element kleben – ein Übergang würde ihn hinterherhinken
@@ -165,7 +250,7 @@ export function Tour({
     setGleiten(true);
     const uhr = setTimeout(() => setGleiten(false), 700);
     return () => clearTimeout(uhr);
-  }, [station?.id, geradeErledigt]);
+  }, [station?.id, zwischenstand]);
 
   // Der Chat scrollt seinen Verlauf ganz nach unten. Läge der Hinweis dort
   // über der letzten Nachricht, verdeckte er genau den Satz, auf den er sich
@@ -190,13 +275,6 @@ export function Tour({
       document.documentElement.style.removeProperty("--tour-luft");
     };
   }, []);
-
-  // --- Wegweiser -----------------------------------------------------------
-  // Unterseiten zählen mit: Wer von der Vorgangsliste in einen Vorgang
-  // klickt, ist nicht plötzlich falsch – sonst blitzte dort für einen
-  // Augenblick ein "Hin"-Knopf auf, der zurück auf die Liste führt.
-  const ziel = station ? `/demo/${slug}/${station.pfad}` : "";
-  const amRichtigenOrt = !station || pfad === ziel || pfad.startsWith(`${ziel}/`);
 
   const hingehen = () => {
     if (station) router.push(ziel);
@@ -268,23 +346,33 @@ export function Tour({
     );
   }
 
+  // Angehalten hängt der Hinweis an keiner Stelle mehr – es gibt gerade
+  // keine. Also zurück an den oberen Rand, schmaler und ohne Aufgabe.
+  const angehalten = stand === "pausiert";
+  const verankert = platz && !angehalten;
+
   return (
     <>
       {rahmen && <Markierung rahmen={rahmen} />}
 
       <div
         ref={kasten}
-        // Ohne gemessenen Platz – etwa auf einer Station ohne Markierung –
-        // bleibt der Hinweis oben mittig stehen.
         className={cn(
-          "fixed z-40 w-[min(24rem,calc(100vw-1rem))]",
+          "fixed z-40",
+          angehalten ? "w-[min(20rem,calc(100vw-1rem))]" : "w-[min(24rem,calc(100vw-1rem))]",
           gleiten && "transition-[top,left] duration-500 ease-out",
-          !platz && "top-16 left-1/2 -translate-x-1/2",
+          !verankert && "left-1/2 -translate-x-1/2",
         )}
-        style={platz ? { top: platz.oben, left: platz.links } : undefined}
+        // Ohne Anker unter den festen Kopfleisten – nicht darüber. Verdeckt
+        // wäre dort die Demo-Kennzeichnung oder die Kopfzeile des Chats.
+        style={
+          verankert ? { top: platz.oben, left: platz.links } : { top: grenze }
+        }
       >
         <div className="relative rounded-lg bg-slate-900 px-3.5 py-2.5 text-left shadow-2xl ring-1 ring-black/20">
-          {platz?.zeigt && (
+          {/* Kein Zeiger ohne Ring: Zwischen zwei Stationen ist die
+              Markierung weg, und ein Zeiger deutete dann auf nichts. */}
+          {verankert && platz.zeigt && !zwischenstand && (
             <span
               aria-hidden
               className="absolute size-3 rotate-45 bg-slate-900"
@@ -300,7 +388,7 @@ export function Tour({
             <span className="text-[10px] font-bold tracking-[0.14em] text-demo uppercase">
               {tourTexte.leiste.kennzeichen}
             </span>
-            <Fortschritt aktuell={index} erledigt={geradeErledigt} />
+            <Fortschritt aktuell={index} erledigt={zwischenstand !== null} />
             <button
               type="button"
               onClick={beenden}
@@ -312,7 +400,21 @@ export function Tour({
             </button>
           </div>
 
-          {geradeErledigt ? (
+          {angehalten ? (
+            <>
+              <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-demo">
+                <PauseIcon className="size-4 shrink-0" aria-hidden />
+                {tourTexte.angehalten.titel}
+              </p>
+              <p className="mt-1 text-xs leading-snug text-slate-300">
+                {tourTexte.angehalten.text}
+              </p>
+            </>
+          ) : zwischenstand === "entfaellt" ? (
+            <p className="mt-1 text-xs leading-snug text-slate-300">
+              {station?.entfaellt}
+            </p>
+          ) : zwischenstand === "erledigt" ? (
             <>
               <p className="mt-1 flex items-center gap-1.5 text-sm font-medium text-demo">
                 <CheckIcon className="size-4 shrink-0" aria-hidden />
@@ -335,17 +437,37 @@ export function Tour({
             </>
           )}
 
-          {!amRichtigenOrt && !geradeErledigt && (
+          {/* Angehalten: der Weg nach vorn, falls der Betrachter hier gar
+              nicht mehr weitermachen will. Sonst der Wegweiser zur Seite,
+              auf der die Aufgabe stattfindet. */}
+          {angehalten ? (
             <div className="mt-2 flex justify-end">
               <button
                 type="button"
-                onClick={hingehen}
-                className="inline-flex items-center gap-1 rounded-md bg-demo px-2.5 py-1 text-xs font-semibold text-slate-900 transition-opacity hover:opacity-90"
+                // Ohne "Erledigt": Der Betrachter hat diese Station nicht
+                // gemacht, sondern übersprungen. Das eine als das andere
+                // auszugeben, merkt jeder.
+                onClick={naechsteStation}
+                className="inline-flex items-center gap-1 rounded-md bg-white/10 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-white/20"
               >
-                Hin
+                {tourTexte.angehalten.weiter}
                 <ArrowRightIcon className="size-3.5" aria-hidden />
               </button>
             </div>
+          ) : (
+            !amRichtigenOrt &&
+            !zwischenstand && (
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={hingehen}
+                  className="inline-flex items-center gap-1 rounded-md bg-demo px-2.5 py-1 text-xs font-semibold text-slate-900 transition-opacity hover:opacity-90"
+                >
+                  Hin
+                  <ArrowRightIcon className="size-3.5" aria-hidden />
+                </button>
+              </div>
+            )
           )}
         </div>
       </div>
@@ -381,14 +503,18 @@ const LUFT = 8;
 /**
  * Oberkante für den Hinweis.
  *
- * Die Demo-Leiste ist die einzige Kennzeichnung, dass hier nichts echt ist –
- * ausgerechnet die darf der Hinweis nicht verdecken. Sie ist immer sichtbar
- * und nicht immer gleich hoch, also wird sie gemessen statt geschätzt.
+ * Zwei Dinge dürfen nie verdeckt werden: die Demo-Leiste, weil sie die
+ * einzige Kennzeichnung ist, dass hier nichts echt ist – und die Kopfzeile
+ * des Chats, weil dort steht, mit wem der Mieter schreibt. Beide sind nicht
+ * immer gleich hoch, also werden sie gemessen statt geschätzt.
  */
 function obereGrenze(): number {
-  const leiste = document.querySelector("[data-demo-leiste]");
-  if (!leiste) return LUFT;
-  return leiste.getBoundingClientRect().bottom + LUFT;
+  const kanten = document.querySelectorAll("[data-demo-leiste], [data-tour-oben]");
+  let unterste = 0;
+  kanten.forEach((k) => {
+    unterste = Math.max(unterste, k.getBoundingClientRect().bottom);
+  });
+  return unterste + LUFT;
 }
 
 /**
