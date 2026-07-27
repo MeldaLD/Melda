@@ -134,7 +134,19 @@ export function Tour({
    * die nächste Aufgabe erscheint. Ein Übergangssatz und die Begründung, warum
    * eine Station entfällt, wollen gelesen werden – die bekommen mehr Zeit.
    */
+  /**
+   * Nummer der zuletzt verarbeiteten Meldung.
+   *
+   * Der Bus reicht eine gerade abgesetzte Meldung an neue Zuhörer nach –
+   * sonst ginge sie beim Seitenwechsel verloren. Ohne dieses Gedächtnis
+   * würde dieselbe Meldung nach jedem Neuanhängen ein zweites Mal wirken.
+   */
+  const verarbeitet = useRef(0);
+  /** Läuft gerade ein Übergang? Dann nimmt die Station nichts mehr an. */
+  const imUebergang = useRef(false);
+
   const naechsteStation = useCallback(() => {
+    imUebergang.current = false;
     setZwischenstand(null);
     setRahmen(null);
     if (index + 1 >= tourStationen.length) setStand("abschluss");
@@ -146,6 +158,7 @@ export function Tour({
 
   const weiterziehen = useCallback(
     (art: Zwischenstand) => {
+      imUebergang.current = true;
       setZwischenstand(art);
       setStand("laeuft");
       setRahmen(null);
@@ -158,7 +171,14 @@ export function Tour({
   useEffect(() => {
     if ((stand !== "laeuft" && stand !== "pausiert") || !station) return;
 
-    return aufTourEreignis((was) => {
+    return aufTourEreignis((was, nr) => {
+      // Jede Meldung wirkt genau einmal, und während ein Übergang läuft,
+      // wirkt gar keine: Sonst zöge eine Station, die sich über zwei Wege
+      // gleichzeitig abschließt, die nächste gleich mit weiter.
+      if (nr <= verarbeitet.current) return;
+      verarbeitet.current = nr;
+      if (imUebergang.current) return;
+
       if (station.erledigtBei.includes(was)) return weiterziehen("erledigt");
       if (station.entfaelltBei?.includes(was)) return weiterziehen("entfaellt");
       // Anhalten statt beharren: Wer gerade etwas anderes tut, soll nicht
