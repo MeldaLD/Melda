@@ -1,6 +1,10 @@
 import { notFound } from "next/navigation";
 
-import { vorschlaegeVorbelegen, type Abstimmungsdaten } from "@config/abstimmung";
+import {
+  erreichbarkeitText,
+  vorschlaegeVorbelegen,
+  type Abstimmungsdaten,
+} from "@config/abstimmung";
 import { TerminFormular } from "@/components/termin/TerminFormular";
 import { istSchreibenMoeglich } from "@/lib/daten/quelle";
 import { vorschlaegeLesen } from "@/lib/daten/terminanfrage";
@@ -56,7 +60,9 @@ export default async function TerminSeite({
   const [{ data: vorgang }, { data: betrieb }, { data: mandant }] = await Promise.all([
     db
       .from("vorgaenge")
-      .select("nummer, titel, kategorie, ki_zusammenfassung, prioritaet, einheit_id")
+      .select(
+        "nummer, titel, kategorie, ki_zusammenfassung, prioritaet, einheit_id, erreichbarkeit",
+      )
       .eq("id", anfrage.vorgang_id)
       .maybeSingle(),
     db
@@ -101,13 +107,7 @@ export default async function TerminSeite({
     mieterName: "",
     betrieb: betrieb?.firma ?? "",
     ansprechpartner: betrieb?.ansprechpartner ?? null,
-    wunsch:
-      anfrage.wunsch_beginn && anfrage.wunsch_ende
-        ? {
-            beginn: new Date(anfrage.wunsch_beginn),
-            ende: new Date(anfrage.wunsch_ende),
-          }
-        : null,
+    erreichbarkeit: vorgang?.erreichbarkeit ?? null,
     reaktionszeitH: betrieb?.reaktionszeit_h ?? 24,
     zusammenfassung: vorgang?.ki_zusammenfassung ?? null,
     erkenntnis: null,
@@ -148,14 +148,7 @@ export default async function TerminSeite({
         ) : (
           <TerminFormular
             token={token}
-            wunsch={
-              daten.wunsch
-                ? {
-                    beginn: daten.wunsch.beginn.toISOString(),
-                    ende: daten.wunsch.ende.toISOString(),
-                  }
-                : null
-            }
+            erreichbarkeit={erreichbarkeitText(daten.erreichbarkeit)}
             vorbelegt={vorschlaegeVorbelegen(daten).map((f) => ({
               beginn: f.beginn.toISOString(),
               ende: f.ende.toISOString(),

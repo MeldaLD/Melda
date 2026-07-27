@@ -75,7 +75,7 @@ export type Szenario = {
   ohneZweitfoto?: string;
 
   /**
-   * Kein Wunschtermin – niemand muss dafür zu Hause sein.
+   * Gar keine Frage nach Zeiten – niemand muss dafür zu Hause sein.
    *
    * Gilt für alles, was ohne Zutritt zur Wohnung erledigt wird: Leerungen,
    * Arbeiten im Treppenhaus, am Hauseingang. Nach einem Zeitfenster zu

@@ -409,6 +409,11 @@ export function bestandErzeugen(
       kosten_schaetzung_euro: szenario.kostenschaetzungEuro,
       selbsthilfe_angeboten: Boolean(plan.selbstBehoben),
       selbsthilfe_erfolgreich: Boolean(plan.selbstBehoben),
+      // Grobe Angabe des Mieters, keine Terminzusage. Bei Arbeiten ohne
+      // Zutritt zur Wohnung fragen wir gar nicht erst danach.
+      erreichbarkeit: szenario.ohneTermin
+        ? null
+        : ["vormittag", "nachmittag", "egal"][zufall.zahl(0, 2)],
       ist_seed: true,
       erstellt_am: vorStunden(plan.alterStunden),
       erledigt_am:

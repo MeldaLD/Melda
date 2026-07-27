@@ -30,11 +30,15 @@ type Zeile = { datum: string; fenster: (typeof FENSTER)[number]["id"] };
  */
 export function TerminFormular({
   token,
-  wunsch,
+  erreichbarkeit,
   vorbelegt,
 }: {
   token: string;
-  wunsch: Terminvorschlag | null;
+  /**
+   * Wann der Mieter erreichbar ist, als fertiger Satz. Bewusst keine
+   * Terminvorgabe: Welche Zeitpunkte möglich sind, entscheidet der Betrieb.
+   */
+  erreichbarkeit: string;
   vorbelegt: Terminvorschlag[];
 }) {
   const [zeilen, setZeilen] = useState<Zeile[]>(() =>
@@ -85,11 +89,10 @@ export function TerminFormular({
 
   return (
     <div className="space-y-4">
-      {wunsch && (
+      {erreichbarkeit && (
         <p className="rounded-md bg-slate-50 p-3 text-sm text-slate-700">
-          Der Mieter hätte gern{" "}
-          <span className="font-medium">{lesbar(wunsch.beginn, wunsch.ende)}</span>.
-          Passt Ihnen das, lassen Sie den ersten Vorschlag einfach stehen.
+          <span className="font-medium">{erreichbarkeit}</span> Die Vorschläge unten
+          liegen deshalb in dieser Tageshälfte – ändern Sie sie, wie es Ihnen passt.
         </p>
       )}
 
@@ -221,19 +224,4 @@ function fensterZuStunde(stunde: number): (typeof FENSTER)[number]["id"] {
   if (stunde >= 13) return "nachmittag";
   if (stunde >= 11) return "mittag";
   return "vormittag";
-}
-
-function lesbar(beginn: string, ende: string): string {
-  const tag = new Intl.DateTimeFormat("de-DE", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    timeZone: "Europe/Berlin",
-  }).format(new Date(beginn));
-  const zeit = new Intl.DateTimeFormat("de-DE", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Europe/Berlin",
-  });
-  return `${tag}, ${zeit.format(new Date(beginn))}–${zeit.format(new Date(ende))} Uhr`;
 }

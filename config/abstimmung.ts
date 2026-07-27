@@ -31,8 +31,15 @@ export type Abstimmungsdaten = {
   mieterName: string;
   betrieb: string;
   ansprechpartner: string | null;
-  /** Was der Mieter sich im Chat gewünscht hat, falls vorhanden. */
-  wunsch: { beginn: Date; ende: Date } | null;
+  /**
+   * Wann der Mieter grundsätzlich erreichbar ist: "vormittag" | "nachmittag"
+   * | "egal" | null.
+   *
+   * Ausdrücklich kein Terminwunsch. Welche Zeitpunkte möglich sind, weiß nur
+   * der Betrieb – er ist ausgelastet, nicht wir. Diese Angabe hilft ihm
+   * lediglich, Fenster vorzuschlagen, die überhaupt in Frage kommen.
+   */
+  erreichbarkeit: string | null;
   /** Frühester Einsatz laut hinterlegter Reaktionszeit. */
   reaktionszeitH: number;
   zusammenfassung: string | null;
@@ -69,8 +76,13 @@ function fenster(tag: Date, stunde: number): Fenster {
  *
  * Der Betrieb soll etwas Sinnvolles vorfinden und nur noch korrigieren
  * müssen – ein leeres Formular wird deutlich seltener ausgefüllt. Die
- * Vorschläge halten sich an die zugesagte Reaktionszeit, und wenn der Mieter
- * ein Fenster genannt hat, steht das an erster Stelle.
+ * Vorschläge halten sich an die zugesagte Reaktionszeit.
+ *
+ * Wichtig ist, was das hier NICHT ist: kein Termin und keine Zusage, sondern
+ * eine Schreibhilfe. Entschieden wird in dem Moment, in dem der Betrieb auf
+ * Senden tippt. Ist die Erreichbarkeit des Mieters bekannt, liegen die
+ * Vorschläge in der passenden Tageshälfte – sonst schlüge das Formular
+ * Zeiten vor, an denen ohnehin niemand öffnet.
  */
 export function vorschlaegeVorbelegen(
   daten: Abstimmungsdaten,
@@ -86,13 +98,18 @@ export function vorschlaegeVorbelegen(
     f.beginn.getDay() !== 0 &&
     f.beginn.getDay() !== 6;
 
-  if (daten.wunsch && brauchbar(daten.wunsch)) liste.push(daten.wunsch);
+  // Erreichbarkeit des Mieters bestimmt die Tageshälfte, nicht den Tag.
+  const stunden =
+    daten.erreichbarkeit === "vormittag"
+      ? [ARBEITSBEGINN, 10]
+      : daten.erreichbarkeit === "nachmittag"
+        ? [13, 14]
+        : [ARBEITSBEGINN, 13];
 
-  // Danach die nächsten Werktage, vormittags und nachmittags im Wechsel.
   const tag = werktag(new Date(Math.max(fruehestens.getTime(), jetzt.getTime())));
   let versuche = 0;
   while (liste.length < 3 && versuche < 14) {
-    for (const stunde of [ARBEITSBEGINN, 13]) {
+    for (const stunde of stunden) {
       const kandidat = fenster(tag, stunde);
       if (
         brauchbar(kandidat) &&
@@ -142,9 +159,9 @@ export function anfrageAnBetrieb(daten: Abstimmungsdaten, link: string): string 
     `${daten.objekt}, ${daten.einheit}`,
     daten.zusammenfassung ?? "",
     daten.erkenntnis ? `Bereits geklärt: ${daten.erkenntnis}` : "",
-    daten.wunsch ? `Wunsch des Mieters: ${fensterText(daten.wunsch)}` : "",
+    erreichbarkeitText(daten.erreichbarkeit),
     "",
-    "Bitte nennen Sie uns hier drei mögliche Zeitfenster:",
+    "Bitte nennen Sie uns drei Zeitfenster, an denen Sie können:",
     link,
     "",
     "Das dauert keine Minute und braucht keine Anmeldung. Den Rest – Abstimmung",
@@ -157,9 +174,22 @@ export function anfrageAnBetrieb(daten: Abstimmungsdaten, link: string): string 
 /** Der Betreff, wenn der Betrieb per E-Mail angesprochen wird. */
 export function anfrageBetreff(daten: Abstimmungsdaten): string {
   return (
-    `Terminwunsch Auftrag ${daten.vorgangsnummer}: ${daten.titel} – ` +
+    `Terminanfrage Auftrag ${daten.vorgangsnummer}: ${daten.titel} – ` +
     `${daten.objekt}, ${daten.einheit}`
   );
+}
+
+/**
+ * Die Erreichbarkeit in einem Satz, wie sie beim Betrieb ankommt.
+ *
+ * Bewusst als Angabe formuliert und nicht als Bitte: Der Betrieb soll nicht
+ * das Gefühl haben, dass ihm jemand seinen Kalender vorschreibt.
+ */
+export function erreichbarkeitText(erreichbarkeit: string | null): string {
+  if (erreichbarkeit === "vormittag") return "Mieter ist vormittags erreichbar.";
+  if (erreichbarkeit === "nachmittag") return "Mieter ist nachmittags erreichbar.";
+  if (erreichbarkeit === "egal") return "Mieter ist ganztägig erreichbar.";
+  return "";
 }
 
 /** Was der Mieter zu lesen bekommt, sobald der Betrieb geantwortet hat. */
@@ -187,7 +217,7 @@ export function bestaetigungAnMieter(
 /** Worauf sich die Terminbestätigung im Freigabe-Center stützt. */
 export function begruendung(daten: Abstimmungsdaten, gewaehlt: Fenster): string {
   return (
-    `${daten.betrieb} hat über den Terminlink drei Fenster angeboten, ` +
+    `${daten.betrieb} hat über den Terminlink Fenster angeboten, ` +
     `${daten.mieterName} hat ${fensterText(gewaehlt)} gewählt. Beide Seiten haben ` +
     `zugestimmt; mit Ihrer Freigabe geht die Bestätigung raus.`
   );

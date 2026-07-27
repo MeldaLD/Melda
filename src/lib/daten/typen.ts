@@ -235,6 +235,11 @@ export type Vorgang = {
   selbsthilfe_angeboten: boolean;
   /** Vom Mieter selbst behoben – Handwerkereinsatz entfallen. */
   selbsthilfe_erfolgreich: boolean;
+  /**
+   * Wann der Mieter grundsätzlich erreichbar ist: vormittag | nachmittag |
+   * egal. Kein Termin und keine Zusage – die Zeitfenster nennt der Betrieb.
+   */
+  erreichbarkeit: string | null;
   ist_seed: boolean;
   erstellt_am: string;
   erledigt_am: string | null;
@@ -325,8 +330,6 @@ export type Terminanfrage = {
   status: TerminanfrageStatus;
   vorschlaege: Terminvorschlag[];
   gewaehlt: number | null;
-  wunsch_beginn: string | null;
-  wunsch_ende: string | null;
   ist_seed: boolean;
   erstellt_am: string;
   beantwortet_am: string | null;

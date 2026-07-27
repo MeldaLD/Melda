@@ -91,7 +91,7 @@ export function LiveAktualisierung({
         },
         aktualisieren,
       )
-      // Wunschtermine und Rückrufwünsche aus dem Chat landen hier – sie
+      // Rückrufwünsche aus dem Chat landen hier – sie
       // erscheinen unter "Rückrufe & Termine" und sollen dort nicht auf ein
       // manuelles Neuladen warten müssen.
       .on(

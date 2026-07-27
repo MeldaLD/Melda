@@ -10,7 +10,7 @@ export type Phase =
   | "zweitfoto" // wartet auf das zweite Bild
   | "selbsthilfe" // Angebot zur Eigenreparatur
   | "selbsthilfeErgebnis"
-  | "terminwahl"
+  | "erreichbarkeit"
   | "rueckrufGrund" // Worum geht es?
   | "rueckrufZeit" // Wann sind Sie erreichbar?
   | "frei"; // Meldung abgeschlossen, freies Gespräch
@@ -101,7 +101,11 @@ export type Angebot =
   | { art: "zweitfoto"; optionen: string[] }
   | { art: "selbsthilfe" }
   | { art: "selbsthilfeErgebnis" }
-  | { art: "termin"; fenster: Terminfenster[] }
+  /**
+   * Wann der Mieter erreichbar ist – die Zeitfenster nennt später der
+   * Betrieb. Siehe config/chat-rahmen.ts, erreichbarkeitFrage.
+   */
+  | { art: "erreichbarkeit" }
   | { art: "terminauswahl"; token: string; fenster: Terminfenster[] }
   | { art: "rueckrufGrund" }
   | { art: "rueckrufZeit" }
@@ -141,8 +145,8 @@ export type ChatZustand = {
   zweitanfahrtVermieden: boolean;
   /** Ein Fehlversuch beim zweiten Foto wird abgefangen, danach nicht mehr. */
   zweitfotoFehlversuche: number;
-  /** Gewähltes Zeitfenster, für die Bestätigungstexte. */
-  gewaehlterTermin: Terminfenster | null;
+  /** Grobe Erreichbarkeit des Mieters, die an den Betrieb weitergeht. */
+  erreichbarkeitId: string | null;
   /** Offener Rückrufwunsch, während der Mieter ihn zusammenstellt. */
   rueckruf: Partial<Rueckrufwunsch> | null;
 };
@@ -157,7 +161,7 @@ export type ChatEreignis =
   | { art: "bestaetigung"; ja: boolean }
   | { art: "selbsthilfe"; annehmen: boolean }
   | { art: "selbsthilfeErfolg"; geklappt: boolean }
-  | { art: "termin"; index: number }
+  | { art: "erreichbarkeit"; zeitwunschId: string }
   | { art: "terminauswahl"; token: string; index: number }
   | { art: "rueckruf" }
   | { art: "rueckrufGrund"; grundId: string }

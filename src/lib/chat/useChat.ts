@@ -179,13 +179,13 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
         });
       }
 
-      // Termin und Rückruf hängen nicht am Abschluss einer Meldung, sondern
-      // an der Wahl des Mieters – deshalb hier und nicht oben.
-      if (ereignis.art === "termin" && ergebnis.zustand.gewaehlterTermin) {
-        void terminSpeichern(
+      // Erreichbarkeit und Rückruf hängen nicht am Abschluss einer Meldung,
+      // sondern an der Wahl des Mieters – deshalb hier und nicht oben.
+      if (ereignis.art === "erreichbarkeit") {
+        void erreichbarkeitSpeichern(
           slug,
           ergebnis.zustand.meldungen[ergebnis.zustand.meldungen.length - 1],
-          ergebnis.zustand.gewaehlterTermin,
+          ereignis.zeitwunschId,
           gespeicherte.current,
         );
       }
@@ -275,15 +275,19 @@ async function vorgangSpeichern(
 }
 
 /**
- * Hängt den gewählten Wunschtermin an den Vorgang.
+ * Hält fest, wann der Mieter erreichbar ist.
  *
- * Wartet ab, bis der Vorgang selbst angelegt ist – ohne seine ID gäbe es
- * nichts, woran der Termin hängen könnte.
+ * Kein Termin: Die Zeitfenster nennt später der Betrieb. Diese Angabe geht
+ * mit der Anfrage an ihn raus, damit er Fenster vorschlägt, die überhaupt
+ * passen können.
+ *
+ * Wartet ab, bis der Vorgang selbst angelegt ist – vorher gibt es nichts,
+ * woran die Angabe hängen könnte.
  */
-async function terminSpeichern(
+async function erreichbarkeitSpeichern(
   slug: string,
   meldung: Meldung | undefined,
-  fenster: Terminfenster,
+  zeitwunschId: string,
   gespeicherte: Map<string, Promise<Speicherung | null>>,
 ): Promise<void> {
   if (!meldung) return;
@@ -292,16 +296,10 @@ async function terminSpeichern(
     const vorgang = await gespeicherte.get(meldung.id);
     if (!vorgang?.vorgangId) return;
 
-    await fetch("/api/chat/termin", {
+    await fetch("/api/chat/erreichbarkeit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        slug,
-        vorgangId: vorgang.vorgangId,
-        beginn: fenster.beginn,
-        ende: fenster.ende,
-        beschriftung: fenster.beschriftung,
-      }),
+      body: JSON.stringify({ slug, vorgangId: vorgang.vorgangId, zeitwunschId }),
     });
   } catch {
     // Bewusst still: Der Mieter hat seine Bestätigung schon gesehen.

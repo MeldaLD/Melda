@@ -78,8 +78,6 @@ export async function terminanfrageAnlegen(
     token,
     status: "offen",
     vorschlaege: [],
-    wunsch_beginn: daten.wunsch?.beginn.toISOString() ?? null,
-    wunsch_ende: daten.wunsch?.ende.toISOString() ?? null,
     ist_seed: false,
     erstellt_am: jetzt,
   });

@@ -201,7 +201,7 @@ export async function terminlinkVerschicken(
     db.from("demo_tenants").select("firma").eq("id", tenantId).maybeSingle(),
     db
       .from("vorgaenge")
-      .select("nummer, titel, einheit_id, ki_zusammenfassung")
+      .select("nummer, titel, einheit_id, ki_zusammenfassung, erreichbarkeit")
       .eq("id", vorgangId)
       .maybeSingle(),
   ]);
@@ -217,13 +217,6 @@ export async function terminlinkVerschicken(
     ? await db.from("objekte").select("name").eq("id", einheit.objekt_id).maybeSingle()
     : { data: null };
 
-  const { data: wunsch } = await db
-    .from("termine")
-    .select("beginn, ende")
-    .eq("vorgang_id", vorgangId)
-    .eq("typ", "handwerkertermin")
-    .maybeSingle();
-
   return terminanfrageAnlegen(
     db,
     {
@@ -235,10 +228,7 @@ export async function terminlinkVerschicken(
       mieterName: einheit?.mieter_name ?? "Mieter",
       betrieb: betrieb.firma,
       ansprechpartner: betrieb.ansprechpartner,
-      wunsch:
-        wunsch?.beginn && wunsch?.ende
-          ? { beginn: new Date(wunsch.beginn), ende: new Date(wunsch.ende) }
-          : null,
+      erreichbarkeit: vorgang?.erreichbarkeit ?? null,
       reaktionszeitH: betrieb.reaktionszeit_h ?? 24,
       zusammenfassung: vorgang?.ki_zusammenfassung ?? null,
       erkenntnis: null,

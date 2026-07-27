@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+
+import { zeitwunschNach } from "@config/rueckruf-gruende";
 import {
   ArrowLeftIcon,
   SparklesIcon,
@@ -151,6 +153,17 @@ export default async function VorgangDetail({
                     <Eckwert
                       bezeichnung="Kostenschätzung"
                       wert={`etwa ${vorgang.kosten_schaetzung_euro} €`}
+                    />
+                  )}
+                  {/* Für das Telefonat und für die Anfrage an den Betrieb:
+                      wann der Mieter überhaupt öffnen kann. Kein Termin. */}
+                  {vorgang.erreichbarkeit && (
+                    <Eckwert
+                      bezeichnung="Mieter erreichbar"
+                      wert={
+                        zeitwunschNach.get(vorgang.erreichbarkeit)?.bezeichnung ??
+                        vorgang.erreichbarkeit
+                      }
                     />
                   )}
                   <Eckwert

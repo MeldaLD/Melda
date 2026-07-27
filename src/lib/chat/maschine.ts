@@ -22,7 +22,9 @@
  *        v
  *   Verfeinerung, Erkenntnis-Karte, Klassifizierung, Weiterleitung
  *        v
- *   terminwahl -> frei
+ *   erreichbarkeit  Wann sind Sie erreichbar? - KEIN Termin. Die Zeitfenster
+ *        v          nennt der Betrieb, siehe config/abstimmung.ts.
+ *   frei
  *
  * Ab "frei" jederzeit: Status abfragen, Rückruf buchen, neue Meldung.
  */
@@ -40,14 +42,12 @@ import {
 import { grundNach, zeitwunschNach } from "@config/rueckruf-gruende";
 
 import type { HandwerkerVorlage } from "@/lib/daten/typen";
-import { handwerkerfenster } from "./termine";
 import type {
   Ausgabe,
   ChatEreignis,
   ChatZustand,
   Meldung,
   SchrittErgebnis,
-  Terminfenster,
 } from "./typen";
 
 const { tippenKurz, tippenLang, bildAnalyse } = demoKonfiguration.chat;
@@ -80,7 +80,7 @@ export function anfangszustand(): ChatZustand {
     meldungen: [],
     zweitanfahrtVermieden: false,
     zweitfotoFehlversuche: 0,
-    gewaehlterTermin: null,
+    erreichbarkeitId: null,
     rueckruf: null,
     selbsthilfeAngeboten: false,
   };
@@ -202,8 +202,9 @@ function selbsthilfeAnbieten(
 }
 
 /**
- * Der gemeinsame Abschluss: Weiterleitung und Terminfrage. Wird erreicht,
- * wenn keine Selbsthilfe in Frage kommt oder der Mieter sie ablehnt.
+ * Der gemeinsame Abschluss: Weiterleitung und die Frage nach der
+ * Erreichbarkeit. Wird erreicht, wenn keine Selbsthilfe in Frage kommt oder
+ * der Mieter sie ablehnt.
  */
 function beauftragen(
   zustand: ChatZustand,
@@ -246,7 +247,7 @@ function beauftragen(
     };
   }
 
-  // Beim Notfall wird nicht nach Wunschterminen gefragt – der Notdienst fährt.
+  // Beim Notfall wird gar nicht erst nach Zeiten gefragt – der Notdienst fährt.
   if (notfall) {
     ausgabe.push(sagen(chatRahmen.abschluss, tippenKurz));
     return {
@@ -265,12 +266,12 @@ function beauftragen(
     };
   }
 
-  ausgabe.push(sagen(chatRahmen.terminfrage, tippenKurz));
+  ausgabe.push(sagen(chatRahmen.erreichbarkeitFrage, tippenKurz));
 
   return {
     zustand: {
       ...zustand,
-      phase: "terminwahl",
+      phase: "erreichbarkeit",
       betrieb,
       // Wichtig: NICHT "an_handwerker". Der Auftrag ist vorbereitet, nicht
       // erteilt. Erst die Freigabe im Dashboard schiebt ihn weiter.
@@ -279,7 +280,7 @@ function beauftragen(
         { status: "in_pruefung", betrieb },
         `Auftrag für ${betrieb} vorbereitet, wartet auf Freigabe`,
       ),
-      angebot: { art: "termin", fenster: handwerkerfenster(umgebung.jetzt) },
+      angebot: { art: "erreichbarkeit" },
     },
     ausgabe,
   };
@@ -655,24 +656,26 @@ export function schritt(
     }
 
     // -----------------------------------------------------------------------
-    case "termin": {
-      if (zustand.angebot.art !== "termin") return { zustand, ausgabe: [] };
-      const gewaehlt: Terminfenster = zustand.angebot.fenster[ereignis.index];
+    // Die Erreichbarkeit ist eine Angabe, kein Termin. Sie geht mit der
+    // Anfrage an den Betrieb; die Zeitfenster nennt dann er.
+    case "erreichbarkeit": {
+      const zeit = zeitwunschNach.get(ereignis.zeitwunschId);
+      if (!zeit) return { zustand, ausgabe: [] };
 
       return {
         zustand: {
           ...zustand,
           phase: "frei",
-          gewaehlterTermin: gewaehlt,
+          erreichbarkeitId: zeit.id,
           meldungen: meldungErgaenzen(
             zustand,
             {},
-            `Wunschtermin gewählt: ${gewaehlt.beschriftung}`,
+            `Erreichbarkeit: ${zeit.bezeichnung}`,
           ),
           angebot: { art: "frei" },
         },
         ausgabe: [
-          sagen(chatRahmen.terminBestaetigt(gewaehlt.beschriftung), tippenKurz),
+          sagen(chatRahmen.erreichbarkeitNotiert(zeit.bezeichnung), tippenKurz),
           sagen(chatRahmen.abschluss, tippenKurz),
         ],
       };
@@ -822,7 +825,6 @@ export function schritt(
           ...zustand,
           phase: "frei",
           angebot: { art: "frei" },
-          gewaehlterTermin: gewaehlt,
           // Die Auswahl ist erledigt – sie soll beim nächsten Status nicht
           // erneut angeboten werden.
           meldungen: zustand.meldungen.map((m) =>

@@ -423,7 +423,7 @@ export async function demoBetriebAntwortenLassen(eingabe: {
 
     const { data: anfrage } = await db
       .from("terminanfragen")
-      .select("token, handwerker_id, wunsch_beginn, wunsch_ende, status")
+      .select("token, handwerker_id, status")
       .eq("vorgang_id", eingabe.vorgangId)
       .eq("tenant_id", mandant.id)
       .order("erstellt_am", { ascending: false })
@@ -434,11 +434,20 @@ export async function demoBetriebAntwortenLassen(eingabe: {
       return fehler("Antwort", "Es wartet gerade keine Anfrage auf eine Antwort.");
     }
 
-    const { data: betrieb } = await db
-      .from("handwerker")
-      .select("firma, reaktionszeit_h")
-      .eq("id", anfrage.handwerker_id)
-      .maybeSingle();
+    const [{ data: betrieb }, { data: vorgang }] = await Promise.all([
+      db
+        .from("handwerker")
+        .select("firma, reaktionszeit_h")
+        .eq("id", anfrage.handwerker_id)
+        .maybeSingle(),
+      // Die Erreichbarkeit des Mieters bestimmt, in welcher Tageshälfte die
+      // Vorschläge liegen – wie auf der echten Seite des Betriebs auch.
+      db
+        .from("vorgaenge")
+        .select("erreichbarkeit")
+        .eq("id", eingabe.vorgangId)
+        .maybeSingle(),
+    ]);
 
     const fenster = vorschlaegeVorbelegen({
       firma: mandant.firma,
@@ -449,13 +458,7 @@ export async function demoBetriebAntwortenLassen(eingabe: {
       mieterName: "",
       betrieb: betrieb?.firma ?? "",
       ansprechpartner: null,
-      wunsch:
-        anfrage.wunsch_beginn && anfrage.wunsch_ende
-          ? {
-              beginn: new Date(anfrage.wunsch_beginn),
-              ende: new Date(anfrage.wunsch_ende),
-            }
-          : null,
+      erreichbarkeit: vorgang?.erreichbarkeit ?? null,
       reaktionszeitH: betrieb?.reaktionszeit_h ?? 24,
       zusammenfassung: null,
       erkenntnis: null,

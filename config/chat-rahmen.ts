@@ -2,7 +2,7 @@
  * Die generischen Texte des Gesprächs.
  *
  * Alles, was unabhängig vom konkreten Schaden gesagt wird: Begrüßung,
- * Weiterleitung, Terminfrage, Statusanzeige. Die schadensspezifischen Texte
+ * Weiterleitung, Erreichbarkeit, Statusanzeige. Die schadensspezifischen Texte
  * stehen in config/scenarios.ts.
  *
  * Diese Trennung ist der Grund, warum ein neues Szenario ohne Programmierung
@@ -59,7 +59,6 @@ export const chatRahmen = {
     "Danke für den Hinweis, dann schaue ich es mir anders an. Senden Sie mir " +
     "bitte noch ein Bild, dann ordne ich es neu ein.",
 
-  /** Zweites Foto passt nicht – ein Versuch wird freundlich abgefangen. */
   /**
    * Rückfalltext, wenn ein Szenario kein zweites Foto braucht und selbst
    * keine Begründung mitbringt. Besser als Schweigen – der Mieter soll
@@ -67,6 +66,7 @@ export const chatRahmen = {
    */
   keineWeitereFrage: "Das genügt mir, weitere Fotos brauche ich dafür nicht.",
 
+  /** Zweites Foto passt nicht – ein Versuch wird freundlich abgefangen. */
   zweitfotoUnpassend:
     "Auf diesem Bild erkenne ich den betroffenen Bereich leider nicht. Geht es " +
     "etwas weiter weg, sodass die Umgebung mit drauf ist?",
@@ -79,7 +79,7 @@ export const chatRahmen = {
    */
   weiterleitung: (betrieb: string) =>
     `Ich habe den Auftrag für ${betrieb} vorbereitet. Ihre Hausverwaltung gibt ` +
-    "ihn frei, anschließend meldet sich der Betrieb bei Ihnen zur Terminfindung.",
+    "ihn frei, danach fragen wir beim Betrieb nach möglichen Terminen.",
 
   weiterleitungNotfall: (betrieb: string) =>
     `Ich habe den Notdienst von ${betrieb} alarmiert und Ihre Hausverwaltung ` +
@@ -119,21 +119,27 @@ export const chatRahmen = {
     "Kein Problem, das war einen Versuch wert. Ich kümmere mich jetzt darum.",
 
   /**
-   * Bewusst eine Frage nach dem Wunsch, nicht nach einem Termin.
+   * Wann ist der Mieter erreichbar – und nichts weiter.
    *
-   * Es ist zu diesem Zeitpunkt noch nichts freigegeben und kein Betrieb
-   * gefragt worden – ein angebotenes Zeitfenster wäre ein Versprechen, das
-   * niemand gegeben hat. Der Wunsch ist trotzdem wertvoll: Er steht später
-   * auf der Seite des Betriebs und wird meistens einfach übernommen.
+   * Hier standen einmal drei konkrete Zeitfenster zur Auswahl. Das war
+   * falsch, und zwar nicht nur in der Demo: In Deutschland nennt der
+   * Handwerksbetrieb die Zeitpunkte, an denen er kann. Betriebe sind
+   * ausgelastet; wer ihnen einen Termin vorsetzt, bekommt eine Absage oder
+   * gar keine Antwort. Drei Fenster anzubieten, die wir uns aus Werktagen
+   * und Öffnungszeiten gerechnet haben, wäre ein Versprechen gewesen, das
+   * niemand gegeben hat.
+   *
+   * Die Erreichbarkeit ist trotzdem wertvoll: Sie geht mit der Anfrage an
+   * den Betrieb, damit der Fenster vorschlägt, die überhaupt passen können.
    */
-  terminfrage:
-    "Damit wir dem Betrieb gleich etwas mitgeben können: Wann würde es Ihnen " +
-    "am besten passen? Verbindlich ist das noch nicht.",
+  erreichbarkeitFrage:
+    "Die Zeitfenster nennt uns der Betrieb – dazu fragen wir ihn gleich an. " +
+    "Damit er passende vorschlägt: Wann sind Sie grundsätzlich erreichbar?",
 
-  terminBestaetigt: (fenster: string) =>
-    `Ihr Wunsch für ${fenster} ist notiert und geht an den Betrieb. Sobald Ihre ` +
-    "Hausverwaltung den Auftrag freigegeben hat und der Betrieb Termine nennt, " +
-    "melde ich mich hier – dann können Sie auswählen.",
+  erreichbarkeitNotiert: (zeit: string) =>
+    `Notiert: ${zeit}. Das geben wir dem Betrieb mit. Sobald er uns ` +
+    "Zeitfenster genannt hat, bekommen Sie sie hier zur Auswahl – Sie " +
+    "müssen nichts weiter tun.",
 
   /**
    * Der Betrieb hat sich gemeldet und Zeitfenster genannt.

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+
+import { zeitwunschNach } from "@config/rueckruf-gruende";
 import { ArrowLeftIcon, TrendingDownIcon, WrenchIcon } from "lucide-react";
 
 import { DemoFoto } from "@/components/chat/DemoFoto";
@@ -136,6 +138,17 @@ export default async function VorgangLesen({
                   <Eckwert
                     bezeichnung="Kosten"
                     wert={`etwa ${vorgang.kosten_schaetzung_euro} €`}
+                  />
+                )}
+                {/* Kein Termin, sondern die Angabe des Mieters, wann er
+                    öffnen kann. Die Zeitfenster nennt der Betrieb. */}
+                {vorgang.erreichbarkeit && (
+                  <Eckwert
+                    bezeichnung="Mieter erreichbar"
+                    wert={
+                      zeitwunschNach.get(vorgang.erreichbarkeit)?.bezeichnung ??
+                      vorgang.erreichbarkeit
+                    }
                   />
                 )}
                 <Eckwert

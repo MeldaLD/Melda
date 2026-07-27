@@ -463,18 +463,22 @@ function Aktionsleiste({
         </div>
       );
 
-    case "termin":
+    // Grobe Erreichbarkeit, keine Termine: Welche Zeitpunkte moeglich sind,
+    // weiss allein der Betrieb. Siehe config/chat-rahmen.ts.
+    case "erreichbarkeit":
       return (
-        <div className="flex flex-col gap-2 px-3 pb-1 sm:px-4">
-          {angebot.fenster.map((f, index) => (
+        <div className="flex flex-wrap gap-2 px-3 pb-1 sm:px-4">
+          {zeitwuensche.map((zeit) => (
             <Schnellknopf
-              key={f.beginn}
-              breit
+              key={zeit.id}
               onClick={() =>
-                onEreignis({ art: "termin", index }, { text: f.beschriftung })
+                onEreignis(
+                  { art: "erreichbarkeit", zeitwunschId: zeit.id },
+                  { text: zeit.bezeichnung },
+                )
               }
             >
-              {f.beschriftung}
+              {zeit.bezeichnung}
             </Schnellknopf>
           ))}
         </div>
