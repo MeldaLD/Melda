@@ -1,5 +1,12 @@
 import { notFound } from "next/navigation";
-import { CircleDashedIcon, CpuIcon, LockIcon, UserIcon } from "lucide-react";
+import {
+  CircleDashedIcon,
+  CpuIcon,
+  LockIcon,
+  PlugIcon,
+  PlugZapIcon,
+  UserIcon,
+} from "lucide-react";
 
 import {
   bleibtHier,
@@ -13,6 +20,7 @@ import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { mandantLaden } from "@/lib/daten/quelle";
+import { kiVerfuegbar } from "@/lib/ki/zugang";
 
 /**
  * Wo ein Sprachmodell arbeitet – und wo ausdrücklich nicht.
@@ -35,7 +43,11 @@ export default async function KiSeite({
   const mandant = await mandantLaden(slug);
   if (!mandant) notFound();
 
-  const offen = einsaetze.filter((e) => e.stand === "vorlaeufig");
+  const verbunden = kiVerfuegbar();
+  // Was wirklich ein Modell fragt: nur mit Schlüssel und nur, wo es in
+  // config/ki-einsatz.ts eingeschaltet ist.
+  const laufen = einsaetze.filter((e) => e.aktiv);
+  const offen = einsaetze.filter((e) => e.stand === "vorlaeufig" && !e.aktiv);
 
   return (
     <div className="space-y-5 p-4 sm:p-6">
@@ -43,6 +55,43 @@ export default async function KiSeite({
         titel="Was die KI tut"
         beschreibung="Und an welchen Stellen sie ausdrücklich nichts zu sagen hat."
       />
+
+      {/* Die erste Frage in jeder Vorführung: Läuft das jetzt wirklich? Die
+          Antwort darf nicht in einer Fußnote stehen. */}
+      <Card
+        className={
+          verbunden ? "max-w-4xl border-emerald-300 bg-emerald-50" : "max-w-4xl"
+        }
+      >
+        <CardContent className="flex flex-wrap items-start gap-3 p-5">
+          <span
+            className={
+              verbunden ? "mt-0.5 text-emerald-700" : "mt-0.5 text-muted-foreground"
+            }
+          >
+            {verbunden ? (
+              <PlugZapIcon className="size-5" aria-hidden />
+            ) : (
+              <PlugIcon className="size-5" aria-hidden />
+            )}
+          </span>
+          <div className="min-w-0 flex-1 space-y-1">
+            <p className="text-sm font-medium text-slate-900">
+              {verbunden
+                ? `Modellanbindung steht. ${laufen.length} Schritte fragen wirklich ein Modell.`
+                : "Modellanbindung nicht eingerichtet – alles läuft auf hinterlegten Texten."}
+            </p>
+            <p className="text-sm leading-relaxed text-muted-foreground">
+              {verbunden
+                ? "Im Mieter-Chat steht unter den betroffenen Antworten, welches Modell gearbeitet hat, wie lange es gedauert hat und wie viele Token es waren (Technikansicht einschalten)."
+                : "Der Schlüssel wird als Umgebungsvariable ANTHROPIC_API_KEY gesetzt und steht nirgends im Quelltext. Ohne ihn ist die Demo vollständig bedienbar; sie versteht nur keinen Freitext, den die Stichwortsuche nicht kennt."}
+            </p>
+          </div>
+          <Badge variant={verbunden ? "default" : "outline"} className="shrink-0">
+            {verbunden ? "verbunden" : "nicht verbunden"}
+          </Badge>
+        </CardContent>
+      </Card>
 
       <Card className="max-w-4xl border-marke-rand bg-marke-sanft">
         <CardContent className="space-y-2 p-5">
@@ -102,11 +151,15 @@ export default async function KiSeite({
           <div className="space-y-1">
             <CardTitle>Schritt für Schritt</CardTitle>
             <p className="text-xs text-muted-foreground">
-              „Vorläufig“ heißt: heute ein hinterlegter Text, weil die Schnittstelle
-              noch fehlt. „Bleibt“ heißt: hinterlegt aus Überzeugung, auch danach.
+              „Läuft“ heißt: fragt wirklich ein Modell, sobald der Schlüssel gesetzt
+              ist. „Vorläufig“ heißt: dort gehört ein Modell hin, ist aber in
+              config/ki-einsatz.ts abgeschaltet. „Bleibt“ heißt: hinterlegt aus
+              Überzeugung, auch danach.
             </p>
           </div>
-          <Badge variant="outline">{offen.length} offen</Badge>
+          <Badge variant="outline">
+            {laufen.length} mit Modell, {offen.length} offen
+          </Badge>
         </CardHeader>
         <CardContent className="space-y-3">
           {einsaetze.map((e) => (
@@ -183,8 +236,20 @@ function Zeile({ einsatz }: { einsatz: Einsatz }) {
       </div>
 
       <div className="flex shrink-0 flex-col items-end gap-1">
-        <Badge variant={einsatz.stand === "vorlaeufig" ? "outline" : "secondary"}>
-          {einsatz.stand === "vorlaeufig" ? "Vorläufig Skript" : "Bleibt Skript"}
+        <Badge
+          variant={
+            einsatz.aktiv
+              ? "default"
+              : einsatz.stand === "vorlaeufig"
+                ? "outline"
+                : "secondary"
+          }
+        >
+          {einsatz.aktiv
+            ? "Läuft mit Modell"
+            : einsatz.stand === "vorlaeufig"
+              ? "Vorläufig Skript"
+              : "Bleibt Skript"}
         </Badge>
         <span className="tabellenziffern text-[11px] text-muted-foreground">
           {stufe?.modell ?? stufe?.bezeichnung}

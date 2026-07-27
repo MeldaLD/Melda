@@ -57,10 +57,14 @@ const baustand = [
     fertig: true,
   },
   { schritt: "Echte Demo-Fotos", fertig: false },
-  // Der Chat läuft vollständig auf hinterlegten Texten. Welche Schritte
-  // damit endgültig bedient sind und welche auf die Anbindung warten, steht
-  // unter /demo/<slug>/leitstand/ki.
-  { schritt: "Modellanbindung (Verstehen, Bild, Formulieren)", fertig: false },
+  // Gebaut und verdrahtet: Freitext verstehen, Bild auswerten, Vorgang
+  // zusammenfassen. Ob sie laufen, entscheidet allein ANTHROPIC_API_KEY –
+  // welche Schritte mit Modell arbeiten und welche aus Überzeugung
+  // hinterlegt bleiben, steht unter /demo/<slug>/leitstand/ki.
+  {
+    schritt: "Modellanbindung (Verstehen, Bild, Zusammenfassen)",
+    fertig: true,
+  },
 ];
 
 function Zeile({ text, erfuellt }: { text: string; erfuellt: boolean }) {

@@ -38,6 +38,18 @@ export type Szenario = {
 
   /** Erste Reaktion der KI auf das Foto. Endet mit einer Rückfrage. */
   erkennung: string;
+  /**
+   * Dieselbe erste Reaktion, wenn der Mieter getippt statt fotografiert hat.
+   *
+   * Nötig, weil "Ich sehe einen Heizkörper" ohne Foto eine Lüge ist – und
+   * zwar eine, die auffällt. Der Assistent bestätigt hier, was er verstanden
+   * hat, und stellt dieselbe Rückfrage wie am Bild.
+   *
+   * Fehlt der Text, entsteht ein neutraler Satz aus dem Titel. Das ist
+   * korrekt, klingt aber nach Formular – bei neuen Szenarien also besser
+   * ausschreiben.
+   */
+  erkennungText?: string;
 
   /**
    * Der entscheidende Moment: Nachfrage nach einem zweiten Foto.
@@ -122,6 +134,9 @@ export const szenarien: Szenario[] = [
     fotoBeschriftung: "Fuge in der Dusche",
     fotoAlt: "Nahaufnahme einer dunkel verfärbten Silikonfuge in einer Duschkabine",
     stichwoerter: ["fuge", "silikon", "dusche", "schimmel", "abdichtung"],
+    erkennungText:
+      "Sie beschreiben eine schadhafte Silikonfuge in der Dusche, an der " +
+      "sich der Fugendichtstoff löst. Trifft das zu?",
     erkennung:
       "Ich erkenne auf dem Bild eine schadhafte Silikonfuge in der Dusche mit " +
       "beginnendem Schimmelbefall. Die Fuge hat sich an mehreren Stellen von den " +
@@ -165,6 +180,9 @@ export const szenarien: Szenario[] = [
     fotoBeschriftung: "Wasserhahn Küche",
     fotoAlt: "Küchenarmatur, an deren Auslauf ein Wassertropfen hängt",
     stichwoerter: ["wasserhahn", "tropft", "armatur", "küche", "hahn"],
+    erkennungText:
+      "Sie beschreiben eine tropfende Küchenarmatur. Damit ich es richtig " +
+      "weitergebe: Tritt das Wasser oben am Auslauf aus oder unten am Anschluss?",
     erkennung:
       "Ich sehe eine tropfende Küchenarmatur. Das Wasser tritt am Auslauf aus, " +
       "nicht am Anschluss darunter. Das deutet auf eine verschlissene Kartusche " +
@@ -210,6 +228,10 @@ export const szenarien: Szenario[] = [
     fotoBeschriftung: "Heizkörper Wohnzimmer",
     fotoAlt: "Heizkörper mit Thermostatventil in einem Wohnraum",
     stichwoerter: ["heizung", "heizkörper", "kalt", "warm", "thermostat", "frieren"],
+    erkennungText:
+      "Sie beschreiben einen Heizkörper, der nicht warm wird. Bevor ich einen " +
+      "Handwerker beauftrage: Bleibt er komplett kalt, oder wird er unten warm " +
+      "und oben kalt?",
     erkennung:
       "Ich sehe einen Heizkörper mit Thermostatventil. Sie schreiben, er wird " +
       "nicht warm. Bevor ich einen Handwerker beauftrage: Bleibt der Heizkörper " +
@@ -266,6 +288,9 @@ export const szenarien: Szenario[] = [
       "durchnässt",
       "wasserschaden",
     ],
+    erkennungText:
+      "Das klingt nach einem Wasserschaden an der Decke, der noch aktiv ist. " +
+      "Trifft das zu – breitet sich der Fleck aus oder ist er feucht?",
     erkennung:
       "Das sieht nach einem aktiven Wasserschaden aus: ein feuchter, " +
       "durchgedrückter Fleck an der Decke mit deutlicher Randbildung. Das ist " +
@@ -322,6 +347,9 @@ export const szenarien: Szenario[] = [
     fotoBeschriftung: "Dunkle Stelle an der Wand",
     fotoAlt: "Dunkler Schimmelbefall in einer Zimmerecke oberhalb der Fußleiste",
     stichwoerter: ["schimmel", "wand", "stockflecken", "feucht", "schwarz", "ecke"],
+    erkennungText:
+      "Sie beschreiben Schimmelbefall an einer Wand im Schlafzimmer. " +
+      "Befindet sich die Stelle an einer Außenwand?",
     erkennung:
       "Ich erkenne Schimmelbefall in einer Raumecke, ausgehend vom Übergang " +
       "zwischen Wand und Fußleiste. Die Fläche ist etwa handtellergroß. Befindet " +
@@ -368,6 +396,9 @@ export const szenarien: Szenario[] = [
     fotoBeschriftung: "Dunkles Treppenhaus",
     fotoAlt: "Treppenhausabsatz mit erloschener Deckenleuchte",
     stichwoerter: ["licht", "treppenhaus", "beleuchtung", "lampe", "dunkel", "birne"],
+    erkennungText:
+      "Sie beschreiben eine defekte Beleuchtung im Treppenhaus. Betrifft es " +
+      "nur eine Leuchte oder das ganze Treppenhaus?",
     erkennung:
       "Ich sehe einen unbeleuchteten Treppenabsatz mit einer Deckenleuchte, die " +
       "nicht brennt. Betrifft es nur diese eine Leuchte oder das ganze " +
@@ -416,6 +447,9 @@ export const szenarien: Szenario[] = [
       "waschbecken",
       "wasser steht",
     ],
+    erkennungText:
+      "Sie beschreiben einen Abfluss im Bad, der nicht abläuft. Betrifft das " +
+      "nur das Waschbecken, oder auch Dusche und Toilette?",
     erkennung:
       "Im Waschbecken steht das Wasser, es läuft nicht oder nur sehr langsam ab. " +
       "Betrifft das nur das Waschbecken, oder auch Dusche und Toilette?",
@@ -454,6 +488,9 @@ export const szenarien: Szenario[] = [
       "beschlag",
       "klemmt",
     ],
+    erkennungText:
+      "Sie beschreiben einen defekten Fenstergriff im Kinderzimmer. Lässt " +
+      "sich das Fenster damit noch schließen und verriegeln?",
     erkennung:
       "Ich sehe einen Fenstergriff, der nicht mehr fest in der Halterung sitzt. " +
       "Lässt sich das Fenster damit noch schließen und verriegeln?",
@@ -504,6 +541,9 @@ export const szenarien: Szenario[] = [
       "sprechanlage",
       "summer",
     ],
+    erkennungText:
+      "Sie beschreiben eine Gegensprechanlage ohne Funktion. Funktioniert gar " +
+      "nichts mehr, oder klingelt es zwar, aber der Türöffner reagiert nicht?",
     erkennung:
       "Ich sehe die Innensprechstelle Ihrer Gegensprechanlage. Funktioniert gar " +
       "nichts mehr, oder klingelt es zwar, aber der Türöffner reagiert nicht?",
@@ -547,6 +587,9 @@ export const szenarien: Szenario[] = [
     fotoBeschriftung: "Müllraum",
     fotoAlt: "Müllraum mit überfüllten Tonnen und daneben abgestellten Säcken",
     stichwoerter: ["müll", "mülltonne", "müllraum", "abfall", "voll", "stinkt"],
+    erkennungText:
+      "Sie beschreiben einen überfüllten Müllraum. Handelt es sich um Restmüll " +
+      "oder um Sperrmüll, der dort abgestellt wurde?",
     erkennung:
       "Ich sehe überfüllte Behälter im Müllraum, daneben abgestellte Säcke. " +
       "Handelt es sich um Restmüll oder um Sperrmüll, der dort abgestellt wurde?",

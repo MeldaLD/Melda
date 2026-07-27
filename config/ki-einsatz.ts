@@ -131,6 +131,20 @@ export type Einsatz = {
   stufe: string;
   stand: Stand;
   /**
+   * Ob dieser Schritt wirklich ein Modell fragt, sobald ein Schlüssel gesetzt
+   * ist.
+   *
+   * Getrennt von "stand", weil beides verschiedene Fragen beantwortet:
+   * "vorlaeufig" heißt, dass hier grundsätzlich ein Modell hingehört.
+   * "aktiv" heißt, dass wir es auch tun. Zwei Schritte sind bewusst aus –
+   * nicht weil sie unfertig wären, sondern weil sie in einer Vorführung mehr
+   * kosten als sie bringen. Wer sie will, setzt hier true; die Umsetzung
+   * steht.
+   *
+   * Ohne ANTHROPIC_API_KEY ist ohnehin alles aus.
+   */
+  aktiv?: boolean;
+  /**
    * Was das Modell zu sehen bekommt. Leer, wo kein Aufruf stattfindet.
    *
    * Bewusst knapp gehalten: Was hier nicht steht, geht auch nicht raus.
@@ -154,6 +168,7 @@ export const einsaetze: Einsatz[] = [
     schritt: "Freitext einem Thema zuordnen",
     stufe: "verstehen",
     stand: "vorlaeufig",
+    aktiv: true,
     daten: "Der Text des Mieters. Kein Name, keine Anschrift, keine Nummer.",
     hinweis:
       "Heute eine Stichwortsuche über config/scenarios.ts. Sie trifft die " +
@@ -165,6 +180,7 @@ export const einsaetze: Einsatz[] = [
     schritt: "Foto auswerten und Diagnose stellen",
     stufe: "sehen",
     stand: "vorlaeufig",
+    aktiv: true,
     daten: "Das Foto und der bisherige Gesprächsverlauf. Keine Anschrift.",
     hinweis:
       "Heute hinterlegter Text je Kachel; es findet keine Bildanalyse statt. " +
@@ -176,6 +192,7 @@ export const einsaetze: Einsatz[] = [
     schritt: "Entscheiden, ob ein zweites Foto etwas bringt",
     stufe: "sehen",
     stand: "vorlaeufig",
+    aktiv: true,
     hinweis:
       "Heute eine Regel je Szenario (siehe config/scenarios.ts). Später " +
       "beantwortet das Modell dieselbe Frage am konkreten Bild: Fehlt etwas, " +
@@ -216,6 +233,11 @@ export const einsaetze: Einsatz[] = [
     schritt: "Antwort an den Mieter in seine Worte bringen",
     stufe: "formulieren",
     stand: "vorlaeufig",
+    // Aus: Das wäre ein Modellaufruf vor jeder einzelnen Antwort, für einen
+    // Gewinn, den niemand sieht – der Kernsatz steht ohnehin fest. Dazu die
+    // eine Stelle, an der ein Modell beim Umformulieren still etwas
+    // weglassen könnte, das rechtlich hineingehört.
+    aktiv: false,
     daten: "Der hinterlegte Kernsatz und der Gesprächsverlauf. Kein Klarname.",
     hinweis:
       "Der Inhalt bleibt der hinterlegte. Das Modell darf umformulieren, " +
@@ -227,6 +249,7 @@ export const einsaetze: Einsatz[] = [
     schritt: "Zusammenfassung des Vorgangs für die Verwaltung",
     stufe: "formulieren",
     stand: "vorlaeufig",
+    aktiv: true,
     daten: "Gesprächsverlauf und Diagnose. Empfänger ist die Verwaltung.",
     hinweis:
       "Hier darf frei formuliert werden: Der Leser ist Fachmann, kann das " +
@@ -237,6 +260,9 @@ export const einsaetze: Einsatz[] = [
     schritt: "Nachricht an den Handwerksbetrieb",
     stufe: "formulieren",
     stand: "vorlaeufig",
+    // Aus: Die Nachricht an den Betrieb enthält Termine und einen Link. Sie
+    // aus Bausteinen zu setzen ist hier das Verlässlichere.
+    aktiv: false,
     daten: "Auftragsdaten und Diagnose. Der Name des Mieters bleibt hier.",
     hinweis:
       "Heute aus Bausteinen (config/abstimmung.ts). Der Terminlink und die " +

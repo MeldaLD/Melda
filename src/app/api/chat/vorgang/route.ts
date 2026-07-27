@@ -5,6 +5,7 @@ import { SLA_STANDARD } from "@config/muster-mandant";
 import { entscheiderName, freigabeWirkungAnwenden } from "@/lib/daten/freigaben";
 import { istSchreibenMoeglich } from "@/lib/daten/quelle";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { zusammenfassen } from "@/lib/ki/zusammenfassen";
 import type { Mandant } from "@/lib/daten/typen";
 
 /**
@@ -133,6 +134,12 @@ export async function POST(anfrage: Request) {
       .limit(1);
     const nummer = (hoechste?.[0]?.nummer ?? 999) + 1;
 
+    // --- Zusammenfassung ---------------------------------------------------
+    // Der einzige Schritt, an dem ein Modell frei formulieren darf: Der Leser
+    // ist Sachbearbeiter und hat den Verlauf daneben. Ohne Schlüssel bleibt
+    // es beim hinterlegten Satz je Szenario.
+    const gefasst = await zusammenfassen(szenario.titel, eingang.nachrichten ?? []);
+
     // --- Vorgang -----------------------------------------------------------
     const jetzt = new Date();
     const notfall = szenario.prioritaet === "notfall";
@@ -152,7 +159,7 @@ export async function POST(anfrage: Request) {
         // Ein Notfall geht sofort an den Notdienst, alles andere wartet auf
         // die Freigabe des Verwalters. Genau das ist das Vertrauensargument.
         status: selbstBehoben ? "erledigt" : notfall ? "an_handwerker" : "in_pruefung",
-        ki_zusammenfassung: szenario.kiZusammenfassung,
+        ki_zusammenfassung: gefasst?.text ?? szenario.kiZusammenfassung,
         quelle: "whatsapp",
         mitarbeiter_id: bearbeiter?.id ?? null,
         handwerker_id: notfall ? (betrieb?.id ?? null) : null,

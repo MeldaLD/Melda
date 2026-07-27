@@ -80,6 +80,7 @@ export function anfangszustand(): ChatZustand {
     meldungen: [],
     zweitanfahrtVermieden: false,
     zweitfotoFehlversuche: 0,
+    zweitfotoNoetig: null,
     erreichbarkeitId: null,
     rueckruf: null,
     selbsthilfeAngeboten: false,
@@ -320,8 +321,21 @@ function weiterleiten(
     : beauftragen(zustand, szenario, umgebung);
 }
 
-/** Diagnose eines erkannten Szenarios – erste Reaktion auf das Foto. */
-function diagnostizieren(zustand: ChatZustand, szenario: Szenario): SchrittErgebnis {
+/**
+ * Diagnose eines erkannten Szenarios.
+ *
+ * Die Quelle steht dabei nicht zur Zierde: Nach einem Foto läuft im
+ * Echtbetrieb eine Bildauswertung, und der Chat zeigt so lange "Bild wird
+ * ausgewertet". Nach einem getippten Satz passiert etwas anderes, und dann
+ * darf dort auch nicht von einem Bild die Rede sein – vorher stand das dort,
+ * ohne dass je ein Bild im Spiel war.
+ */
+function diagnostizieren(
+  zustand: ChatZustand,
+  szenario: Szenario,
+  quelle: "bild" | "text",
+  diagnose?: { text: string; brauchtZweitfoto: boolean },
+): SchrittErgebnis {
   const neue: Meldung = {
     id: `m${zustand.meldungen.length + 1}`,
     szenarioId: szenario.id,
@@ -341,8 +355,18 @@ function diagnostizieren(zustand: ChatZustand, szenario: Szenario): SchrittErgeb
       szenarioId: szenario.id,
       meldungen: [...zustand.meldungen, neue],
       angebot: { art: "bestaetigung" },
+      zweitfotoNoetig: diagnose?.brauchtZweitfoto ?? null,
     },
-    ausgabe: [auswerten(szenario.erkennung)],
+    ausgabe: [
+      quelle === "bild"
+        ? auswerten(diagnose?.text ?? szenario.erkennung)
+        : sagen(
+            szenario.erkennungText ??
+              `Sie beschreiben: ${szenario.titel}. Habe ich das richtig verstanden?`,
+            tippenLang,
+            "freitext",
+          ),
+    ],
   };
 }
 
@@ -455,8 +479,23 @@ export function schritt(
       // soll verstanden werden. Ihn auf die Knöpfe zu verweisen wäre genau
       // die Bevormundung, die wir den Portalen vorwerfen.
       if (zustand.phase === "eingabe" || zustand.phase === "anliegen") {
-        const gefunden = szenarioAusText(text);
-        if (gefunden) return diagnostizieren(zustand, gefunden);
+        // Hat das Modell den Text bereits zugeordnet, gilt seine Antwort.
+        // Sonst die Stichwortsuche – siehe src/lib/chat/useChat.ts, dort
+        // steht auch, warum in dieser Reihenfolge.
+        const gefunden = ereignis.szenarioId
+          ? szenarioNach.get(ereignis.szenarioId)
+          : szenarioAusText(text);
+        if (gefunden) return diagnostizieren(zustand, gefunden, "text");
+
+        // Kein Schaden, sondern ein Thema: dieselbe Antwort wie über die
+        // Knöpfe im Einstieg. Der Weg dorthin war nur ein anderer.
+        if (ereignis.anliegenId) {
+          return schritt(
+            zustand,
+            { art: "anliegen", anliegenId: ereignis.anliegenId },
+            umgebung,
+          );
+        }
         return {
           zustand: { ...zustand, phase: "eingabe", angebot: { art: "eingabe" } },
           ausgabe: [sagen(chatRahmen.nichtVerstanden, tippenKurz)],
@@ -490,7 +529,7 @@ export function schritt(
             ausgabe: [sagen(chatRahmen.nichtVerstanden, tippenKurz, "freitext")],
           };
         }
-        return diagnostizieren(zustand, gefunden);
+        return diagnostizieren(zustand, gefunden, "bild", ereignis.diagnose);
       }
 
       // Zweites Foto
@@ -583,7 +622,12 @@ export function schritt(
       // oder zuerst ein Selbsthilfe-Tipp dran ist, sagt der Assistent das
       // und macht weiter. Siehe die Regel in config/scenarios.ts – dass er
       // auch mal nicht nachfragt, macht die übrigen Nachfragen glaubwürdig.
-      if (!szenario.zweitfoto) {
+      //
+      // Hat ein Modell das Bild gesehen, entscheidet sein Urteil. Es kann
+      // die Nachfrage nur abbestellen, nicht herbeiführen: Die Kacheln für
+      // das zweite Bild stehen in der Konfiguration, und ohne sie gäbe es
+      // nichts anzubieten.
+      if (!szenario.zweitfoto || zustand.zweitfotoNoetig === false) {
         ausgabe.push(
           sagen(
             szenario.ohneZweitfoto ?? chatRahmen.keineWeitereFrage,

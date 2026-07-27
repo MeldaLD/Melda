@@ -97,6 +97,25 @@ export type ChatNachricht = {
    * arbeitet und was es zu sehen bekäme.
    */
   kiSchritt?: string;
+  /**
+   * Der Modellaufruf, der wirklich stattgefunden hat.
+   *
+   * Steht nur, wenn ein Schlüssel gesetzt ist und der Schritt in
+   * config/ki-einsatz.ts aktiv ist. Fehlt das Feld, war es ein hinterlegter
+   * Text – in der Technikansicht ist genau das der Unterschied zwischen
+   * "hier arbeitet später ein Modell" und "hier hat gerade eines gearbeitet".
+   */
+  kiAufruf?: KiAufruf;
+};
+
+/** Was ein tatsächlicher Modellaufruf gekostet hat. */
+export type KiAufruf = {
+  modell: string;
+  dauerMs: number;
+  eingabeToken: number;
+  ausgabeToken: number;
+  /** Welche Arten von Angaben vor dem Aufruf entfernt wurden. */
+  geschwaerzt: string[];
 };
 
 /** Was der Mieter gerade tun kann. Steuert die Knopfleiste unter dem Verlauf. */
@@ -153,6 +172,14 @@ export type ChatZustand = {
   zweitanfahrtVermieden: boolean;
   /** Ein Fehlversuch beim zweiten Foto wird abgefangen, danach nicht mehr. */
   zweitfotoFehlversuche: number;
+  /**
+   * Urteil des Modells, ob ein zweites Bild hier etwas bringt.
+   *
+   * null heißt: kein Modell im Spiel. Dann gilt die Regel je Szenario aus
+   * config/scenarios.ts – dieselbe Frage, nur vorab von einem Menschen
+   * beantwortet statt am konkreten Bild.
+   */
+  zweitfotoNoetig: boolean | null;
   /** Grobe Erreichbarkeit des Mieters, die an den Betrieb weitergeht. */
   erreichbarkeitId: string | null;
   /** Offener Rückrufwunsch, während der Mieter ihn zusammenstellt. */
@@ -164,8 +191,27 @@ export type ChatEreignis =
   | { art: "start" }
   | { art: "anliegen"; anliegenId: string }
   | { art: "auskunft"; geholfen: boolean }
-  | { art: "text"; text: string }
-  | { art: "foto"; datei: string }
+  /**
+   * Freitext des Mieters.
+   *
+   * szenarioId und anliegenId setzt nur der Hook, wenn das Modell den Text
+   * zugeordnet hat (siehe src/lib/ki/verstehen.ts). Die Maschine bleibt
+   * dadurch frei von Netzaufrufen: Sie bekommt das Ergebnis gereicht, statt
+   * es zu holen.
+   */
+  | { art: "text"; text: string; szenarioId?: string; anliegenId?: string }
+  /**
+   * Foto des Mieters.
+   *
+   * "diagnose" setzt nur der Hook, wenn das Modell das Bild wirklich
+   * ausgewertet hat (siehe src/lib/ki/sehen.ts). Ohne Schlüssel oder ohne
+   * Bilddatei bleibt es leer, und es gilt der hinterlegte Text der Kachel.
+   */
+  | {
+      art: "foto";
+      datei: string;
+      diagnose?: { text: string; brauchtZweitfoto: boolean };
+    }
   | { art: "bestaetigung"; ja: boolean }
   | { art: "selbsthilfe"; annehmen: boolean }
   | { art: "selbsthilfeErfolg"; geklappt: boolean }

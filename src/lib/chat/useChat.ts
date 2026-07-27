@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { demoKonfiguration } from "@config/demo";
+import { szenarien, szenarioAusText } from "@config/scenarios";
 import { anfangszustand, schritt, type Umgebung } from "./maschine";
 import type {
   ChatEreignis,
   ChatNachricht,
   ChatZustand,
+  KiAufruf,
   Meldung,
   Rueckrufwunsch,
   Taetigkeit,
@@ -120,7 +122,54 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
         await warten(50);
       }
 
-      const ergebnis = schritt(zustandRef.current, ereignis, umgebung);
+      // Freitext, den die Stichwortsuche nicht einordnen kann, geht ans
+      // Modell. Erst dann, und nie vorher: Die klaren Fälle trifft die Suche
+      // im Browser sofort und umsonst, und ein Modell zu fragen, was
+      // "Heizung kalt" bedeutet, wäre Geld für eine Antwort, die wir haben.
+      let angereichert = ereignis;
+      let aufruf: KiAufruf | undefined;
+
+      // Erstes Foto: Wenn eine Bilddatei existiert und die Bildauswertung
+      // eingeschaltet ist, sieht sich ein Modell das Bild wirklich an. Sonst
+      // gilt der hinterlegte Text der Kachel.
+      if (
+        ereignis.art === "foto" &&
+        (zustandRef.current.phase === "eingabe" ||
+          zustandRef.current.phase === "begruessung")
+      ) {
+        const szenarioId = szenarioZuFoto(ereignis.datei);
+        if (szenarioId) {
+          setTaetigkeit("auswerten");
+          const gesehen = await bildDeuten(ereignis.datei, szenarioId);
+          setTaetigkeit("nichts");
+          if (gesehen) {
+            angereichert = {
+              ...ereignis,
+              diagnose: {
+                text: gesehen.erkennung,
+                brauchtZweitfoto: gesehen.brauchtZweitfoto,
+              },
+            };
+            aufruf = gesehen.aufruf;
+          }
+        }
+      }
+
+      if (istOffenerFreitext(zustandRef.current, ereignis)) {
+        setTaetigkeit("tippen");
+        const verstanden = await freitextDeuten(ereignis.text);
+        setTaetigkeit("nichts");
+        if (verstanden) {
+          angereichert = {
+            ...ereignis,
+            szenarioId: verstanden.szenarioId ?? undefined,
+            anliegenId: verstanden.anliegenId ?? undefined,
+          };
+          aufruf = verstanden.aufruf;
+        }
+      }
+
+      const ergebnis = schritt(zustandRef.current, angereichert, umgebung);
 
       // Angebot sofort entfernen, damit während der Antwort nichts anklickbar
       // ist, was gleich nicht mehr gilt.
@@ -136,6 +185,10 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
           von: "ki",
           zeit: jetztIso(),
           ...ausgabe.nachricht,
+          // Der Aufruf gehört an die erste Antwort, die aus ihm entstanden
+          // ist. In der Technikansicht steht dort dann nicht "hier arbeitet
+          // später ein Modell", sondern was eines gerade getan hat.
+          ...(index === 0 && aufruf ? { kiAufruf: aufruf } : {}),
         });
       }
 
@@ -226,6 +279,107 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
 }
 
 // ---------------------------------------------------------------------------
+
+/**
+ * Ob dieser Freitext überhaupt eine Zuordnung braucht.
+ *
+ * Nur in den beiden Phasen, in denen eine Meldung entstehen kann, und nur
+ * wenn die Stichwortsuche nichts findet. Alles andere – "Status", "Rückruf",
+ * eine Antwort mitten im Ablauf – ist bereits eindeutig und geht niemanden
+ * sonst etwas an.
+ */
+function istOffenerFreitext(
+  zustand: ChatZustand,
+  ereignis: ChatEreignis,
+): ereignis is { art: "text"; text: string } {
+  if (ereignis.art !== "text") return false;
+  if (zustand.phase !== "eingabe" && zustand.phase !== "anliegen") return false;
+  const text = ereignis.text.trim();
+  if (text.length < 3) return false;
+  if (/^status\b/i.test(text) || /r(ü|ue)ckruf/i.test(text)) return false;
+  return !szenarioAusText(text);
+}
+
+/**
+ * Fragt den Server, was der Mieter gemeint hat.
+ *
+ * Scheitert der Aufruf – kein Schlüssel, kein Netz, Modell unsicher –, kommt
+ * null zurück und der Chat antwortet wie bisher mit der Nachfrage aus
+ * config/chat-rahmen.ts. Eine Vorführung darf nicht daran scheitern, dass
+ * eine Schnittstelle klemmt.
+ */
+async function freitextDeuten(text: string): Promise<{
+  szenarioId: string | null;
+  anliegenId: string | null;
+  aufruf: KiAufruf;
+} | null> {
+  try {
+    const antwort = await fetch("/api/ki/verstehen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    const ergebnis = await antwort.json();
+    const verstanden = ergebnis?.verstanden;
+    if (!verstanden) return null;
+
+    return {
+      szenarioId: verstanden.szenarioId ?? null,
+      anliegenId: verstanden.anliegenId ?? null,
+      aufruf: {
+        modell: verstanden.modell,
+        dauerMs: verstanden.dauerMs,
+        eingabeToken: verstanden.eingabeToken,
+        ausgabeToken: verstanden.ausgabeToken,
+        geschwaerzt: verstanden.geschwaerzt ?? [],
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Zu welcher Meldung eine Fotokachel gehört. */
+function szenarioZuFoto(datei: string): string | undefined {
+  return szenarien.find((s) => s.foto === datei)?.id;
+}
+
+/**
+ * Lässt das Bild auswerten.
+ *
+ * Gibt null zurück, sobald irgendetwas nicht passt – kein Schlüssel, keine
+ * Bilddatei, Modell unsicher, Antwort außerhalb der Grenzen. Dann bleibt es
+ * beim hinterlegten Text, und im Chat sieht es aus wie immer.
+ */
+async function bildDeuten(
+  datei: string,
+  szenarioId: string,
+): Promise<{ erkennung: string; brauchtZweitfoto: boolean; aufruf: KiAufruf } | null> {
+  try {
+    const antwort = await fetch("/api/ki/sehen", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ datei, szenarioId }),
+    });
+    const gesehen = (await antwort.json())?.gesehen;
+    if (!gesehen) return null;
+
+    return {
+      erkennung: gesehen.erkennung,
+      brauchtZweitfoto: gesehen.brauchtZweitfoto === true,
+      aufruf: {
+        modell: gesehen.modell,
+        dauerMs: gesehen.dauerMs,
+        eingabeToken: gesehen.eingabeToken,
+        ausgabeToken: gesehen.ausgabeToken,
+        // Ein Bild wird nicht geschwärzt – es geht ganz oder gar nicht.
+        geschwaerzt: [],
+      },
+    };
+  } catch {
+    return null;
+  }
+}
 
 type Speicherung = { nummer: number | null; vorgangId: string | null };
 

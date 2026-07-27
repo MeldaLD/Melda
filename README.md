@@ -65,12 +65,44 @@ Die Supabase-Werte finden Sie im Supabase-Dashboard unter
 | `service_role` / Secret key (hinter „Reveal") | `SUPABASE_SERVICE_ROLE_KEY` |
 
 Dazu kommen `ADMIN_PASSWORT` und `ADMIN_SESSION_SECRET` für den
-Admin-Bereich.
+Admin-Bereich und optional `ANTHROPIC_API_KEY` für das Sprachmodell (siehe
+unten).
 
 `NEXT_PUBLIC_BASIS_URL` ist optional: Ohne sie nimmt die Anwendung lokal
 `http://localhost:3000` und auf Vercel automatisch die Projekt-URL. Gesetzt
 werden muss sie erst, wenn eine eigene Domain im Spiel ist – siehe
 `src/lib/basis-url.ts`.
+
+### Das Sprachmodell einschalten
+
+`ANTHROPIC_API_KEY` ist der einzige Schalter. Ohne ihn läuft die gesamte
+Demo auf hinterlegten Texten – vollständig bedienbar, aber sie versteht
+keinen Freitext, den die Stichwortsuche nicht kennt, und wertet keine Fotos
+aus. Ist der Schlüssel gesetzt, arbeiten genau die Schritte mit einem Modell,
+die in [`config/ki-einsatz.ts`](./config/ki-einsatz.ts) auf `aktiv: true`
+stehen:
+
+| Schritt | Stufe | Modell |
+| --- | --- | --- |
+| Freitext einem Thema zuordnen | Verstehen | `claude-haiku-4-5` |
+| Foto auswerten | Sehen | `claude-opus-5` |
+| Vorgang für die Verwaltung zusammenfassen | Formulieren | `claude-sonnet-5` |
+
+Zwei weitere Schritte sind gebaut, aber abgeschaltet (`aktiv: false`) – die
+Begründung steht an Ort und Stelle. Welche Schritte aus Überzeugung
+hinterlegt bleiben und warum, zeigt die Seite
+`/demo/<slug>/leitstand/ki`; sie sagt dort auch, ob ein Schlüssel gesetzt
+ist.
+
+Die Bildauswertung braucht zusätzlich echte Dateien in `public/demo-fotos/`.
+Fehlt die Datei, fällt der Chat still auf den hinterlegten Text der Kachel
+zurück – ohne Fehler und ohne Kosten.
+
+Was vor jedem Aufruf entfernt wird (E-Mail, Telefon, IBAN) und was gar nicht
+erst mitgeschickt wird, steht in `src/lib/ki/schwaerzen.ts`. Die Sperren
+gegen Kostenzusagen, Fristen und Rechtsauskünfte in Modellantworten stehen in
+`src/lib/ki/pruefen.ts` und werden mit `npm run pruefen:ki` geprüft – ohne
+Schlüssel und ohne Netz.
 
 > `SUPABASE_SERVICE_ROLE_KEY` umgeht alle Sicherheitsregeln der Datenbank.
 > Nie mit `NEXT_PUBLIC_` präfixen, nie committen, nie im Frontend verwenden.

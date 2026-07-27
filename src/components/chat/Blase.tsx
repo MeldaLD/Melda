@@ -70,7 +70,7 @@ export function Blase({
         </div>
       </div>
 
-      {marke && <KiMarke schritt={nachricht.kiSchritt!} />}
+      {marke && <KiMarke schritt={nachricht.kiSchritt!} aufruf={nachricht.kiAufruf} />}
     </div>
   );
 }
