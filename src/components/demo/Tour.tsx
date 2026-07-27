@@ -1,10 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowRightIcon, CheckIcon, XIcon } from "lucide-react";
 
 import { tourStationen, tourTexte } from "@config/tour";
+import {
+  Erweiterbar,
+  Leistungsbilanz,
+  NaechsterSchritt,
+} from "@/components/gemeinsam/Leistungsbilanz";
 import { aufTourEreignis } from "@/lib/tour/ereignisse";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -63,17 +69,21 @@ export function Tour({ slug, automatisch }: { slug: string; automatisch: boolean
       if (was !== station.erledigtBei) return;
 
       // Kurz stehen lassen, damit der Erfolg wahrgenommen wird, bevor die
-      // nächste Aufgabe erscheint.
+      // nächste Aufgabe erscheint. Steht ein Übergangssatz an, bekommt er
+      // mehr Zeit – er will gelesen werden, nicht nur wahrgenommen.
       setGeradeErledigt(true);
       setRahmen(null);
-      setTimeout(() => {
-        setGeradeErledigt(false);
-        if (index + 1 >= tourStationen.length) {
-          setStand("abschluss");
-        } else {
-          setIndex(index + 1);
-        }
-      }, 1400);
+      setTimeout(
+        () => {
+          setGeradeErledigt(false);
+          if (index + 1 >= tourStationen.length) {
+            setStand("abschluss");
+          } else {
+            setIndex(index + 1);
+          }
+        },
+        station.uebergang ? 4200 : 1400,
+      );
     });
   }, [stand, station, index]);
 
@@ -134,7 +144,26 @@ export function Tour({ slug, automatisch }: { slug: string; automatisch: boolean
         haupt={tourTexte.abschluss.weiter}
         onHaupt={beenden}
         erledigt
-      />
+        breit
+        // Der nächste Schritt gehört in die feste Fußleiste. Auf dem Telefon
+        // liegt er sonst unter der Kante, und ein Abschluss, dessen Angebot
+        // niemand sieht, endet mit "interessant" und sonst nichts.
+        fussAktion={<NaechsterSchritt />}
+      >
+        {/* Die Bilanz statt einer Verabschiedung: was geht weg, was bleibt,
+            was ließe sich ergänzen – und wohin, wenn es überzeugt hat. */}
+        <div className="space-y-4">
+          <Leistungsbilanz kompakt />
+          <Erweiterbar knapp />
+          <Link
+            href={`/demo/${slug}/leitstand`}
+            onClick={beenden}
+            className="block text-center text-xs text-muted-foreground hover:text-marke"
+          >
+            {tourTexte.abschluss.leitstand} →
+          </Link>
+        </div>
+      </Einladung>
     );
   }
 
@@ -149,10 +178,17 @@ export function Tour({ slug, automatisch }: { slug: string; automatisch: boolean
 
             <div className="min-w-0 flex-1">
               {geradeErledigt ? (
-                <p className="flex items-center gap-1.5 text-sm font-medium text-marke">
-                  <CheckIcon className="size-4" aria-hidden />
-                  {tourTexte.leiste.erledigt}
-                </p>
+                <>
+                  <p className="flex items-center gap-1.5 text-sm font-medium text-marke">
+                    <CheckIcon className="size-4" aria-hidden />
+                    {tourTexte.leiste.erledigt}
+                  </p>
+                  {station?.uebergang && (
+                    <p className="mt-0.5 text-xs leading-snug text-muted-foreground">
+                      {station.uebergang}
+                    </p>
+                  )}
+                </>
               ) : (
                 <>
                   <p className="text-sm leading-snug font-medium text-slate-900">
@@ -246,6 +282,9 @@ function Einladung({
   onHaupt,
   onNeben,
   erledigt,
+  breit,
+  fussAktion,
+  children,
 }: {
   titel: string;
   text: string;
@@ -254,27 +293,51 @@ function Einladung({
   onHaupt: () => void;
   onNeben?: () => void;
   erledigt?: boolean;
+  /** Für den Abschluss, der mehr als zwei Sätze trägt. */
+  breit?: boolean;
+  /** Bleibt in der Fußleiste sichtbar, auch wenn der Inhalt scrollt. */
+  fussAktion?: React.ReactNode;
+  children?: React.ReactNode;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
-      <div className="w-full max-w-md rounded-lg bg-white p-5 shadow-xl">
-        {erledigt && (
-          <span className="mb-3 flex size-9 items-center justify-center rounded-full bg-marke text-marke-kontrast">
-            <CheckIcon className="size-4" aria-hidden />
-          </span>
+      {/* Der Inhalt scrollt, die Knopfleiste bleibt stehen. Auf dem Telefon
+          lag der wichtigste Knopf sonst unter der Kante – und ein Abschluss,
+          dessen nächster Schritt niemand sieht, ist keiner. */}
+      <div
+        className={cn(
+          "flex max-h-[88svh] w-full flex-col rounded-lg bg-white shadow-xl",
+          breit ? "max-w-2xl" : "max-w-md",
         )}
-        <h2 className="text-lg font-semibold tracking-tight">{titel}</h2>
-        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{text}</p>
-
-        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          {neben && onNeben && (
-            <Button variant="ghost" onClick={onNeben}>
-              {neben}
-            </Button>
+      >
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">
+          {erledigt && (
+            <span className="mb-3 flex size-9 items-center justify-center rounded-full bg-marke text-marke-kontrast">
+              <CheckIcon className="size-4" aria-hidden />
+            </span>
           )}
-          <Button variant="marke" onClick={onHaupt}>
-            {haupt}
-          </Button>
+          <h2 className="text-lg font-semibold tracking-tight">{titel}</h2>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{text}</p>
+          {children && <div className="mt-4">{children}</div>}
+        </div>
+
+        <div
+          className={cn(
+            "space-y-2 px-5 pt-3 pb-5",
+            children && "border-t border-border",
+          )}
+        >
+          {fussAktion}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            {neben && onNeben && (
+              <Button variant="ghost" onClick={onNeben}>
+                {neben}
+              </Button>
+            )}
+            <Button variant={children ? "outline" : "marke"} onClick={onHaupt}>
+              {haupt}
+            </Button>
+          </div>
         </div>
       </div>
     </div>

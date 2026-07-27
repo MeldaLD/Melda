@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 
 import { demoKonfiguration } from "@config/demo";
 import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { Erweiterbar } from "@/components/gemeinsam/Leistungsbilanz";
 import { GrenzenFormular } from "@/components/verwalter/GrenzenFormular";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { bestandLaden } from "@/lib/daten/quelle";
@@ -72,6 +73,12 @@ export default async function GrenzenSeite({
             </p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Wer hier die Regeln einstellt, merkt am ehesten, was ihm fehlt –
+          deshalb steht die Antwort darauf genau hier. */}
+      <div className="max-w-5xl">
+        <Erweiterbar />
       </div>
     </div>
   );

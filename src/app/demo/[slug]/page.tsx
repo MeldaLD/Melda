@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { LayoutDashboardIcon, MessageCircleIcon, WrenchIcon } from "lucide-react";
 
 import { szenarien } from "@config/scenarios";
+import { Erweiterbar, Leistungsbilanz } from "@/components/gemeinsam/Leistungsbilanz";
 import { Card } from "@/components/ui/card";
 import { mandantLaden } from "@/lib/daten/quelle";
 
@@ -103,18 +104,27 @@ export default async function DemoStartseite({
             <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-marke" />
             <span>
               <strong className="font-medium text-foreground">
-                Nichts geht ohne Ihre Freigabe.
+                Sie setzen die Grenze, nicht wir.
               </strong>{" "}
-              Der Assistent bereitet vor, entscheiden tun Sie.
+              Bis zu einem Betrag, den Sie bestimmen, erledigen wir ohne Rückfrage.
+              Darüber legen wir Ihnen alles vorbereitet vor.
             </span>
           </li>
         </ul>
-
-        <p className="pt-2 text-xs text-muted-foreground">
-          Diese Demo enthält {szenarien.length} Beispielszenarien und ausschließlich
-          erfundene Daten. Die Objekte tragen Straßennamen aus {mandant.stadt}.
-        </p>
       </div>
+
+      {/* Die Bilanz gehört auch hierhin: Wer den Link bekommt und die Demo
+          gar nicht erst öffnet, soll wenigstens wissen, worum es geht. */}
+      <div className="mt-8 space-y-4 border-t border-border pt-6">
+        <h2 className="text-sm font-semibold">Was das für Sie heißt</h2>
+        <Leistungsbilanz />
+        <Erweiterbar />
+      </div>
+
+      <p className="pt-6 text-xs text-muted-foreground">
+        Diese Demo enthält {szenarien.length} Beispielszenarien und ausschließlich
+        erfundene Daten. Die Objekte tragen Straßennamen aus {mandant.stadt}.
+      </p>
     </main>
   );
 }

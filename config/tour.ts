@@ -40,6 +40,18 @@ export type TourStation = {
   markierung?: string;
   /** Ereignis, das die Station abschließt. Siehe src/lib/tour/ereignisse.ts */
   erledigtBei: string;
+  /**
+   * Was zwischen dieser und der nächsten Station passiert – wird in der
+   * Pause nach "Erledigt" gezeigt.
+   *
+   * Der Grund: Zwischen der Meldung und der Grenze liegt genau das, worum es
+   * eigentlich geht – wir beauftragen, stimmen ab, halten den Mieter auf dem
+   * Laufenden. Ohne diesen Satz springt die Tour von einem Foto zu einer
+   * Einstellung, und der Betrachter fragt sich zu Recht, was dazwischen
+   * passiert sein soll. Ein Satz statt einer vierten Station: Drei Schritte
+   * werden zu rund 72 Prozent abgeschlossen, ab fünf fällt die Quote steil.
+   */
+  uebergang?: string;
 };
 
 export const tourStationen: TourStation[] = [
@@ -59,6 +71,9 @@ export const tourStationen: TourStation[] = [
       "Jetzt kommt der Punkt, um den es geht: Rund 30 Prozent aller Aufträge brauchen eine zweite Anfahrt, weil bei der Aufnahme etwas fehlte.",
     pfad: "chat",
     erledigtBei: "chat:erkenntnis",
+    uebergang:
+      "Ab hier übernehmen wir: Auftrag an den Betrieb, Termin abstimmen, " +
+      "Mieter informieren. Sie bekommen davon nur das Ergebnis zu sehen.",
   },
   {
     // Die dritte Station war früher eine Freigabe. Das war richtig, solange
@@ -77,24 +92,39 @@ export const tourStationen: TourStation[] = [
 ];
 
 export const tourTexte = {
+  /**
+   * Der Einstieg beschreibt erst die Welt des Betrachters und den Ärger
+   * darin, dann erst das Produkt.
+   *
+   * Vorführungen scheitern selten an fehlenden Funktionen, sondern daran,
+   * dass niemand den Konflikt benennt, den sie lösen. Wer mit "ich zeige
+   * Ihnen drei Funktionen" beginnt, bekommt Höflichkeit; wer mit "so läuft
+   * es heute bei Ihnen" beginnt, bekommt Aufmerksamkeit.
+   */
   begruessung: {
-    titel: "Drei Minuten, drei Stationen",
+    titel: "Kennen Sie das?",
     text:
-      "Ich zeige Ihnen die drei Stellen, an denen sich diese Lösung von " +
-      "einem Portal unterscheidet. Sie klicken selbst – lesen können Sie " +
-      "hinterher.",
-    starten: "Los geht's",
+      "Ein Mieter ruft an, Sie notieren mit. Der Handwerker fährt hin, und " +
+      "vor Ort fehlt etwas – falsche Maße, falsches Material, keiner da. " +
+      "Also fährt er noch einmal. Rund jeder dritte Auftrag läuft so. " +
+      "Drei Schritte, dann wissen Sie, was sich daran ändert.",
+    starten: "Zeigen Sie es mir",
     ablehnen: "Lieber allein umsehen",
   },
 
+  /**
+   * Der Abschluss ist keine Verabschiedung, sondern die Bilanz: was geht weg,
+   * was bleibt, was fehlt noch – und ein konkreter nächster Schritt. Eine
+   * Vorführung, die mit "danke fürs Ansehen" endet, endet folgenlos.
+   */
   abschluss: {
-    titel: "Das war der Kern",
+    titel: "Kurz zusammengefasst",
     text:
       "Ihre Mieter melden über WhatsApp, wir fragen nach, was dem Handwerker " +
-      "sonst fehlt, und stimmen den Termin direkt mit dem Betrieb ab. Sie " +
-      "behalten den Überblick und die Kontrolle – die Kleinarbeit haben wir. " +
-      "Wie das im Hintergrund aussieht, sehen Sie in unserem Leitstand.",
+      "sonst fehlt, beauftragen den Betrieb und stimmen den Termin ab.",
     weiter: "Weiter umsehen",
+    /** Führt in den Leitstand, damit sichtbar wird, wohin die Arbeit wandert. */
+    leitstand: "Zeigen, was im Hintergrund läuft",
   },
 
   leiste: {
