@@ -50,6 +50,14 @@
   --color-prio-routine: oklch(0.6 0.06 240);
   --color-prio-routine-sanft: oklch(0.96 0.01 240);
 
+  /* Kennzeichnung der Demo.
+     Bewusst nicht die Mandantenfarbe: Der Hinweis "das ist eine Vorführung"
+     darf nicht wie ein Teil des Produkts aussehen, sondern muss sich davon
+     absetzen. Bernstein ist die uebliche Konvention fuer "Achtung, kein
+     Echtbetrieb" und bleibt dabei ruhig genug fuer ein Verkaufsgespraech. */
+  --color-demo: oklch(0.78 0.15 75);
+  --color-demo-dunkel: oklch(0.55 0.13 70);
+
   /* WhatsApp-Anmutung im Mieter-Chat */
   --color-chat-hintergrund: #e5ddd5;
   --color-chat-eigen: #d9fdd3;

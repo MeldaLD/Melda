@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeftIcon, CameraIcon, ChevronDownIcon, SendIcon } from "lucide-react";
 import Link from "next/link";
@@ -88,14 +88,35 @@ function Gespraech({
   const [fotoOffen, setFotoOffen] = useState(false);
   // Nur für uns: siehe src/components/demo/TechnikSchalter.tsx
   const technik = useSearchParams().get(TECHNIK_PARAMETER) === "1";
-  const ende = useRef<HTMLDivElement>(null);
+  const verlauf = useRef<HTMLDivElement>(null);
+
+  // Ans Ende scrollen heißt hier: bis zum Anschlag, nicht bis zur letzten
+  // Nachricht. Der Unterschied ist die untere Polsterung – wenn die Tour sie
+  // vergrößert, soll die letzte Nachricht genau um diesen Betrag höher
+  // stehen. Ein scrollIntoView auf die letzte Nachricht täte das nicht: Es
+  // setzt sie an die Unterkante und lässt die Polsterung ungenutzt liegen.
+  const ansEnde = useCallback(() => {
+    const feld = verlauf.current;
+    if (feld) feld.scrollTo({ top: feld.scrollHeight, behavior: "smooth" });
+  }, []);
 
   // Auch auf das Angebot hören: Die Knopfleiste erscheint erst, wenn die
   // Antwort fertig ist, und schiebt den Verlauf dann noch einmal nach oben.
   // Ohne diese Abhängigkeit bliebe die letzte Nachricht angeschnitten.
   useEffect(() => {
-    ende.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [zustand.nachrichten.length, zustand.angebot, taetigkeit, beschaeftigt]);
+    ansEnde();
+  }, [zustand.nachrichten.length, zustand.angebot, taetigkeit, beschaeftigt, ansEnde]);
+
+  // Ändert die Tour --tour-luft (siehe unten am Verlauf), wächst die
+  // Polsterung – von allein rutscht dabei nichts nach oben, der Verlauf
+  // bleibt einfach stehen. Also nach jeder Änderung erneut nachfassen.
+  // Beobachtet wird nur das style-Attribut des Wurzelelements; dort setzt in
+  // dieser Anwendung ausschließlich die Tour etwas.
+  useEffect(() => {
+    const beobachter = new MutationObserver(ansEnde);
+    beobachter.observe(document.documentElement, { attributeFilter: ["style"] });
+    return () => beobachter.disconnect();
+  }, [ansEnde]);
 
   // Die Erkenntnis-Karte ist der Punkt, um den es in der Tour geht.
   useEffect(() => {
@@ -137,7 +158,15 @@ function Gespraech({
         onWechseln={onWechseln}
       />
 
-      <div className="flex-1 space-y-2 overflow-y-auto px-3 py-3 sm:px-4">
+      {/* --tour-luft setzt die Tour, solange ihr Hinweis über der Knopfleiste
+          steht (siehe src/components/demo/Tour.tsx). Ohne diese Luft läge er
+          genau auf der letzten Nachricht – also auf dem Satz, auf den er sich
+          bezieht. Außerhalb der Tour ist der Wert nicht gesetzt und die
+          Rechnung ergibt die normalen 0,75rem. */}
+      <div
+        ref={verlauf}
+        className="flex-1 space-y-2 overflow-y-auto px-3 pt-3 pb-[calc(0.75rem+var(--tour-luft,0px))] sm:px-4"
+      >
         <Datumstrenner />
         {technik && <KiLegende />}
         {zustand.nachrichten.map((nachricht) => (
@@ -145,7 +174,6 @@ function Gespraech({
         ))}
         {taetigkeit === "tippen" && <TippIndikator />}
         {taetigkeit === "auswerten" && <AuswertungsIndikator />}
-        <div ref={ende} />
       </div>
 
       <Aktionsleiste
@@ -379,9 +407,12 @@ function Aktionsleiste({
         </div>
       );
 
+    // Bestätigung und zweites Foto tragen dieselbe Kennung: Für die Tour sind
+    // sie eine Station ("bestätigen und nachliefern"), und sichtbar ist immer
+    // nur eine der beiden Leisten.
     case "bestaetigung":
       return (
-        <div className={rahmen}>
+        <div className={rahmen} data-tour="antwort-knopf">
           <Schnellknopf
             hervorgehoben
             onClick={() =>
@@ -408,7 +439,7 @@ function Aktionsleiste({
 
     case "zweitfoto":
       return (
-        <div className={rahmen}>
+        <div className={rahmen} data-tour="antwort-knopf">
           <Schnellknopf hervorgehoben onClick={onFotoOeffnen}>
             Zweites Foto senden
           </Schnellknopf>

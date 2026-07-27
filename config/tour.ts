@@ -70,6 +70,10 @@ export const tourStationen: TourStation[] = [
     begruendung:
       "Jetzt kommt der Punkt, um den es geht: Rund 30 Prozent aller Aufträge brauchen eine zweite Anfahrt, weil bei der Aufnahme etwas fehlte.",
     pfad: "chat",
+    // Bestätigung und zweites Foto liegen an derselben Stelle über dem
+    // Eingabefeld – der Hinweis wandert also nicht, sondern bleibt dort
+    // stehen, wo geantwortet wird.
+    markierung: "antwort-knopf",
     erledigtBei: "chat:erkenntnis",
     uebergang:
       "Ab hier übernehmen wir: Auftrag an den Betrieb, Termin abstimmen, " +
@@ -146,5 +150,13 @@ export const tourTexte = {
     ueberspringen: "Tour beenden",
     schritt: (aktuell: number, gesamt: number) => `Schritt ${aktuell} von ${gesamt}`,
     erledigt: "Erledigt",
+    /**
+     * Steht über jedem Hinweis der Tour.
+     *
+     * Der Hinweiskasten sieht aus wie ein Teil der Oberfläche, wenn ihn nichts
+     * als Beiwerk ausweist – und dann sucht der Betrachter den Knopf, den es
+     * gar nicht gibt. Ein Wort in der Demofarbe genügt, um beides zu trennen.
+     */
+    kennzeichen: "Vorführung",
   },
 } as const;
