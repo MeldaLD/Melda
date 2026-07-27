@@ -5,6 +5,7 @@ import { ArrowRightIcon } from "lucide-react";
 import { KpiKachel } from "@/components/gemeinsam/KpiKachel";
 import { WochenDiagramm } from "@/components/gemeinsam/WochenDiagramm";
 import { PrioBadge, Seitenkopf, SlaPunkt } from "@/components/gemeinsam/Anzeigen";
+import { Datenumschalter } from "@/components/gemeinsam/Datenumschalter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { bestandLaden } from "@/lib/daten/quelle";
 import {
@@ -25,10 +26,25 @@ export default async function Uebersicht({
   const ergebnis = await bestandLaden(slug);
   if (!ergebnis) notFound();
 
-  const { bestand } = ergebnis;
+  const { bestand, ansicht } = ergebnis;
   const zahlen = kennzahlen(bestand);
   const verlauf = wochenverlauf(bestand);
   const basis = `/demo/${slug}/leitstand`;
+
+  // Solange die Beispieldaten ausgeblendet sind und noch nichts hereinkam,
+  // wären Kacheln und Diagramm eine Wand aus Nullen. Die Leiste sagt schon,
+  // warum – mehr braucht es hier nicht.
+  if (ansicht.nurEigene && bestand.vorgaenge.length === 0) {
+    return (
+      <div className="p-4 sm:p-6">
+        <Seitenkopf
+          titel="Übersicht"
+          beschreibung={`Stand für ${bestand.mandant.firma}`}
+        />
+        <Datenumschalter slug={slug} ansicht={ansicht} />
+      </div>
+    );
+  }
 
   const dringendste = bestand.vorgaenge
     .filter(istOffen)
@@ -41,6 +57,9 @@ export default async function Uebersicht({
         titel="Übersicht"
         beschreibung={`Stand für ${bestand.mandant.firma}`}
       />
+      <div className="mb-5">
+        <Datenumschalter slug={slug} ansicht={ansicht} />
+      </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiKachel

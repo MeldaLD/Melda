@@ -333,6 +333,24 @@ export type Terminanfrage = {
   gueltig_bis: string;
 };
 
+/**
+ * Was die Übersicht gerade zeigt.
+ *
+ * Zu Beginn einer Vorführung sind die Beispieldaten ausgeblendet, damit
+ * sichtbar wird, dass eine Meldung aus dem Chat hier landet. Siehe
+ * config/ansicht.ts.
+ */
+export type Ansicht = {
+  /** Beispieldaten sind ausgeblendet. */
+  nurEigene: boolean;
+  /** Ob sich das umschalten lässt – ohne Datenbank ergibt es keinen Sinn. */
+  umschaltbar: boolean;
+  /** Vorgänge, die in dieser Vorführung entstanden sind. */
+  eigene: number;
+  /** Beispielvorgänge, die ausgeblendet werden können. */
+  ausgeblendet: number;
+};
+
 /** Vollständiger Datenbestand eines Mandanten – Ergebnis des Generators. */
 export type Mandantenbestand = {
   mandant: Mandant;

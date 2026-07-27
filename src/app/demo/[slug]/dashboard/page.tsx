@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { AlertTriangleIcon, ArrowRightIcon, CheckIcon, InfoIcon } from "lucide-react";
 
 import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { Datenumschalter } from "@/components/gemeinsam/Datenumschalter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,8 +31,24 @@ export default async function KontrollSeite({
   const ergebnis = await bestandLaden(slug);
   if (!ergebnis) notFound();
 
-  const { bestand } = ergebnis;
+  const { bestand, ansicht } = ergebnis;
   const basis = `/demo/${slug}/dashboard`;
+
+  // Noch nichts gemeldet, Beispiele ausgeblendet: Ein "Nichts braucht Ihre
+  // Aufmerksamkeit" wäre hier eine Beruhigung über nichts, und eine Bilanz aus
+  // lauter Nullen sähe nach Fehler aus. Die Leiste erklärt die Lage.
+  if (ansicht.nurEigene && bestand.vorgaenge.length === 0) {
+    return (
+      <div className="space-y-5 p-4 sm:p-6">
+        <Seitenkopf
+          titel="Ihre Kontrolle"
+          beschreibung="Sie sehen, was abweicht. Alles Übrige läuft."
+        />
+        <Datenumschalter slug={slug} ansicht={ansicht} />
+      </div>
+    );
+  }
+
   const liste = ausnahmen(bestand);
   const hoch = liste.filter((a) => a.dringlichkeit === "hoch");
   const mittel = liste.filter((a) => a.dringlichkeit === "mittel");
@@ -44,6 +61,7 @@ export default async function KontrollSeite({
         titel="Ihre Kontrolle"
         beschreibung="Sie sehen, was abweicht. Alles Übrige läuft."
       />
+      <Datenumschalter slug={slug} ansicht={ansicht} />
 
       {/* --- Was Aufmerksamkeit braucht ------------------------------------ */}
       <section className="space-y-3">

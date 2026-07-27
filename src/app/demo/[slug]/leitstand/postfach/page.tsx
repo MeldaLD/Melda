@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { MailIcon, MessageCircleIcon, PhoneIcon } from "lucide-react";
 
 import { LeerHinweis, Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { Datenumschalter } from "@/components/gemeinsam/Datenumschalter";
 import { Badge } from "@/components/ui/badge";
 import { alsDatumZeit } from "@/lib/dashboard/format";
 import { bestandLaden } from "@/lib/daten/quelle";
@@ -33,7 +34,7 @@ export default async function Postfach({
   const ergebnis = await bestandLaden(slug);
   if (!ergebnis) notFound();
 
-  const { bestand } = ergebnis;
+  const { bestand, ansicht } = ergebnis;
 
   // Je Vorgang nur die letzte Nachricht, dazu alle Einzelnachrichten ohne
   // Vorgang – so liest sich das Postfach wie eine Konversationsliste.
@@ -63,6 +64,9 @@ export default async function Postfach({
         titel="Postfach"
         beschreibung="WhatsApp, E-Mail und Telefonnotizen in einer Ansicht."
       />
+      <div className="mb-5">
+        <Datenumschalter slug={slug} ansicht={ansicht} />
+      </div>
 
       {eintraege.length === 0 ? (
         <LeerHinweis text="Das Postfach ist leer." />

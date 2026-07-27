@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { MUSTER_MANDANT } from "@config/muster-mandant";
+import { cookieName } from "@/lib/demo/ansicht";
 import { bestandErzeugen } from "@/lib/demo/generator";
 import { bestandLeeren, bestandSchreiben } from "@/lib/daten/schreiben";
 import { istDatenbankKonfiguriert } from "@/lib/daten/quelle";
@@ -58,10 +59,16 @@ export async function POST(anfrage: Request) {
     const bestand = bestandErzeugen(vorlage);
     await bestandSchreiben(bestand);
 
-    return NextResponse.json({
+    const antwort = NextResponse.json({
       zurueckgesetzt: true,
       vorgaenge: bestand.vorgaenge.length,
     });
+
+    // Zurücksetzen heißt: Ausgangszustand. Dazu gehört, dass die Beispieldaten
+    // wieder ausgeblendet sind – sonst beginnt die nächste Vorführung mit dem
+    // vollen Bestand und der Aha-Moment fällt aus.
+    antwort.cookies.delete(cookieName(slug));
+    return antwort;
   } catch (fehler) {
     console.error("[api/demo/reset]", fehler);
     return NextResponse.json(

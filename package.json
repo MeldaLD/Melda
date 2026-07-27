@@ -11,6 +11,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "seed:sql": "tsx scripts/seed-sql.ts",
+    "pruefen:ansicht": "tsx scripts/ansicht-pruefen.ts",
     "typen:datenbank": "supabase gen types typescript --linked > src/lib/supabase/datenbank.types.ts"
   },
   "dependencies": {

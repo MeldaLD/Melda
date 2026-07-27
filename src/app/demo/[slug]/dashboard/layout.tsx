@@ -32,6 +32,9 @@ export default async function VerwalterLayout({
   return (
     <div className="flex min-h-full flex-col bg-slate-50 lg:flex-row">
       <Navigation mandant={bestand.mandant} offeneAusnahmen={offen} />
+      {/* Die Umschaltleiste steht bewusst nicht hier, sondern auf den Seiten,
+          die Fälle zeigen. Über "Grenzen" wäre ein "hier ist noch nichts"
+          schlicht falsch – dort steht eine Einstellung, keine Liste. */}
       <main className="min-w-0 flex-1">{children}</main>
       <LiveAktualisierung
         tenantId={bestand.mandant.id}

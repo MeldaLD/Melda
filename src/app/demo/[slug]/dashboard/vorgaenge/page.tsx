@@ -7,6 +7,7 @@ import {
   Seitenkopf,
   StatusBadge,
 } from "@/components/gemeinsam/Anzeigen";
+import { Datenumschalter } from "@/components/gemeinsam/Datenumschalter";
 import { alsDatum } from "@/lib/dashboard/format";
 import { alterKurz, istOffen, nachDringlichkeit } from "@/lib/dashboard/kennzahlen";
 import { bestandLaden } from "@/lib/daten/quelle";
@@ -32,7 +33,7 @@ export default async function VorgangsListe({
   const ergebnis = await bestandLaden(slug);
   if (!ergebnis) notFound();
 
-  const { bestand } = ergebnis;
+  const { bestand, ansicht } = ergebnis;
   const basis = `/demo/${slug}/dashboard`;
 
   const offene = bestand.vorgaenge.filter(istOffen).sort(nachDringlichkeit);
@@ -56,6 +57,7 @@ export default async function VorgangsListe({
         titel="Vorgänge"
         beschreibung="Alles nachlesbar, jederzeit. Bearbeitet wird im Hintergrund."
       />
+      <Datenumschalter slug={slug} ansicht={ansicht} />
 
       <Abschnitt titel="Läuft gerade" anzahl={offene.length}>
         {offene.map((v) => {

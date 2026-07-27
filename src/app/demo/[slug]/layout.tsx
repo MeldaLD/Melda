@@ -4,9 +4,14 @@ import { notFound } from "next/navigation";
 import { Aufrufzaehler } from "@/components/demo/Aufrufzaehler";
 import { DemoLeiste } from "@/components/demo/DemoLeiste";
 import { Tour } from "@/components/demo/Tour";
+import { ansichtKonfiguration } from "@config/ansicht";
 import { demoKonfiguration } from "@config/demo";
 import { markenPalette } from "@/lib/branding/farben";
-import { istDatenbankKonfiguriert, mandantLaden } from "@/lib/daten/quelle";
+import {
+  istDatenbankKonfiguriert,
+  istSchreibenMoeglich,
+  mandantLaden,
+} from "@/lib/daten/quelle";
 
 type Eigenschaften = {
   children: React.ReactNode;
@@ -53,7 +58,16 @@ export default async function DemoLayout({ children, params }: Eigenschaften) {
       {/* Meldet still, ob und wie lange die Demo angesehen wird. */}
       <Aufrufzaehler slug={slug} />
       {/* Führt Betrachter, die allein auf den Link geklickt haben. */}
-      <Tour slug={slug} automatisch={demoKonfiguration.flags.tourAutomatischStarten} />
+      <Tour
+        slug={slug}
+        automatisch={demoKonfiguration.flags.tourAutomatischStarten}
+        // Reine Umgebungsprüfung statt einer weiteren Abfrage: Ohne
+        // Schreibrecht kann der Chat nichts anlegen, also gibt es auch nichts,
+        // wovon sich Beispieldaten abheben würden.
+        beispieleLadbar={
+          istSchreibenMoeglich() && ansichtKonfiguration.beispieleZunaechstAusblenden
+        }
+      />
     </div>
   );
 }

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowRightIcon, CheckIcon, XIcon } from "lucide-react";
+import { ArrowRightIcon, CheckIcon, LayersIcon, XIcon } from "lucide-react";
 
 import { tourStationen, tourTexte } from "@config/tour";
+import { beispieleUmschalten } from "@/app/demo/[slug]/aktionen";
 import {
   Erweiterbar,
   Leistungsbilanz,
@@ -28,7 +29,16 @@ type Stand = "begruessung" | "laeuft" | "abschluss" | "aus";
  * der die Oberfläche verdeckt. Wer sie loswerden will, kommt mit einem Klick
  * raus, und die Entscheidung hält für diese Sitzung.
  */
-export function Tour({ slug, automatisch }: { slug: string; automatisch: boolean }) {
+export function Tour({
+  slug,
+  automatisch,
+  beispieleLadbar,
+}: {
+  slug: string;
+  automatisch: boolean;
+  /** Ob es überhaupt Beispieldaten zum Dazuladen gibt. */
+  beispieleLadbar: boolean;
+}) {
   const router = useRouter();
   const pfad = usePathname();
 
@@ -149,12 +159,29 @@ export function Tour({ slug, automatisch }: { slug: string; automatisch: boolean
         // liegt er sonst unter der Kante, und ein Abschluss, dessen Angebot
         // niemand sieht, endet mit "interessant" und sonst nichts.
         fussAktion={<NaechsterSchritt />}
+        // Wer jetzt weiterschaut, hat den Zusammenhang zwischen Chat und
+        // Übersicht gesehen. Ab hier hilft der volle Bestand mehr, als er
+        // verdeckt – aber nur, wenn der Betrachter ihn selbst dazuholt.
+        zweiteAktion={
+          beispieleLadbar ? (
+            <BeispieleKnopf
+              slug={slug}
+              onFertig={beenden}
+              beschriftung={tourTexte.abschluss.beispiele.knopf}
+            />
+          ) : null
+        }
       >
         {/* Die Bilanz statt einer Verabschiedung: was geht weg, was bleibt,
             was ließe sich ergänzen – und wohin, wenn es überzeugt hat. */}
         <div className="space-y-4">
           <Leistungsbilanz kompakt />
           <Erweiterbar knapp />
+          {beispieleLadbar && (
+            <p className="rounded-md border border-dashed border-border p-3 text-xs leading-relaxed text-muted-foreground">
+              {tourTexte.abschluss.beispiele.hinweis}
+            </p>
+          )}
           <Link
             href={`/demo/${slug}/leitstand`}
             onClick={beenden}
@@ -274,6 +301,43 @@ function Markierung({ rahmen }: { rahmen: DOMRect }) {
   );
 }
 
+/**
+ * Lädt die Beispieldaten dazu und schließt die Tour.
+ *
+ * Eigene Komponente, weil sie einen Übergang braucht: Zwischen Klick und
+ * neuer Seite liegt ein Serveraufruf, und ein Knopf, der in dieser Zeit
+ * nichts tut, wird ein zweites Mal gedrückt.
+ */
+function BeispieleKnopf({
+  slug,
+  beschriftung,
+  onFertig,
+}: {
+  slug: string;
+  beschriftung: string;
+  onFertig: () => void;
+}) {
+  const router = useRouter();
+  const [laeuft, starten] = useTransition();
+
+  return (
+    <Button
+      variant="outline"
+      disabled={laeuft}
+      onClick={() =>
+        starten(async () => {
+          await beispieleUmschalten(slug, true);
+          onFertig();
+          router.refresh();
+        })
+      }
+    >
+      <LayersIcon />
+      {beschriftung}
+    </Button>
+  );
+}
+
 function Einladung({
   titel,
   text,
@@ -284,6 +348,7 @@ function Einladung({
   erledigt,
   breit,
   fussAktion,
+  zweiteAktion,
   children,
 }: {
   titel: string;
@@ -297,6 +362,8 @@ function Einladung({
   breit?: boolean;
   /** Bleibt in der Fußleiste sichtbar, auch wenn der Inhalt scrollt. */
   fussAktion?: React.ReactNode;
+  /** Zweiter Weg neben dem Hauptknopf, gleichrangig gesetzt. */
+  zweiteAktion?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
@@ -334,6 +401,7 @@ function Einladung({
                 {neben}
               </Button>
             )}
+            {zweiteAktion}
             <Button variant={children ? "outline" : "marke"} onClick={onHaupt}>
               {haupt}
             </Button>

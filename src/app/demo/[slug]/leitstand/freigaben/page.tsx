@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { Datenumschalter } from "@/components/gemeinsam/Datenumschalter";
 import {
   FreigabeListe,
   type FreigabeZeile,
@@ -16,7 +17,7 @@ export default async function FreigabeCenter({
   const ergebnis = await bestandLaden(slug);
   if (!ergebnis) notFound();
 
-  const { bestand } = ergebnis;
+  const { bestand, ansicht } = ergebnis;
 
   const zeilen: FreigabeZeile[] = bestand.freigaben
     .filter((f) => f.status === "offen")
@@ -43,6 +44,9 @@ export default async function FreigabeCenter({
         titel="Freigabe-Center"
         beschreibung="Der Assistent hat alles vorbereitet. Entscheiden tun Sie."
       />
+      <div className="mb-5">
+        <Datenumschalter slug={slug} ansicht={ansicht} />
+      </div>
       <div className="max-w-3xl">
         <FreigabeListe zeilen={zeilen} basis={`/demo/${slug}/leitstand`} slug={slug} />
       </div>

@@ -22,10 +22,14 @@ import "server-only";
  * darauf hin.
  */
 
+import { cookies } from "next/headers";
+
+import { ansichtKonfiguration } from "@config/ansicht";
 import { MUSTER_MANDANT } from "@config/muster-mandant";
+import { ansichtWaehlen, cookieName } from "@/lib/demo/ansicht";
 import { bestandErzeugen } from "@/lib/demo/generator";
 import { supabaseServer } from "@/lib/supabase/server";
-import type { Mandant, Mandantenbestand } from "./typen";
+import type { Ansicht, Mandant, Mandantenbestand } from "./typen";
 
 /** Mandanten, die auch ohne Datenbank verfügbar sind. */
 const RUECKFALL_VORLAGEN = [MUSTER_MANDANT];
@@ -35,6 +39,7 @@ export type Herkunft = "datenbank" | "rueckfall";
 export type BestandErgebnis = {
   bestand: Mandantenbestand;
   herkunft: Herkunft;
+  ansicht: Ansicht;
 };
 
 export function istDatenbankKonfiguriert(): boolean {
@@ -103,14 +108,48 @@ export async function mandantLaden(slug: string): Promise<Mandant | null> {
 }
 
 /**
- * Lädt den vollständigen Bestand eines Mandanten.
+ * Lädt den Bestand eines Mandanten – in der Sicht, die gerade gilt.
+ *
+ * Der einzige Weg an die Daten, und das mit Absicht: Ob die Beispieldaten
+ * ausgeblendet sind, entscheidet sich hier einmal statt auf sechzehn Seiten
+ * einzeln. Wer eine Liste baut, kann es also nicht vergessen.
+ */
+export async function bestandLaden(
+  slug: string,
+  optionen: {
+    /**
+     * Beispieldaten immer mitliefern. Nur für Detailseiten: Ein direkter Link
+     * auf einen Beispielvorgang soll nicht ins Leere laufen, bloß weil die
+     * Liste ihn gerade nicht zeigt.
+     */
+    alleDaten?: boolean;
+  } = {},
+): Promise<BestandErgebnis | null> {
+  const roh = await bestandRoh(slug);
+  if (!roh) return null;
+
+  const speicher = await cookies();
+  const { bestand, ansicht } = ansichtWaehlen(roh.bestand, {
+    umschaltbar: roh.herkunft === "datenbank" && istSchreibenMoeglich(),
+    beispieleGewuenscht: speicher.get(cookieName(slug))?.value === "1",
+    ausblendenVoreingestellt: ansichtKonfiguration.beispieleZunaechstAusblenden,
+    alleDaten: optionen.alleDaten,
+  });
+
+  return { bestand, herkunft: roh.herkunft, ansicht };
+}
+
+type RohErgebnis = { bestand: Mandantenbestand; herkunft: Herkunft };
+
+/**
+ * Holt alles, ungefiltert.
  *
  * Bewusst als ein Rutsch statt vieler Einzelabfragen: Der Datenbestand einer
  * Demo ist klein (unter 500 Zeilen), und eine Anfrage über eine Verbindung
  * schlägt fünf nacheinander laufende deutlich – das ist der Unterschied
  * zwischen unter einer und über zwei Sekunden Ladezeit.
  */
-export async function bestandLaden(slug: string): Promise<BestandErgebnis | null> {
+async function bestandRoh(slug: string): Promise<RohErgebnis | null> {
   if (istDatenbankKonfiguriert()) {
     try {
       const supabase = await supabaseServer();

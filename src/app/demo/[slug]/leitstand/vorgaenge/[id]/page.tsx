@@ -29,7 +29,9 @@ export default async function VorgangDetail({
   params: Promise<{ slug: string; id: string }>;
 }) {
   const { slug, id } = await params;
-  const ergebnis = await bestandLaden(slug);
+  // Mit allen Daten: Ein Link auf einen Beispielvorgang soll auch dann
+  // funktionieren, wenn die Liste gerade nur die eigenen Vorgänge zeigt.
+  const ergebnis = await bestandLaden(slug, { alleDaten: true });
   if (!ergebnis) notFound();
 
   const { bestand } = ergebnis;

@@ -20,6 +20,13 @@ wird eine personalisierte Demo unter einem eigenen Link erzeugt.
 Was im Chat gemeldet wird, erscheint über Supabase Realtime unmittelbar im
 Dashboard – das ist der Moment, der bei einer Live-Vorführung zieht.
 
+Damit dieser Moment sichtbar bleibt, sind die mitgelieferten Beispieldaten
+zunächst **ausgeblendet**: Die Übersicht zeigt nur, was während der Vorführung
+wirklich hereinkommt. Über die Leiste über jeder Liste – und am Ende der Tour –
+lässt sich der volle Bestand dazuladen. Steuerung und Texte stehen in
+[`config/ansicht.ts`](./config/ansicht.ts); ohne konfigurierte Datenbank bleibt
+alles wie bisher sichtbar, weil dort ohnehin nichts entstehen kann.
+
 ## Technik
 
 - Next.js 15 (App Router) · React 19 · TypeScript
@@ -120,6 +127,7 @@ wie es shadcn/ui vorsieht. Weitere Komponenten holen Sie sich mit
 | `npm run format` | Prettier schreibend |
 | `npm run format:check` | Prettier prüfend (läuft auch in der CI) |
 | `npm run seed:sql` | Beispieldaten neu erzeugen (`supabase/seed/`) |
+| `npm run pruefen:ansicht` | Prüft, wann Beispieldaten aus- und eingeblendet werden |
 | `npm run typen:datenbank` | Typen aus der verknüpften Datenbank erzeugen |
 
 ## Deployment

@@ -123,6 +123,19 @@ export const tourTexte = {
       "Ihre Mieter melden über WhatsApp, wir fragen nach, was dem Handwerker " +
       "sonst fehlt, beauftragen den Betrieb und stimmen den Termin ab.",
     weiter: "Weiter umsehen",
+    /**
+     * Bis hierhin zeigt die Übersicht nur, was der Betrachter selbst gemeldet
+     * hat – sonst wäre im Gewimmel der Beispieldaten nicht zu erkennen, dass
+     * der Chat sie füllt. Jetzt ist der Zusammenhang gesehen, und der volle
+     * Bestand wird interessant: So sieht ein Arbeitstag aus.
+     */
+    beispiele: {
+      hinweis:
+        "Ihre Übersicht zeigt gerade nur den Vorgang, den Sie eben selbst " +
+        "gemeldet haben. Wenn Sie sehen möchten, wie ein voller Arbeitstag " +
+        "aussieht, laden Sie zwei Wochen Beispieldaten dazu.",
+      knopf: "Beispieldaten dazuladen",
+    },
     /** Führt in den Leitstand, damit sichtbar wird, wohin die Arbeit wandert. */
     leitstand: "Zeigen, was im Hintergrund läuft",
   },

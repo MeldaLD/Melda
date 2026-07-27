@@ -3,6 +3,7 @@ import { PhoneIcon, WrenchIcon } from "lucide-react";
 
 import { grundNach, zeitwunschNach } from "@config/rueckruf-gruende";
 import { LeerHinweis, Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { Datenumschalter } from "@/components/gemeinsam/Datenumschalter";
 import { RueckrufZuordnen } from "@/components/leitstand/RueckrufZuordnen";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +20,7 @@ export default async function TermineSeite({
   const ergebnis = await bestandLaden(slug);
   if (!ergebnis) notFound();
 
-  const { bestand } = ergebnis;
+  const { bestand, ansicht } = ergebnis;
 
   const rueckrufe = bestand.termine.filter((t) => t.typ === "rueckruf");
   const offeneRueckrufe = rueckrufe.filter((t) => !t.mitarbeiter_id);
@@ -48,6 +49,7 @@ export default async function TermineSeite({
         titel="Rückrufe & Termine"
         beschreibung="Mieter nennen nur das Thema. Wer zurückruft, entscheiden Sie."
       />
+      <Datenumschalter slug={slug} ansicht={ansicht} />
 
       <Card>
         <CardHeader className="flex-row items-center justify-between">

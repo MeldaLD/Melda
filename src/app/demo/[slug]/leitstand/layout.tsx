@@ -22,6 +22,8 @@ export default async function DashboardLayout({
   return (
     <div className="flex min-h-full flex-col bg-slate-50 lg:flex-row">
       <Seitenleiste mandant={bestand.mandant} offeneFreigaben={offeneFreigaben} />
+      {/* Die Umschaltleiste tragen die Seiten selbst – nur die, die Fälle
+          zeigen. Siehe die Verwaltersicht. */}
       <main className="min-w-0 flex-1">{children}</main>
       <Assistent bestand={bestand} />
       {/* Hört auf Änderungen, die aus dem Mieter-Chat kommen. */}

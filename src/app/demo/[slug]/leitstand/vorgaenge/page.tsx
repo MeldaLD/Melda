@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { Datenumschalter } from "@/components/gemeinsam/Datenumschalter";
 import {
   VorgangsTabelle,
   type VorgangsZeile,
@@ -19,7 +20,7 @@ export default async function VorgangsListe({
   const ergebnis = await bestandLaden(slug);
   if (!ergebnis) notFound();
 
-  const { bestand } = ergebnis;
+  const { bestand, ansicht } = ergebnis;
 
   // Die Verknüpfungen einmal serverseitig auflösen, damit die Tabelle im
   // Browser nur noch filtern und sortieren muss.
@@ -52,6 +53,9 @@ export default async function VorgangsListe({
         titel="Vorgänge"
         beschreibung="Alle Meldungen aus WhatsApp, E-Mail und Telefon an einer Stelle."
       />
+      <div className="mb-5">
+        <Datenumschalter slug={slug} ansicht={ansicht} />
+      </div>
       <VorgangsTabelle
         zeilen={zeilen}
         basis={`/demo/${slug}/leitstand`}

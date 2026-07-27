@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { Seitenkopf } from "@/components/gemeinsam/Anzeigen";
+import { Datenumschalter } from "@/components/gemeinsam/Datenumschalter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { alsDatum, alsEuro } from "@/lib/dashboard/format";
 import { bestandLaden } from "@/lib/daten/quelle";
@@ -26,7 +27,7 @@ export default async function NachweisSeite({
   const ergebnis = await bestandLaden(slug);
   if (!ergebnis) notFound();
 
-  const { bestand } = ergebnis;
+  const { bestand, ansicht } = ergebnis;
   const n = nachweis(bestand, 30);
   const grenze = kostengrenze(bestand);
 
@@ -36,6 +37,7 @@ export default async function NachweisSeite({
         titel="Nachweis"
         beschreibung={`${alsDatum(n.vonIso)} bis ${alsDatum(n.bisIso)} · zum Weitergeben an den Eigentümer`}
       />
+      <Datenumschalter slug={slug} ansicht={ansicht} />
 
       <div className="max-w-3xl space-y-4">
         <Card>
