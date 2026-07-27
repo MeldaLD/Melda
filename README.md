@@ -94,9 +94,19 @@ hinterlegt bleiben und warum, zeigt die Seite
 `/demo/<slug>/leitstand/ki`; sie sagt dort auch, ob ein Schlüssel gesetzt
 ist.
 
-Die Bildauswertung braucht zusätzlich echte Dateien in `public/demo-fotos/`.
-Fehlt die Datei, fällt der Chat still auf den hinterlegten Text der Kachel
-zurück – ohne Fehler und ohne Kosten.
+**Die Bilder der Vorführung verlassen das Haus nicht.** Zu jeder der zehn
+Kacheln und zu jedem Nachfragebild gibt es eine hinterlegte Diagnose, die
+ein Mensch geschrieben hat und die zum weiteren Gesprächsverlauf passt. Ein
+Modell danach zu fragen wäre Geld für eine schlechtere Antwort – und in
+einer Vorführung ein Risiko, weil dasselbe Bild jedes Mal etwas anders
+beschrieben würde. Die Sperre hängt allein am Dateinamen (`demoFotos` in
+[`config/scenarios.ts`](./config/scenarios.ts)) und greift im Browser wie
+auf dem Server.
+
+Wirklich ausgewertet wird nur ein Bild, dessen Name dort **nicht** steht –
+denn nur dafür gibt es keine hinterlegte Antwort. Neue Dateien in
+`public/demo-fotos/` müssen vor dem Bauen dort liegen; Next liefert nur aus,
+was zur Bauzeit vorhanden war.
 
 Was vor jedem Aufruf entfernt wird (E-Mail, Telefon, IBAN) und was gar nicht
 erst mitgeschickt wird, steht in `src/lib/ki/schwaerzen.ts`. Die Sperren

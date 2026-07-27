@@ -181,11 +181,15 @@ export const einsaetze: Einsatz[] = [
     stufe: "sehen",
     stand: "vorlaeufig",
     aktiv: true,
-    daten: "Das Foto und der bisherige Gesprächsverlauf. Keine Anschrift.",
+    daten:
+      "Nur Bilder, die wir nicht kennen. Die zehn Kacheln der Vorführung und " +
+      "ihre Nachfragebilder bleiben hier – auch mit gesetztem Schlüssel.",
     hinweis:
-      "Heute hinterlegter Text je Kachel; es findet keine Bildanalyse statt. " +
-      "Der sichtbare Hinweis „Bild wird ausgewertet“ hält den Platz frei, " +
-      "an dem später wirklich etwas passiert.",
+      "Zu jedem Vorführungsbild gibt es eine hinterlegte Diagnose, die ein " +
+      "Mensch geschrieben hat und die zum weiteren Gespräch passt. Ein Modell " +
+      "danach zu fragen wäre Geld für eine schlechtere Antwort – und in einer " +
+      "Vorführung ein Risiko, weil dasselbe Bild jedes Mal etwas anders " +
+      "beschrieben würde. Die Liste steht in config/scenarios.ts (demoFotos).",
   },
   {
     id: "zweitfoto",

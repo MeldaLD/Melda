@@ -619,6 +619,32 @@ export const szenarien: Szenario[] = [
 /** Schneller Zugriff über die Szenario-ID. */
 export const szenarioNach = new Map(szenarien.map((s) => [s.id, s]));
 
+/**
+ * Alle Dateinamen, die zur Vorführung gehören.
+ *
+ * DIESE LISTE ENTSCHEIDET, WAS DAS HAUS VERLÄSST.
+ *
+ * Zu jedem dieser Bilder gibt es eine hinterlegte, von einem Menschen
+ * geschriebene Diagnose. Ein Modell danach zu fragen, hieße für eine Antwort
+ * zu zahlen, die schon dasteht – und zwar besser, weil sie zum weiteren
+ * Gesprächsverlauf passt. Deshalb gehen diese Bilder auch mit gesetztem
+ * Schlüssel nirgendwohin.
+ *
+ * Umgekehrt: Ein Bild, dessen Name hier nicht steht, kennt niemand. Nur für
+ * das gibt es keine hinterlegte Antwort, und nur das geht wirklich an ein
+ * Modell. Siehe src/lib/ki/sehen.ts.
+ *
+ * Wer ein neues Szenario anlegt, trägt hier nichts nach – die Liste entsteht
+ * aus den Szenarien selbst.
+ */
+export const demoFotos: ReadonlySet<string> = new Set(
+  szenarien.flatMap((s) => [s.foto, ...(s.zweitfoto?.optionen ?? [])]),
+);
+
+export function istDemoFoto(datei: string): boolean {
+  return demoFotos.has(datei);
+}
+
 /** Ordnet freien Mieter-Text einem Szenario zu. Reine Stichwortsuche. */
 export function szenarioAusText(text: string): Szenario | undefined {
   const klein = text.toLowerCase();

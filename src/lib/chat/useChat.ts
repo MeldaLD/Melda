@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { demoKonfiguration } from "@config/demo";
-import { szenarien, szenarioAusText } from "@config/scenarios";
+import { istDemoFoto, szenarien, szenarioAusText } from "@config/scenarios";
 import { anfangszustand, schritt, type Umgebung } from "./maschine";
 import type {
   ChatEreignis,
@@ -129,29 +129,33 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
       let angereichert = ereignis;
       let aufruf: KiAufruf | undefined;
 
-      // Erstes Foto: Wenn eine Bilddatei existiert und die Bildauswertung
-      // eingeschaltet ist, sieht sich ein Modell das Bild wirklich an. Sonst
-      // gilt der hinterlegte Text der Kachel.
+      // Erstes Foto: Zu den Bildern der Vorführung gibt es eine hinterlegte
+      // Diagnose, die ein Mensch geschrieben hat – die bleiben hier, auch mit
+      // gesetztem Schlüssel. Nur ein Bild, das wir nicht kennen, geht wirklich
+      // an ein Modell. Die Entscheidung fällt in config/scenarios.ts und
+      // zusätzlich noch einmal auf dem Server; hier steht sie, damit erst gar
+      // keine Anfrage entsteht.
       if (
         ereignis.art === "foto" &&
+        !istDemoFoto(ereignis.datei) &&
         (zustandRef.current.phase === "eingabe" ||
           zustandRef.current.phase === "begruessung")
       ) {
-        const szenarioId = szenarioZuFoto(ereignis.datei);
-        if (szenarioId) {
-          setTaetigkeit("auswerten");
-          const gesehen = await bildDeuten(ereignis.datei, szenarioId);
-          setTaetigkeit("nichts");
-          if (gesehen) {
-            angereichert = {
-              ...ereignis,
-              diagnose: {
-                text: gesehen.erkennung,
-                brauchtZweitfoto: gesehen.brauchtZweitfoto,
-              },
-            };
-            aufruf = gesehen.aufruf;
-          }
+        setTaetigkeit("auswerten");
+        const gesehen = await bildDeuten(
+          ereignis.datei,
+          szenarioZuFoto(ereignis.datei),
+        );
+        setTaetigkeit("nichts");
+        if (gesehen) {
+          angereichert = {
+            ...ereignis,
+            diagnose: {
+              text: gesehen.erkennung,
+              brauchtZweitfoto: gesehen.brauchtZweitfoto,
+            },
+          };
+          aufruf = gesehen.aufruf;
         }
       }
 
@@ -353,7 +357,7 @@ function szenarioZuFoto(datei: string): string | undefined {
  */
 async function bildDeuten(
   datei: string,
-  szenarioId: string,
+  szenarioId: string | undefined,
 ): Promise<{ erkennung: string; brauchtZweitfoto: boolean; aufruf: KiAufruf } | null> {
   try {
     const antwort = await fetch("/api/ki/sehen", {

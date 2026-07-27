@@ -6,10 +6,11 @@ import { kiVerfuegbar } from "@/lib/ki/zugang";
 /**
  * Wertet das Foto einer Meldung aus.
  *
- * Gibt "gesehen: null" zurück, wenn kein Schlüssel gesetzt ist, die Datei
- * nicht existiert oder die Antwort des Modells die Grenzen verletzt hat. Der
- * Chat nimmt dann den hinterlegten Text je Kachel – das ist der Zustand, in
- * dem die Demo heute überall läuft, und er darf nie wie ein Fehler wirken.
+ * Gibt "gesehen: null" zurück, wenn kein Schlüssel gesetzt ist, das Bild zur
+ * Vorführung gehört, die Datei nicht existiert oder die Antwort des Modells
+ * die Grenzen verletzt hat. Der Chat nimmt dann den hinterlegten Text je
+ * Kachel – das ist der Zustand, in dem die Demo heute überall läuft, und er
+ * darf nie wie ein Fehler wirken.
  */
 
 export async function POST(anfrage: Request) {
@@ -25,7 +26,7 @@ export async function POST(anfrage: Request) {
   }
 
   const { datei, szenarioId } = eingang;
-  if (typeof datei !== "string" || typeof szenarioId !== "string") {
+  if (typeof datei !== "string") {
     return NextResponse.json({ fehler: "Ungültige Anfrage" }, { status: 400 });
   }
 
@@ -35,5 +36,15 @@ export async function POST(anfrage: Request) {
     return NextResponse.json({ gesehen: null, grund: "unzulaessige-datei" });
   }
 
-  return NextResponse.json({ gesehen: await sehen(datei, szenarioId) });
+  // Die eigene Adresse kommt aus der Anfrage: Nur so stimmt sie lokal, auf
+  // einer Vorschau-URL und unter der eigenen Domain gleichermaßen.
+  const herkunft = new URL(anfrage.url).origin;
+
+  return NextResponse.json({
+    gesehen: await sehen(
+      herkunft,
+      datei,
+      typeof szenarioId === "string" ? szenarioId : undefined,
+    ),
+  });
 }

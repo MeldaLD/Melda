@@ -14,6 +14,8 @@
 import { bildurteilLesen, zuordnungLesen } from "../src/lib/ki/pruefen";
 import { kuerzen, schwaerzen } from "../src/lib/ki/schwaerzen";
 import { einsaetze, stufeNach } from "../config/ki-einsatz";
+import { demoFotos, istDemoFoto, szenarien } from "../config/scenarios";
+import { readFileSync } from "node:fs";
 
 let fehler = 0;
 
@@ -135,6 +137,58 @@ pruefe(
   "Zu kurze Bildantwort wird verworfen",
   bildurteilLesen('{"erkennung": "Ein Rohr.", "zweitfoto": false}') === null,
 );
+
+// --- Welche Bilder das Haus verlassen dürfen -------------------------------
+{
+  // Jedes Bild der Vorführung muss erkannt werden – beim ersten Foto wie
+  // beim Nachfragebild. Ein einziges übersehenes ginge sonst an ein Modell.
+  const uebersehen = szenarien.flatMap((s) =>
+    [s.foto, ...(s.zweitfoto?.optionen ?? [])].filter((d) => !istDemoFoto(d)),
+  );
+  pruefe(
+    `Alle ${demoFotos.size} Vorführungsbilder sind als solche erkannt`,
+    uebersehen.length === 0,
+  );
+
+  pruefe(
+    "Ein unbekanntes Bild gilt nicht als Vorführungsbild",
+    !istDemoFoto("foto-vom-mieter-2026-07-27.jpg"),
+  );
+
+  // Hauptbilder müssen eindeutig sein: Aus ihnen wird auf das Szenario
+  // geschlossen, und zwei Szenarien mit derselben Kachel wären nicht
+  // unterscheidbar. Nachfragebilder dürfen sich dagegen wiederholen –
+  // wand-detail.jpg ist in drei Fällen dieselbe plausible Fehlauswahl.
+  const haupt = szenarien.map((s) => s.foto);
+  pruefe(
+    "Jedes Szenario hat sein eigenes Hauptbild",
+    haupt.length === new Set(haupt).size,
+  );
+}
+
+// --- Prompts und Konfiguration müssen dieselbe Liste meinen ----------------
+{
+  // Wer die Bilder erzeugt, arbeitet nach docs/foto-prompts.md. Steht dort
+  // eine Datei zu viel, ist die Arbeit umsonst; fehlt eine, bleibt eine
+  // Kachel für immer ein Platzhalter. Beides ist schon passiert, als
+  // Szenarien ihre Nachfrage verloren haben.
+  const doku = new Set(
+    [...readFileSync("docs/foto-prompts.md", "utf8").matchAll(/`([\w-]+\.jpg)`/g)].map(
+      (t) => t[1],
+    ),
+  );
+  const fehlt = [...demoFotos].filter((d) => !doku.has(d));
+  const zuviel = [...doku].filter((d) => !demoFotos.has(d));
+
+  pruefe(
+    `Jedes benötigte Bild hat einen Prompt${fehlt.length ? ` (fehlt: ${fehlt.join(", ")})` : ""}`,
+    fehlt.length === 0,
+  );
+  pruefe(
+    `Kein Prompt beschreibt ein Bild, das niemand zeigt${zuviel.length ? ` (zu viel: ${zuviel.join(", ")})` : ""}`,
+    zuviel.length === 0,
+  );
+}
 
 // --- Die Konfiguration selbst ---------------------------------------------
 for (const einsatz of einsaetze) {

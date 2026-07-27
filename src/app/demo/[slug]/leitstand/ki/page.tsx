@@ -179,6 +179,7 @@ export default async function KiSeite({
             <p className="text-xs text-muted-foreground">
               Keine Zusicherung im Kleingedruckten, sondern eine Bauvorschrift: Diese
               Felder werden vor dem Aufruf entfernt und danach lokal wieder eingesetzt.
+              Die Bilder dieser Vorführung verlassen das Haus grundsätzlich nicht.
             </p>
           </CardHeader>
           <CardContent>

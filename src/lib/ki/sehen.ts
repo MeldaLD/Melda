@@ -1,9 +1,8 @@
 import "server-only";
 
-import { szenarioNach } from "@config/scenarios";
+import { istDemoFoto, szenarioNach } from "@config/scenarios";
 import { einsatzNach } from "@config/ki-einsatz";
 
-import { basisUrl } from "@/lib/basis-url";
 import { fragen, kiVerfuegbar } from "./zugang";
 import { bildurteilLesen } from "./pruefen";
 
@@ -22,6 +21,18 @@ import { bildurteilLesen } from "./pruefen";
  *
  * Es nennt keine Kosten, keine Fristen und keine Termine. Diese Grenze steht
  * in der Anweisung und wird beim Auslesen noch einmal geprüft.
+ *
+ * WAS NICHT RAUSGEHT
+ *
+ * Die Bilder der Vorführung – die zehn Kacheln im Foto-Dialog und ihre
+ * Nachfragebilder – bleiben hier, auch mit gesetztem Schlüssel. Zu jedem
+ * gibt es eine hinterlegte Diagnose, die ein Mensch geschrieben hat und die
+ * zum weiteren Gesprächsverlauf passt. Ein Modell danach zu fragen, wäre
+ * Geld für eine schlechtere Antwort, und in einer Vorführung zusätzlich ein
+ * Risiko: Das Modell sieht dasselbe Bild jedes Mal ein bisschen anders.
+ *
+ * Nur ein Bild, dessen Name nicht in config/scenarios.ts steht, geht wirklich
+ * an ein Modell. Für das gibt es nämlich keine hinterlegte Antwort.
  */
 
 export type Gesehen = {
@@ -56,12 +67,23 @@ Sprache: Deutsch, Sie-Form, sachlich, keine Ausrufezeichen, keine Emojis.
 Antworte ausschließlich mit einem JSON-Objekt:
 {"erkennung": "<ein bis zwei Sätze mit Rückfrage>", "zweitfoto": true|false}`;
 
-/** Holt das Bild von der eigenen Adresse. Auf Vercel liegt public/ nicht im Dateisystem der Funktion. */
+/**
+ * Holt das Bild von der eigenen Adresse.
+ *
+ * Über HTTP und nicht aus dem Dateisystem: Auf Vercel liegt public/ nicht im
+ * Bündel der Funktion, ein Lesezugriff ginge dort ins Leere.
+ *
+ * Die Adresse kommt aus der eingehenden Anfrage und nicht aus basisUrl().
+ * Letzteres ist die Adresse, die der Kunde sehen soll – lokal ist das
+ * Port 3000, auch wenn der Server auf einem anderen läuft, und dann holt sich
+ * die Bildauswertung nichts als eine abgewiesene Verbindung.
+ */
 async function bildHolen(
+  herkunft: string,
   datei: string,
 ): Promise<{ base64: string; mimeTyp: string } | null> {
   try {
-    const antwort = await fetch(`${basisUrl()}/demo-fotos/${datei}`);
+    const antwort = await fetch(`${herkunft}/demo-fotos/${datei}`);
     if (!antwort.ok) return null;
 
     const mimeTyp = antwort.headers.get("content-type") ?? "";
@@ -77,17 +99,25 @@ async function bildHolen(
 }
 
 export async function sehen(
+  /** Ursprung der eingehenden Anfrage, z. B. https://demo.example.de */
+  herkunft: string,
   datei: string,
-  szenarioId: string,
+  szenarioId?: string,
 ): Promise<Gesehen | null> {
   if (!kiVerfuegbar()) return null;
   if (!einsatzNach.get("bild")?.aktiv) return null;
-  if (!szenarioNach.has(szenarioId)) return null;
 
-  // Solange in public/demo-fotos/ nur Platzhalter liegen, gibt es nichts
-  // auszuwerten. Dann bleibt es beim hinterlegten Text je Kachel – ohne
-  // Fehler und ohne Kosten.
-  const bild = await bildHolen(datei);
+  // Die Sperre. Bewusst hier und nicht nur im Browser: Was der Server nicht
+  // verschickt, lässt sich auch durch eine veränderte Anfrage nicht erzwingen.
+  if (istDemoFoto(datei)) return null;
+
+  // Ein mitgegebenes Szenario muss es geben – sonst stammt die Anfrage nicht
+  // von uns.
+  if (szenarioId && !szenarioNach.has(szenarioId)) return null;
+
+  // Kein lesbares Bild an dieser Adresse: Dann bleibt es beim hinterlegten
+  // Text – ohne Fehler und ohne Kosten.
+  const bild = await bildHolen(herkunft, datei);
   if (!bild) return null;
 
   const antwort = await fragen({

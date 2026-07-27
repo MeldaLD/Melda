@@ -1,12 +1,20 @@
 # Prompts für die Demo-Fotos
 
-Für jedes Szenario ein Hauptbild und drei Auswahlbilder für die Rückfrage.
-Insgesamt **35 Dateien** – `wand-detail.jpg` und `bad-uebersicht.jpg` werden
-mehrfach verwendet.
+Für jedes Szenario ein Hauptbild, für acht der zehn dazu drei Auswahlbilder
+für die Rückfrage. Insgesamt **32 Dateien** – `wand-detail.jpg` ist in drei
+Fällen dieselbe plausible Fehlauswahl, `bad-uebersicht.jpg` in zweien.
 
 Alle Dateien gehören nach `public/demo-fotos/`, exakt unter dem angegebenen
 Namen. Sobald eine Datei da ist, erscheint sie automatisch statt des
-Platzhalters.
+Platzhalters. Auf Vercel muss sie vor dem Bauen im Verzeichnis liegen –
+ausgeliefert wird nur, was zur Bauzeit vorhanden war.
+
+> **Der Name entscheidet, was das Haus verlässt.** Genau diese 32 Dateinamen
+> gelten als Bilder der Vorführung: Zu ihnen gibt es eine hinterlegte
+> Diagnose, und sie gehen auch mit gesetztem `ANTHROPIC_API_KEY` an kein
+> Modell. Ein Bild mit einem anderen Namen wird tatsächlich ausgewertet.
+> Wer eine Datei umbenennt, ändert damit ihr Verhalten – die Liste entsteht
+> aus `config/scenarios.ts` und wird von `npm run pruefen:ki` geprüft.
 
 ## Für jedes Bild gilt
 
@@ -136,13 +144,9 @@ Treppenhauswand, Nahaufnahme.
 **`abfluss-verstopft.jpg`** – Weißes Waschbecken, etwa fünf Zentimeter
 trübes Wasser stehen darin und laufen nicht ab. Von schräg oben.
 
-**`siphon-nah.jpg`** – Weißer Kunststoff-Flaschensiphon unter einem
-Waschbecken, gut zugänglich, zwei Überwurfmuttern erkennbar.
-
-**`bad-uebersicht.jpg`** – bereits unter Szenario 1 beschrieben.
-
-**`dusche-detail.jpg`** – Nahaufnahme eines Duschabflusses mit Edelstahlsieb,
-sauber und funktionsfähig.
+_Nur dieses eine Bild._ Hier fragt der Assistent nicht nach: Zuerst kommt
+der Selbsthilfe-Tipp, und ein zweites Foto ändert daran nichts. Siehe die
+Regel in `config/scenarios.ts`.
 
 ---
 
@@ -150,6 +154,10 @@ sauber und funktionsfähig.
 
 **`fenstergriff-nah.jpg`** – Weißer Fenstergriff an einem Kunststofffenster,
 sichtbar lose und leicht schief in der Halterung. Nahaufnahme.
+
+**`griffplatte-nah.jpg`** – Dieselbe Griffstelle, aber mit Blick auf die
+Griffplatte unter dem Hebel: die beiden Schraubenabdeckungen sichtbar,
+eine davon verdreht. Daran erkennt der Betrieb, welche Garnitur passt.
 
 **`fenster-gesamt.jpg`** – Ganzes Dreh-Kipp-Kunststofffenster von innen,
 geschlossen, mit Rahmen und Griff. Ein Stück Kinderzimmer erkennbar.
@@ -186,20 +194,16 @@ Restmülltonnen, alle randvoll, die Deckel schließen nicht. Daneben stehen
 mehrere volle Müllsäcke auf dem Boden. Ordentlich abgestellt, nicht
 verwahrlost.
 
-**`muellraum-weit.jpg`** – Derselbe Raum im Ganzen von der Tür aus, alle
-Tonnen und die abgestellten Säcke im Bild.
-
-**`hof-uebersicht.jpg`** – Innenhof eines Mehrfamilienhauses mit
-Müllcontainerplatz, Fahrradständer, etwas Grün.
-
-**`container-detail.jpg`** – Nahaufnahme eines geschlossenen grauen
-Müllcontainers mit Deckel und Rädern.
+_Nur dieses eine Bild._ Hier fährt kein Handwerksbetrieb, sondern die
+Entsorgung – ein zweites Foto ändert nichts daran, was eingepackt wird.
 
 ---
 
 ## Kontrolle vor dem Einsatz
 
-- Alle 35 Dateinamen exakt wie oben, sonst greift der Platzhalter
+- Alle 32 Dateinamen exakt wie oben, sonst greift der Platzhalter – und ein
+  abweichender Name schickt das Bild an ein Modell statt zum hinterlegten
+  Text. `npm run pruefen:ki` vergleicht diese Liste mit der Konfiguration.
 - Kein Bild zeigt Personen, Schrift, Marken oder Hausnummern
 - Jedes „weit"-Bild zeigt erkennbar **dasselbe Motiv** wie sein „nah"-Bild –
   daran hängt die Glaubwürdigkeit der Rückfrage
