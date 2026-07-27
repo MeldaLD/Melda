@@ -10,9 +10,10 @@ import { szenarien } from "@config/scenarios";
 import { rueckrufGruende, zeitwuensche } from "@config/rueckruf-gruende";
 import { useChat } from "@/lib/chat/useChat";
 import type { Umgebung } from "@/lib/chat/maschine";
+import type { Taetigkeit } from "@/lib/chat/typen";
 import type { Mandant } from "@/lib/daten/typen";
 import { Button } from "@/components/ui/button";
-import { Blase, TippIndikator } from "./Blase";
+import { AuswertungsIndikator, Blase, TippIndikator } from "./Blase";
 import { FotoDialog } from "./FotoDialog";
 import { NutzerAuswahl, type ChatNutzer } from "./NutzerAuswahl";
 import { tourMelden } from "@/lib/tour/ereignisse";
@@ -75,7 +76,7 @@ function Gespraech({
     kleinreparaturGrenzeEuro: mandant.einstellungen?.kleinreparatur_grenze_euro,
   };
 
-  const { zustand, tippt, beschaeftigt, ausloesen } = useChat(
+  const { zustand, taetigkeit, beschaeftigt, ausloesen } = useChat(
     umgebung,
     mandant.slug,
     nutzer.einheitId,
@@ -89,7 +90,7 @@ function Gespraech({
   // Ohne diese Abhängigkeit bliebe die letzte Nachricht angeschnitten.
   useEffect(() => {
     ende.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [zustand.nachrichten.length, zustand.angebot, tippt, beschaeftigt]);
+  }, [zustand.nachrichten.length, zustand.angebot, taetigkeit, beschaeftigt]);
 
   // Die Erkenntnis-Karte ist der Punkt, um den es in der Tour geht.
   useEffect(() => {
@@ -126,7 +127,7 @@ function Gespraech({
     <div className="flex h-full flex-col bg-chat-hintergrund">
       <Kopfzeile
         mandant={mandant}
-        tippt={tippt}
+        taetigkeit={taetigkeit}
         nutzer={nutzer}
         onWechseln={onWechseln}
       />
@@ -136,7 +137,8 @@ function Gespraech({
         {zustand.nachrichten.map((nachricht) => (
           <Blase key={nachricht.id} nachricht={nachricht} />
         ))}
-        {tippt && <TippIndikator />}
+        {taetigkeit === "tippen" && <TippIndikator />}
+        {taetigkeit === "auswerten" && <AuswertungsIndikator />}
         <div ref={ende} />
       </div>
 
@@ -198,12 +200,12 @@ function Gespraech({
 
 function Kopfzeile({
   mandant,
-  tippt,
+  taetigkeit,
   nutzer,
   onWechseln,
 }: {
   mandant: Mandant;
-  tippt: boolean;
+  taetigkeit: Taetigkeit;
   nutzer: ChatNutzer;
   onWechseln: () => void;
 }) {
@@ -241,9 +243,7 @@ function Kopfzeile({
         <p className="truncate text-[15px] leading-tight font-medium">
           {mandant.firma}
         </p>
-        <p className="text-xs opacity-80">
-          {tippt ? "tippt gerade…" : "Serviceassistent · antwortet sofort"}
-        </p>
+        <p className="text-xs opacity-80">{kopfzeilenStand(taetigkeit)}</p>
       </div>
 
       {/* Wer hier schreibt – ohne diese Zeile weiß der Betrachter nicht, in
@@ -273,6 +273,13 @@ function Kopfzeile({
       </button>
     </header>
   );
+}
+
+/** Die Statuszeile unter dem Firmennamen. */
+function kopfzeilenStand(taetigkeit: Taetigkeit): string {
+  if (taetigkeit === "auswerten") return "wertet Ihr Bild aus…";
+  if (taetigkeit === "tippen") return "tippt gerade…";
+  return "Serviceassistent · antwortet sofort";
 }
 
 function Datumstrenner() {

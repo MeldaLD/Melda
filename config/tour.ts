@@ -76,18 +76,20 @@ export const tourStationen: TourStation[] = [
       "Mieter informieren. Sie bekommen davon nur das Ergebnis zu sehen.",
   },
   {
-    // Die dritte Station war früher eine Freigabe. Das war richtig, solange
-    // die Verwaltung jeden Auftrag einzeln entschied – inzwischen übernehmen
-    // wir die Abstimmung, und die eigentliche Botschaft ist eine andere:
-    // Nicht "Sie entscheiden jeden Fall", sondern "Sie setzen die Grenze und
-    // sehen nur noch, was abweicht".
-    id: "kontrolle",
-    aufgabe: "Wechseln Sie in Ihre Sicht und stellen Sie Ihre Grenze ein.",
+    // Die dritte Station hat zwei Vorgänger: erst eine Einzelfreigabe, dann
+    // das Einstellen der Kostengrenze. Beide waren Bedienung von etwas, das
+    // der Betrachter noch gar nicht kennt – eine Zahl einzutippen erklärt
+    // nichts. Hier soll er stattdessen den Bogen schließen: dieselbe Meldung,
+    // die er eben als Mieter geschrieben hat, liegt fertig aufbereitet auf
+    // seinem Tisch. Dass sich die Grenze einstellen lässt, gehört in die
+    // Zusammenfassung am Ende, nicht in eine Aufgabe.
+    id: "wiedersehen",
+    aufgabe: "Wechseln Sie in Ihre Sicht und öffnen Sie Ihre Meldung.",
     begruendung:
-      "Sie entscheiden einmal, bis wohin wir ohne Rückfrage handeln – statt jeden Auftrag einzeln freizugeben.",
-    pfad: "dashboard/grenzen",
-    markierung: "grenze-feld",
-    erledigtBei: "verwalter:grenze-gesehen",
+      "Dieselbe Meldung, die Sie eben als Mieter geschrieben haben – aufbereitet, eingeordnet und schon unterwegs.",
+    pfad: "dashboard/vorgaenge",
+    markierung: "vorgang-zeile",
+    erledigtBei: "verwalter:vorgang-geoeffnet",
   },
 ];
 

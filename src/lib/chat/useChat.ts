@@ -10,6 +10,7 @@ import type {
   ChatZustand,
   Meldung,
   Rueckrufwunsch,
+  Taetigkeit,
   Terminfenster,
 } from "./typen";
 
@@ -33,7 +34,7 @@ function jetztIso(): string {
 
 export function useChat(umgebung: Umgebung, slug: string, einheitId: string | null) {
   const [zustand, setZustand] = useState<ChatZustand>(anfangszustand);
-  const [tippt, setTippt] = useState(false);
+  const [taetigkeit, setTaetigkeit] = useState<Taetigkeit>("nichts");
   const [beschaeftigt, setBeschaeftigt] = useState(false);
 
   // Der Zustand wird auch außerhalb von React-Renderzyklen gebraucht,
@@ -127,9 +128,9 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
 
       for (const [index, ausgabe] of ergebnis.ausgabe.entries()) {
         if (index > 0) await warten(demoKonfiguration.chat.pauseZwischenNachrichten);
-        setTippt(true);
+        setTaetigkeit(ausgabe.taetigkeit ?? "tippen");
         await warten(ausgabe.tippdauer);
-        setTippt(false);
+        setTaetigkeit("nichts");
         anhaengen({
           id: neueId(),
           von: "ki",
@@ -221,7 +222,7 @@ export function useChat(umgebung: Umgebung, slug: string, einheitId: string | nu
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { zustand, tippt, beschaeftigt, ausloesen };
+  return { zustand, taetigkeit, beschaeftigt, ausloesen };
 }
 
 // ---------------------------------------------------------------------------

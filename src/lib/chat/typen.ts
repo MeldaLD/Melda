@@ -165,11 +165,23 @@ export type ChatEreignis =
   | { art: "status" }
   | { art: "neueMeldung" };
 
+/**
+ * Was der Assistent gerade tut, während der Mieter wartet.
+ *
+ * "tippen" ist der Normalfall. "auswerten" steht nach einem Foto: Dort
+ * würde im Echtbetrieb tatsächlich ein Bild durch ein Modell laufen, und
+ * das dauert einen Moment. Diese Zeit zu verbergen wäre ein Fehler – sie
+ * zu benennen macht aus einer Verzögerung sichtbare Arbeit.
+ */
+export type Taetigkeit = "nichts" | "tippen" | "auswerten";
+
 /** Eine vom Assistenten auszugebende Nachricht, samt Tippdauer davor. */
 export type Ausgabe = {
   nachricht: Omit<ChatNachricht, "id" | "zeit" | "von">;
-  /** Dauer des "tippt gerade…"-Indikators in Millisekunden. */
+  /** Dauer des Wartens davor in Millisekunden. */
   tippdauer: number;
+  /** Was währenddessen angezeigt wird. Ohne Angabe: "tippen". */
+  taetigkeit?: Taetigkeit;
 };
 
 export type SchrittErgebnis = {

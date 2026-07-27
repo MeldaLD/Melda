@@ -159,7 +159,7 @@ export default async function VorgangDetail({
                   />
                 </dl>
 
-                {szenario && vorgang.zweitanfahrt_vermieden && (
+                {szenario?.erkenntnis && vorgang.zweitanfahrt_vermieden && (
                   <div className="space-y-1.5 border-t border-marke-rand pt-3 text-xs">
                     <p className="font-medium text-slate-700">
                       Was die Nachfrage nach dem zweiten Foto gebracht hat
@@ -197,7 +197,7 @@ export default async function VorgangDetail({
               betrieb: handwerker?.firma ?? vorgeschlagenerBetrieb?.firma ?? null,
               zusammenfassung: vorgang.ki_zusammenfassung,
               erkenntnis:
-                szenario && vorgang.zweitanfahrt_vermieden
+                szenario?.erkenntnis && vorgang.zweitanfahrt_vermieden
                   ? szenario.erkenntnis.nachher
                   : null,
               kostenschaetzungEuro: vorgang.kosten_schaetzung_euro,

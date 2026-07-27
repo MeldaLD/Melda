@@ -60,6 +60,13 @@ export const chatRahmen = {
     "bitte noch ein Bild, dann ordne ich es neu ein.",
 
   /** Zweites Foto passt nicht – ein Versuch wird freundlich abgefangen. */
+  /**
+   * Rückfalltext, wenn ein Szenario kein zweites Foto braucht und selbst
+   * keine Begründung mitbringt. Besser als Schweigen – der Mieter soll
+   * merken, dass hier entschieden und nicht bloß abgehakt wurde.
+   */
+  keineWeitereFrage: "Das genügt mir, weitere Fotos brauche ich dafür nicht.",
+
   zweitfotoUnpassend:
     "Auf diesem Bild erkenne ich den betroffenen Bereich leider nicht. Geht es " +
     "etwas weiter weg, sodass die Umgebung mit drauf ist?",

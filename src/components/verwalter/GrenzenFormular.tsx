@@ -5,7 +5,6 @@ import { AlertCircleIcon, CheckIcon, Loader2Icon } from "lucide-react";
 
 import { grenzenSpeichern, type Ergebnis } from "@/app/demo/[slug]/dashboard/aktionen";
 import { Button } from "@/components/ui/button";
-import { tourMelden } from "@/lib/tour/ereignisse";
 import {
   GEWERK_BEZEICHNUNG,
   type Gewerk,
@@ -53,9 +52,6 @@ export function GrenzenFormular({
               type="number"
               name="freigabe_ab_euro"
               aria-label="Betrag, ab dem vorgelegt wird, in Euro"
-              // Ziel der dritten Tourstation – siehe config/tour.ts
-              data-tour="grenze-feld"
-              onFocus={() => tourMelden("verwalter:grenze-gesehen")}
               min={0}
               max={100000}
               step={50}

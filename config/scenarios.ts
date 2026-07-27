@@ -42,8 +42,25 @@ export type Szenario = {
   /**
    * Der entscheidende Moment: Nachfrage nach einem zweiten Foto.
    * Genau hier wird die vermiedene Zweitanfahrt sichtbar.
+   *
+   * WANN WIRD GEFRAGT – UND WANN NICHT
+   *
+   * Ein Assistent, der bei jeder Meldung ein zweites Foto verlangt, wirkt
+   * nach Skript und nicht nach Sachverstand. Genau das nehmen Mieter übel,
+   * und genau daran erkennt ein Verwalter in der Vorführung die Attrappe.
+   * Deshalb gilt hier eine Regel, an der sich auch neue Szenarien messen
+   * lassen müssen:
+   *
+   *   Gefragt wird nur, wenn die Antwort bestimmt, WAS der Betrieb einpackt
+   *   oder WER überhaupt fährt.
+   *
+   * Nicht gefragt wird also, wenn gar kein Betrieb kommt (Hausmeister,
+   * Entsorger) oder wenn zuerst ein Selbsthilfe-Tipp dran ist. In diesen
+   * Fällen bleibt zweitfoto/erkenntnis leer und ohneZweitfoto sagt in einem
+   * Satz, warum nicht. Dass der Assistent auch mal nicht nachfragt, macht
+   * die übrigen Nachfragen erst glaubwürdig.
    */
-  zweitfoto: {
+  zweitfoto?: {
     frage: string;
     /** Dateinamen der Kacheln, die zur Auswahl stehen. */
     optionen: string[];
@@ -51,11 +68,27 @@ export type Szenario = {
     korrekt: string;
   };
 
+  /**
+   * Warum hier ausnahmsweise kein zweites Foto nötig ist.
+   * Nur setzen, wenn zweitfoto fehlt – und umgekehrt.
+   */
+  ohneZweitfoto?: string;
+
+  /**
+   * Kein Wunschtermin – niemand muss dafür zu Hause sein.
+   *
+   * Gilt für alles, was ohne Zutritt zur Wohnung erledigt wird: Leerungen,
+   * Arbeiten im Treppenhaus, am Hauseingang. Nach einem Zeitfenster zu
+   * fragen, das gar niemand braucht, ist dieselbe Sorte Leerlauf wie ein
+   * überflüssiges zweites Foto.
+   */
+  ohneTermin?: string;
+
   /** Verfeinerte Diagnose nach dem zweiten Foto. */
-  verfeinerung: string;
+  verfeinerung?: string;
 
   /** Was der Handwerker vorher gewusst hätte – und was jetzt. */
-  erkenntnis: {
+  erkenntnis?: {
     vorher: string;
     nachher: string;
   };
@@ -243,11 +276,15 @@ export const szenarien: Szenario[] = [
       "Stelle und schalten Sie in dem Raum die Sicherung für Licht und Steckdosen " +
       "aus. Betreten Sie den Bereich nicht, falls sich die Decke sichtbar " +
       "durchbiegt.",
+    // Reihenfolge ist hier alles: Erst ist der Notdienst unterwegs, dann
+    // kommt die Nachfrage. Andersherum – "Notfall, aber schicken Sie mir
+    // bitte noch ein Foto" – klingt nach Formular statt nach Hilfe.
     zweitfoto: {
       frage:
-        "Ein Foto hilft mir noch sehr: Können Sie den Fleck aus etwas größerem " +
-        "Abstand aufnehmen? Ich möchte sehen, wie weit er sich ausgebreitet hat " +
-        "und wo im Raum er sitzt.",
+        "Der Notdienst ist unterwegs, darauf müssen Sie nicht warten. Während " +
+        "er fährt, hilft mir ein Foto aus etwas größerem Abstand sehr: Ich " +
+        "möchte sehen, wo im Raum der Fleck sitzt – davon hängt ab, ob er " +
+        "gleich Zugang zur Wohnung darüber braucht.",
       optionen: ["wasserfleck-weit.jpg", "decke-uebersicht.jpg", "wand-detail.jpg"],
       korrekt: "wasserfleck-weit.jpg",
     },
@@ -382,24 +419,13 @@ export const szenarien: Szenario[] = [
     erkennung:
       "Im Waschbecken steht das Wasser, es läuft nicht oder nur sehr langsam ab. " +
       "Betrifft das nur das Waschbecken, oder auch Dusche und Toilette?",
-    zweitfoto: {
-      frage:
-        "Zeigen Sie mir bitte noch den Siphon unter dem Waschbecken. Daran " +
-        "erkenne ich, ob der Betrieb mit einer Handreinigung auskommt oder eine " +
-        "Rohrreinigungsspirale braucht.",
-      optionen: ["siphon-nah.jpg", "bad-uebersicht.jpg", "dusche-detail.jpg"],
-      korrekt: "siphon-nah.jpg",
-    },
-    verfeinerung:
-      "Der Siphon ist ein Standard-Flaschengeruchverschluss aus Kunststoff und " +
-      "gut zugänglich. Da nur das Waschbecken betroffen ist, liegt die Verstopfung " +
-      "sehr wahrscheinlich im Siphon selbst. Der Betrieb weiß, dass er ohne " +
-      "größeres Gerät auskommt.",
-    erkenntnis: {
-      vorher:
-        "Verstopfung gemeldet – Rohrreinigungsfahrzeug wird vorsorglich geschickt",
-      nachher: "Einzelverstopfung im Siphon, gut zugänglich – Standardeinsatz genügt",
-    },
+    // Kein zweites Foto: Bei 85 Euro und einer Einzelverstopfung ist der
+    // Selbsthilfe-Tipp dran, nicht eine weitere Nachfrage. Erst ein Foto vom
+    // Siphon zu verlangen und dann zu sagen "probieren Sie es doch selbst"
+    // wäre genau die Sorte Umweg, die wir abschaffen wollen.
+    ohneZweitfoto:
+      "Mehr brauche ich dafür nicht. Bevor jemand anfährt, probieren wir das " +
+      "Naheliegende – das dauert ein paar Minuten und geht oft schon aus.",
     kostenschaetzungEuro: 85,
     kiZusammenfassung:
       "Waschbecken im Bad läuft nicht ab, Dusche und WC unauffällig. " +
@@ -431,18 +457,22 @@ export const szenarien: Szenario[] = [
     erkennung:
       "Ich sehe einen Fenstergriff, der nicht mehr fest in der Halterung sitzt. " +
       "Lässt sich das Fenster damit noch schließen und verriegeln?",
+    // Die Frage zielt auf die Griffplatte, nicht auf das ganze Fenster: Am
+    // Lochabstand der beiden Schrauben hängt, welcher Griff mitkommt. Ein
+    // Bild des Raums beantwortet das nicht – und die Verfeinerung unten darf
+    // nichts behaupten, was auf dem Foto gar nicht zu sehen wäre.
     zweitfoto: {
       frage:
-        "Können Sie mir das Fenster im Ganzen zeigen? Ich möchte sehen, ob es " +
-        "sich um ein Dreh-Kipp-Fenster handelt und wie der Rahmen aussieht – " +
-        "danach richtet sich der passende Ersatzbeschlag.",
-      optionen: ["fenster-gesamt.jpg", "fenster-detail.jpg", "kinderzimmer.jpg"],
-      korrekt: "fenster-gesamt.jpg",
+        "Halten Sie die Kamera bitte einmal direkt auf die Griffplatte, mit " +
+        "beiden Schrauben im Bild. Daran erkenne ich den Lochabstand – danach " +
+        "richtet sich, welchen Griff der Betrieb mitbringt.",
+      optionen: ["griffplatte-nah.jpg", "fenster-gesamt.jpg", "kinderzimmer.jpg"],
+      korrekt: "griffplatte-nah.jpg",
     },
     verfeinerung:
-      "Es ist ein Dreh-Kipp-Kunststofffenster mit üblichem Standardbeschlag und " +
-      "einer Griffplatte mit 43 Millimeter Lochabstand. Der Betrieb kann den " +
-      "passenden Griff direkt mitbringen.",
+      "Die Griffplatte hat 43 Millimeter Lochabstand, der übliche Wert bei " +
+      "Dreh-Kipp-Kunststofffenstern. Der Betrieb kann den passenden Griff " +
+      "direkt mitbringen.",
     erkenntnis: {
       vorher: "Griff defekt – Monteur misst aus, bestellt, kommt erneut",
       nachher: "Dreh-Kipp-Beschlag, 43 mm Lochabstand – Ersatzgriff kommt mit",
@@ -520,24 +550,17 @@ export const szenarien: Szenario[] = [
     erkennung:
       "Ich sehe überfüllte Behälter im Müllraum, daneben abgestellte Säcke. " +
       "Handelt es sich um Restmüll oder um Sperrmüll, der dort abgestellt wurde?",
-    zweitfoto: {
-      frage:
-        "Können Sie den Raum einmal im Ganzen fotografieren? Ich möchte sehen, " +
-        "wie viele Behälter betroffen sind – danach richtet sich, ob eine " +
-        "Sonderleerung nötig ist oder der reguläre Turnus erhöht werden muss.",
-      optionen: ["muellraum-weit.jpg", "hof-uebersicht.jpg", "container-detail.jpg"],
-      korrekt: "muellraum-weit.jpg",
-    },
-    verfeinerung:
-      "Auf dem Übersichtsbild zähle ich vier Restmülltonnen, alle voll, sowie " +
-      "etwa sechs zusätzliche Säcke. Das ist mehr als eine einmalige Spitze. Ich " +
-      "schlage der Verwaltung neben der Sonderleerung eine Prüfung des " +
-      "Abfuhrturnus vor.",
-    erkenntnis: {
-      vorher: "Sonderleerung beauftragen – Problem wiederholt sich in zwei Wochen",
-      nachher:
-        "Vier Tonnen dauerhaft überlastet – Turnuserhöhung wird gleich mitgeprüft",
-    },
+    // Kein zweites Foto: Hier fährt kein Handwerksbetrieb, sondern der
+    // Entsorger. Es gibt nichts, was jemand einpacken müsste – eine weitere
+    // Nachfrage wäre reine Beschäftigung.
+    ohneZweitfoto:
+      "Da frage ich nicht weiter nach – hier kommt kein Handwerker, sondern " +
+      "eine Sonderleerung. Ich gebe der Verwaltung gleich mit, dass das nicht " +
+      "das erste Mal ist und der Abfuhrturnus geprüft gehört.",
+    // Für eine Leerung muss niemand zu Hause sein.
+    ohneTermin:
+      "Einen Termin brauchen wir dafür nicht – Sie müssen dafür nicht zu " +
+      "Hause sein. Ich melde mich, sobald der Raum geleert ist.",
     kostenschaetzungEuro: 60,
     kiZusammenfassung:
       "Müllraum überfüllt: vier Restmülltonnen voll, zusätzlich ca. sechs Säcke " +

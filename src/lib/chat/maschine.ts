@@ -98,6 +98,18 @@ function sagen(text: string, tippdauer: number = tippenKurz): Ausgabe {
   return { nachricht: { text }, tippdauer };
 }
 
+/**
+ * Antwort auf ein Foto.
+ *
+ * Sieht aus wie sagen(), sagt der Oberfläche aber, dass hier ein Bild
+ * ausgewertet wird. Der Mieter sieht dann nicht "tippt gerade", sondern
+ * "wertet das Bild aus" – und wartet dieselben zwei Sekunden deutlich
+ * geduldiger, weil er weiß, worauf.
+ */
+function auswerten(text: string): Ausgabe {
+  return { nachricht: { text }, tippdauer: bildAnalyse, taetigkeit: "auswerten" };
+}
+
 function meldungErgaenzen(
   zustand: ChatZustand,
   aenderung: Partial<Meldung>,
@@ -214,6 +226,26 @@ function beauftragen(
     ),
   );
 
+  // Arbeiten ohne Zutritt zur Wohnung – Leerung, Treppenhaus, Hauseingang.
+  // Nach einem Zeitfenster zu fragen, das niemand braucht, ist Leerlauf.
+  if (szenario.ohneTermin) {
+    ausgabe.push(sagen(szenario.ohneTermin, tippenKurz));
+    return {
+      zustand: {
+        ...zustand,
+        phase: "frei",
+        betrieb,
+        meldungen: meldungErgaenzen(
+          zustand,
+          { status: "an_handwerker", betrieb },
+          `An ${betrieb} übermittelt`,
+        ),
+        angebot: { art: "frei" },
+      },
+      ausgabe,
+    };
+  }
+
   // Beim Notfall wird nicht nach Wunschterminen gefragt – der Notdienst fährt.
   if (notfall) {
     ausgabe.push(sagen(chatRahmen.abschluss, tippenKurz));
@@ -286,7 +318,7 @@ function diagnostizieren(zustand: ChatZustand, szenario: Szenario): SchrittErgeb
       meldungen: [...zustand.meldungen, neue],
       angebot: { art: "bestaetigung" },
     },
-    ausgabe: [sagen(szenario.erkennung, bildAnalyse)],
+    ausgabe: [auswerten(szenario.erkennung)],
   };
 }
 
@@ -435,8 +467,9 @@ export function schritt(
       }
 
       // Zweites Foto
-      if (zustand.phase === "zweitfoto" && szenario) {
-        const passt = ereignis.datei === szenario.zweitfoto.korrekt;
+      const zweitfoto = szenario?.zweitfoto;
+      if (zustand.phase === "zweitfoto" && szenario && zweitfoto) {
+        const passt = ereignis.datei === zweitfoto.korrekt;
 
         // Ein Fehlversuch wird abgefangen, danach wird jedes Bild akzeptiert.
         // Sonst bliebe ein Interessent, der allein durch die Demo klickt,
@@ -446,7 +479,7 @@ export function schritt(
             zustand: {
               ...zustand,
               zweitfotoFehlversuche: 1,
-              angebot: { art: "zweitfoto", optionen: szenario.zweitfoto.optionen },
+              angebot: { art: "zweitfoto", optionen: zweitfoto.optionen },
             },
             ausgabe: [sagen(chatRahmen.zweitfotoUnpassend, tippenKurz)],
           };
@@ -458,21 +491,26 @@ export function schritt(
           umgebung,
         );
 
+        const erkenntnis = szenario.erkenntnis;
         return {
           zustand: nachher.zustand,
           ausgabe: [
-            sagen(szenario.verfeinerung, bildAnalyse),
-            {
-              nachricht: {
-                text: "Das erspart dem Betrieb voraussichtlich eine zweite Anfahrt.",
-                karte: {
-                  art: "erkenntnis",
-                  vorher: szenario.erkenntnis.vorher,
-                  nachher: szenario.erkenntnis.nachher,
-                },
-              },
-              tippdauer: tippenKurz,
-            },
+            auswerten(szenario.verfeinerung ?? chatRahmen.keineWeitereFrage),
+            ...(erkenntnis
+              ? [
+                  {
+                    nachricht: {
+                      text: "Das erspart dem Betrieb voraussichtlich eine zweite Anfahrt.",
+                      karte: {
+                        art: "erkenntnis" as const,
+                        vorher: erkenntnis.vorher,
+                        nachher: erkenntnis.nachher,
+                      },
+                    },
+                    tippdauer: tippenKurz,
+                  },
+                ]
+              : []),
             ...nachher.ausgabe,
           ],
         };
@@ -510,6 +548,18 @@ export function schritt(
           },
           tippdauer: tippenKurz,
         });
+      }
+
+      // Nicht jede Meldung verdient eine Nachfrage. Wo kein Betrieb fährt
+      // oder zuerst ein Selbsthilfe-Tipp dran ist, sagt der Assistent das
+      // und macht weiter. Siehe die Regel in config/scenarios.ts – dass er
+      // auch mal nicht nachfragt, macht die übrigen Nachfragen glaubwürdig.
+      if (!szenario.zweitfoto) {
+        ausgabe.push(
+          sagen(szenario.ohneZweitfoto ?? chatRahmen.keineWeitereFrage, tippenKurz),
+        );
+        const weiter = weiterleiten(zustand, szenario, umgebung);
+        return { zustand: weiter.zustand, ausgabe: [...ausgabe, ...weiter.ausgabe] };
       }
 
       ausgabe.push(sagen(szenario.zweitfoto.frage, tippenLang));

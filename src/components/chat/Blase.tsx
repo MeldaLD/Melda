@@ -1,4 +1,4 @@
-import { CheckCheckIcon } from "lucide-react";
+import { CheckCheckIcon, ImageIcon } from "lucide-react";
 
 import { ChatKarte } from "./Karten";
 import { DemoFoto } from "./DemoFoto";
@@ -74,6 +74,29 @@ export function TippIndikator() {
             style={{ animationDelay: `${i * 150}ms`, animationDuration: "1s" }}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Während ein Foto ausgewertet wird.
+ *
+ * Bewusst nicht dieselben drei Punkte wie beim Tippen: Im Echtbetrieb läuft
+ * hier ein Bild durch ein Modell, und das dauert spürbar länger als eine
+ * getippte Antwort. Wer in dieser Zeit "tippt gerade…" liest, hält den
+ * Assistenten für langsam; wer "wertet das Bild aus" liest, hält ihn für
+ * gründlich. Dieselbe Wartezeit, ein anderer Eindruck.
+ */
+export function AuswertungsIndikator() {
+  return (
+    <div className="flex justify-start">
+      <div className="flex items-center gap-2 rounded-lg rounded-bl-sm bg-chat-fremd px-3 py-2.5 shadow-sm">
+        <ImageIcon
+          className="size-4 shrink-0 animate-pulse text-slate-500"
+          aria-hidden
+        />
+        <span className="text-sm text-slate-600">Bild wird ausgewertet…</span>
       </div>
     </div>
   );

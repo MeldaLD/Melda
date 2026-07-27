@@ -135,16 +135,13 @@ export const selbsthilfeKatalog: Record<string, Selbsthilfe> = {
       "Wenn kein Wasser nachkommt oder mehrere Heizkörper kalt bleiben, fehlt Druck in der Anlage – das gehört in fachkundige Hände.",
   },
 
-  muellraum: {
-    titel: "Selbst schnell zu lösen",
-    dauerMinuten: 5,
-    material: [],
-    schritte: [
-      "Falls es sich um Sperrmüll handelt: Eine Abholung lässt sich beim örtlichen Entsorger meist kostenlos anmelden.",
-      "Karton bitte flach zusammenfalten – dann passt oft das Doppelte in die Tonne.",
-    ],
-    videoSuche: "Sperrmüll anmelden Ablauf",
-  },
+  // Hier stand einmal ein Tipp für den überfüllten Müllraum. Er ist bewusst
+  // entfernt: Die Kleinreparaturklausel greift nur für Gegenstände, die dem
+  // häufigen Zugriff des Mieters in seiner eigenen Wohnung unterliegen. Ein
+  // Müllraum ist Gemeinschaftsfläche – ihn hier aufzuführen hätte dem Mieter
+  // eine Kostenbeteiligung von 60 Euro vorgerechnet, die er nicht schuldet.
+  // Falsche Rechtsauskunft an den Mieter ist das Letzte, was eine
+  // Hausverwaltung von uns gebrauchen kann.
 };
 
 /** Gibt es für dieses Szenario einen Selbsthilfe-Tipp? */

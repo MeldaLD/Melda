@@ -29,11 +29,29 @@ export const uebernehmen = [
 
 /** Was ausdrücklich bei Ihnen bleibt. */
 export const bleibt = [
-  "Die Entscheidung, bis wohin wir ohne Rückfrage handeln",
+  "Ein Betrag, den Sie festlegen – darunter handeln wir, darüber fragen wir",
   "Der Blick auf alles, was abweicht – und nur darauf",
   "Der Griff ins Steuer bei jedem einzelnen Vorgang",
   "Der Nachweis gegenüber Ihren Eigentümern",
 ];
+
+/**
+ * Die Kostengrenze, näher erklärt.
+ *
+ * Sie war einmal eine Station der geführten Tour. Das war ein Fehler: Einen
+ * Betrag einzutippen, bevor man je einen Vorgang gesehen hat, erklärt
+ * nichts. Als Angebot am Ende – "das können Sie einstellen, und die meisten
+ * tun es" – wirkt derselbe Gedanke, ohne den Ablauf aufzuhalten.
+ */
+export const grenze = {
+  titel: "Wie viel auf Ihrem Tisch landet, bestimmen Sie",
+  text:
+    "Sie legen einen Betrag fest. Was darunter liegt, erledigen wir ohne " +
+    "Rückfrage – Betrieb beauftragen, Termin abstimmen, Mieter informieren. " +
+    "Was darüber liegt, legen wir Ihnen vorbereitet vor. Sie können den " +
+    "Betrag jederzeit ändern, und Sie sehen sofort, wie viele Vorgänge der " +
+    "letzten Wochen damit auf Ihrem Tisch gelandet wären.",
+};
 
 /**
  * Der Satz, der die ganze Sache zusammenhält. Steht in der Tour, auf der

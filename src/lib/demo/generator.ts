@@ -751,18 +751,27 @@ function chatverlauf(e: ChatEingabe): Nachricht[] {
     });
   }
 
-  push("ki", szenario.zweitfoto.frage, 5);
-  push("mieter", "[Foto]", 7, { foto_id: szenario.zweitfoto.korrekt });
-  push("ki", szenario.verfeinerung, 8);
+  // Szenarien ohne Nachfrage überspringen diesen Block – dort fährt kein
+  // Betrieb oder es ist zuerst ein Selbsthilfe-Tipp dran. Siehe die Regel in
+  // config/scenarios.ts.
+  if (szenario.zweitfoto) {
+    push("ki", szenario.zweitfoto.frage, 5);
+    push("mieter", "[Foto]", 7, { foto_id: szenario.zweitfoto.korrekt });
+    if (szenario.verfeinerung) push("ki", szenario.verfeinerung, 8);
 
-  // Die Karte, die das Verkaufsargument sichtbar macht
-  push("ki", "Das erspart dem Betrieb voraussichtlich eine zweite Anfahrt.", 9, {
-    meta: {
-      art: "erkenntnis",
-      vorher: szenario.erkenntnis.vorher,
-      nachher: szenario.erkenntnis.nachher,
-    },
-  });
+    // Die Karte, die das Verkaufsargument sichtbar macht
+    if (szenario.erkenntnis) {
+      push("ki", "Das erspart dem Betrieb voraussichtlich eine zweite Anfahrt.", 9, {
+        meta: {
+          art: "erkenntnis",
+          vorher: szenario.erkenntnis.vorher,
+          nachher: szenario.erkenntnis.nachher,
+        },
+      });
+    }
+  } else if (szenario.ohneZweitfoto) {
+    push("ki", szenario.ohneZweitfoto, 5);
+  }
 
   push("ki", `Einstufung: ${szenario.kategorie}`, 10, {
     meta: {

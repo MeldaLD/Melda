@@ -60,11 +60,15 @@ export default async function VorgangsListe({
       <Datenumschalter slug={slug} ansicht={ansicht} />
 
       <Abschnitt titel="Läuft gerade" anzahl={offene.length}>
-        {offene.map((v) => {
+        {offene.map((v, i) => {
           const o = ort(v.einheit_id);
           return (
             <Zeile
               key={v.id}
+              // Die geführte Tour zeigt auf die oberste Zeile. Blendet die
+              // Demo gerade nur die eigenen Vorgänge ein, ist genau das die
+              // Meldung, die der Betrachter eben geschrieben hat.
+              markieren={i === 0}
               href={`${basis}/vorgaenge/${v.id}`}
               nummer={v.nummer}
               titel={v.titel}
@@ -133,6 +137,7 @@ function Zeile({
   titel,
   ort,
   rechts,
+  markieren,
   children,
 }: {
   href: string;
@@ -140,11 +145,14 @@ function Zeile({
   titel: string;
   ort: string;
   rechts: string;
+  /** Ziel der geführten Tour. */
+  markieren?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <li>
       <Link
+        data-tour={markieren ? "vorgang-zeile" : undefined}
         href={href}
         className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 transition-colors hover:bg-slate-50"
       >

@@ -121,11 +121,14 @@ export function Tour({
   }, [stand, station, geradeErledigt, pfad]);
 
   // --- Wegweiser -----------------------------------------------------------
-  const amRichtigenOrt = !station || pfad.endsWith(`/${station.pfad}`);
+  // Unterseiten zählen mit: Wer von der Vorgangsliste in einen Vorgang
+  // klickt, ist nicht plötzlich falsch – sonst blitzte dort für einen
+  // Augenblick ein "Hin"-Knopf auf, der zurück auf die Liste führt.
+  const ziel = station ? `/demo/${slug}/${station.pfad}` : "";
+  const amRichtigenOrt = !station || pfad === ziel || pfad.startsWith(`${ziel}/`);
 
   const hingehen = () => {
-    if (!station) return;
-    router.push(`/demo/${slug}/${station.pfad}`);
+    if (station) router.push(ziel);
   };
 
   if (stand === "aus") return null;

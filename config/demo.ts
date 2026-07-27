@@ -12,8 +12,16 @@ export const demoKonfiguration = {
     tippenLang: 1800,
     /** Kunstpause zwischen zwei aufeinanderfolgenden KI-Nachrichten. */
     pauseZwischenNachrichten: 400,
-    /** "Bild wird analysiert" – bewusst etwas länger, das wirkt nach Arbeit. */
-    bildAnalyse: 2200,
+    /**
+     * Wie lange "Bild wird ausgewertet…" steht, bevor die Diagnose kommt.
+     *
+     * Deutlich länger als eine getippte Antwort, und das ist kein Zierrat:
+     * Im Echtbetrieb läuft hier ein Foto durch ein Modell, was ein paar
+     * Sekunden dauert. Käme die Diagnose ohne Pause, wirkte sie wie ein
+     * hinterlegter Text – und genau das wäre sie in der Demo ja auch.
+     * Die Wartezeit macht aus der Behauptung eine sichtbare Tätigkeit.
+     */
+    bildAnalyse: 2800,
   },
 
   /** Feature-Schalter. */

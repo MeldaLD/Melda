@@ -105,6 +105,7 @@ function beschriftungFuer(datei: string): string {
     decke: "Decke",
     schimmel: "Schimmel",
     fenster: "Fenster",
+    griffplatte: "Griffplatte",
     leuchte: "Leuchte",
     treppenhaus: "Treppenhaus",
     schalter: "Lichtschalter",

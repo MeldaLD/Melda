@@ -1,8 +1,14 @@
-import { ArrowRightIcon, CheckIcon, ShieldCheckIcon } from "lucide-react";
+import {
+  ArrowRightIcon,
+  CheckIcon,
+  ShieldCheckIcon,
+  SlidersHorizontalIcon,
+} from "lucide-react";
 
 import {
   bleibt,
   erweiterbar,
+  grenze,
   kontakt,
   uebernehmen,
   versprechen,
@@ -37,6 +43,19 @@ export function Leistungsbilanz({ kompakt = false }: { kompakt?: boolean }) {
           titel="Das bleibt bei Ihnen"
           punkte={kompakt ? bleibt.slice(0, 3) : bleibt}
         />
+      </div>
+
+      {/* Die Kostengrenze ist der Punkt, an dem aus "die machen das jetzt"
+          ein "ich bestimme, wie viel die machen" wird. Sie gehört deshalb in
+          die Zusammenfassung – aber als Angebot, nicht als Bedienschritt. */}
+      <div className="rounded-md border border-border bg-white p-3">
+        <p className="flex items-center gap-1.5 text-sm font-medium">
+          <SlidersHorizontalIcon className="size-3.5 shrink-0 text-marke" aria-hidden />
+          {grenze.titel}
+        </p>
+        <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+          {grenze.text}
+        </p>
       </div>
     </div>
   );

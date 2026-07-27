@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeftIcon, TrendingDownIcon, WrenchIcon } from "lucide-react";
 
 import { DemoFoto } from "@/components/chat/DemoFoto";
+import { TourMelder } from "@/components/demo/TourMelder";
 import { PrioBadge, StatusBadge } from "@/components/gemeinsam/Anzeigen";
 import { Fotostreifen, type Beleg } from "@/components/gemeinsam/Fotostreifen";
 import { Eingreifen } from "@/components/verwalter/Eingreifen";
@@ -71,6 +72,10 @@ export default async function VorgangLesen({
 
   return (
     <div className="p-4 sm:p-6">
+      {/* Hier schließt sich der Bogen der geführten Tour: dieselbe Meldung,
+          die der Betrachter eben als Mieter geschrieben hat. */}
+      <TourMelder was="verwalter:vorgang-geoeffnet" />
+
       <Button asChild variant="ghost" size="sm" className="mb-3 -ml-2">
         <Link href={`${basis}/vorgaenge`}>
           <ArrowLeftIcon /> Zurück
