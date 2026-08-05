@@ -176,6 +176,22 @@ export const detailStationen: TourStation[] = [
     erledigtBei: ["verwalter:eingreifen-geoeffnet"],
   },
   {
+    // Bewusst direkt nach dem Vorgang: Der Betrachter hat gerade gesehen,
+    // wie viel an einer Meldung hängt. Genau dann sitzt der Satz "und das
+    // hier tippen Sie einfach hin, statt die Maske dafür zu suchen".
+    id: "assistent",
+    aufgabe: "Öffnen Sie unten rechts den Assistenten.",
+    begruendung:
+      "Neuer Mieter, Notiz an einem Vorgang, „was ist offen?“ – Sie schreiben es in einem Satz, statt die passende Maske zu suchen. Er führt nichts allein aus: Erst zeigt er, was er verstanden hat, dann bestätigen Sie.",
+    pfad: "dashboard",
+    markierung: "assistent-knopf",
+    erledigtBei: ["verwalter:assistent-geoeffnet"],
+    uebergang:
+      "Was er anlegt, ist echt: Ein so aufgenommener Mieter steht danach in " +
+      "Ihren Objekten, eine Notiz in der Historie des Vorgangs – mit " +
+      "Zeitpunkt und Namen.",
+  },
+  {
     id: "grenze",
     aufgabe: "Setzen Sie den Betrag, ab dem wir Sie fragen, und speichern Sie.",
     begruendung:

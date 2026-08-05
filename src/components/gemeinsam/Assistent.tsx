@@ -26,6 +26,7 @@ import {
 import { PrioBadge, SlaPunkt } from "@/components/gemeinsam/Anzeigen";
 import { alterKurz } from "@/lib/dashboard/kennzahlen";
 import { STATUS_BEZEICHNUNG, type Mandantenbestand } from "@/lib/daten/typen";
+import { tourMelden } from "@/lib/tour/ereignisse";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -51,8 +52,21 @@ type Eintrag = {
  * ein angelegter Mieter steht danach in den Objekten, eine Notiz in der
  * Historie des Vorgangs. Der Assistent führt sie nie allein aus: Zuerst zeigt
  * er, was er verstanden hat, dann bestätigt der Verwalter.
+ *
+ * Er steht in beiden Sichten: im Leitstand und in der Sicht der
+ * Hausverwaltung. Deshalb kommt die Basisadresse von außen – ein Vorgang, den
+ * er verlinkt, muss in der Sicht aufgehen, in der man ihn gerade benutzt.
+ * Führte er aus der Verwaltersicht in den Leitstand, stünde der Kunde
+ * plötzlich in unserem Arbeitsplatz.
  */
-export function Assistent({ bestand }: { bestand: Mandantenbestand }) {
+export function Assistent({
+  bestand,
+  basis,
+}: {
+  bestand: Mandantenbestand;
+  /** Wohin Vorgangslinks führen, z. B. /demo/muster/dashboard */
+  basis: string;
+}) {
   const [offen, setOffen] = useState(false);
   const [eintraege, setEintraege] = useState<Eintrag[]>([]);
   const [entwurf, setEntwurf] = useState("");
@@ -121,7 +135,12 @@ export function Assistent({ bestand }: { bestand: Mandantenbestand }) {
     return (
       <button
         type="button"
-        onClick={() => setOffen(true)}
+        data-tour="assistent-knopf"
+        onClick={() => {
+          setOffen(true);
+          // Station der ausführlichen Tour. Ohne laufende Tour wirkungslos.
+          tourMelden("verwalter:assistent-geoeffnet");
+        }}
         className="fixed right-4 bottom-4 z-40 flex items-center gap-2 rounded-full bg-marke px-4 py-3 text-sm font-medium text-marke-kontrast shadow-lg transition-transform hover:scale-[1.02]"
       >
         <SparklesIcon className="size-4" aria-hidden />
@@ -181,6 +200,7 @@ export function Assistent({ bestand }: { bestand: Mandantenbestand }) {
                     ausfuehren(e.id, aktion, quittung)
                   }
                   slug={slug}
+                  basis={basis}
                 />
               )}
             </div>
@@ -247,12 +267,14 @@ function Karte({
   fehler,
   onAusfuehren,
   slug,
+  basis,
 }: {
   karte: AssistentKarte;
   erledigt?: string;
   fehler?: string;
   onAusfuehren: (aktion: () => Promise<Ergebnis>, quittung: string) => Promise<void>;
   slug: string;
+  basis: string;
 }) {
   const rahmen = "rounded-md border border-border bg-slate-50 p-3 space-y-2";
 
@@ -360,9 +382,7 @@ function Karte({
             </p>
           )}
           <Button asChild size="sm" variant="outline" className="w-full">
-            <Link href={`/demo/${slug}/leitstand/vorgaenge/${karte.vorgang.id}`}>
-              Vorgang öffnen
-            </Link>
+            <Link href={`${basis}/vorgaenge/${karte.vorgang.id}`}>Vorgang öffnen</Link>
           </Button>
         </div>
       );
@@ -377,7 +397,7 @@ function Karte({
             {karte.vorgaenge.slice(0, 6).map((v) => (
               <li key={v.id}>
                 <Link
-                  href={`/demo/${slug}/leitstand/vorgaenge/${v.id}`}
+                  href={`${basis}/vorgaenge/${v.id}`}
                   className="flex items-center gap-2 py-1.5 text-xs hover:text-marke"
                 >
                   <SlaPunkt vorgang={v} />

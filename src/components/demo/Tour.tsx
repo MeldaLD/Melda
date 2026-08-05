@@ -165,12 +165,23 @@ export function Tour({
     imUebergang.current = false;
     setZwischenstand(null);
     setRahmen(null);
+
+    // Steht die Stelle der nächsten Station nicht auf dieser Seite, hat der
+    // alte Anker ausgedient. Ein Kasten, der weiter am vorigen Element
+    // klebt, zeigt auf etwas, das mit der neuen Aufgabe nichts zu tun hat –
+    // und verdeckt dabei ausgerechnet, was der Betrachter eben geöffnet hat.
+    const naechste = stationen[index + 1];
+    const daNaechste =
+      naechste?.markierung &&
+      document.querySelector(`[data-tour="${naechste.markierung}"]`);
+    if (!daNaechste) setPlatz(null);
+
     if (index + 1 >= stationen.length) setStand("abschluss");
     else {
       setStand("laeuft");
       setIndex(index + 1);
     }
-  }, [index, stationen.length]);
+  }, [index, stationen]);
 
   const weiterziehen = useCallback(
     (art: Zwischenstand) => {

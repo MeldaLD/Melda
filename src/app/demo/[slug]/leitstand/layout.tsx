@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { Assistent } from "@/components/leitstand/Assistent";
+import { Assistent } from "@/components/gemeinsam/Assistent";
 import { LiveAktualisierung } from "@/components/gemeinsam/LiveAktualisierung";
 import { Seitenleiste } from "@/components/leitstand/Seitenleiste";
 import { bestandLaden } from "@/lib/daten/quelle";
@@ -25,7 +25,7 @@ export default async function DashboardLayout({
       {/* Die Umschaltleiste tragen die Seiten selbst – nur die, die Fälle
           zeigen. Siehe die Verwaltersicht. */}
       <main className="min-w-0 flex-1">{children}</main>
-      <Assistent bestand={bestand} />
+      <Assistent bestand={bestand} basis={`/demo/${slug}/leitstand`} />
       {/* Hört auf Änderungen, die aus dem Mieter-Chat kommen. */}
       <LiveAktualisierung
         tenantId={bestand.mandant.id}
