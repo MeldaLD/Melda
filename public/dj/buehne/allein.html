@@ -2039,59 +2039,20 @@ class EigenLeitung {
   }
 }
 
-// --- Bibliothek aus dem Netz ----------------------------------------------
-//
-// Der Mittelweg: Die Musik liegt bei Supabase und wird ueber eine Adresse der
-// Anwendung geholt, die Auswahl trifft aber weiter der Browser. Damit laeuft
-// der DJ mit echter Musik, ohne dass irgendwo ein Rechner stehen muss - genau
-// das, was man unterwegs zum Ausprobieren braucht.
-
-class WebLeitung extends EigenLeitung {
-  constructor(tracks) {
-    super();
-    this.art = 'web';
-    this.beschreibung = 'Bibliothek aus dem Netz';
-    this.tracks = tracks;
-  }
-
-  // Die Bibliothek kommt vom Server und wird nicht von hier aus geaendert;
-  // hochgeladen wird im Adminbereich.
-  async bibliothekSetzen(tracks) {
-    this.tracks = tracks;
-    this.melden();
-  }
-}
-
 // --- Auswahl --------------------------------------------------------------
 
 /**
- * Sucht sich die passende Betriebsart, von der reichhaltigsten abwaerts:
- *
- *   1. lokaler DJ-Server - alles inklusive Gaestewuenschen
- *   2. Bibliothek aus dem Netz - echte Musik, Auswahl im Browser
- *   3. allein - nur der Pruefstand
- *
- * Keine davon ist ein Fehlerfall. Welche es wird, haengt nur daran, wo die
- * Seite gerade laeuft.
+ * Sucht sich die passende Betriebsart. Gibt es einen Server, wird er benutzt;
+ * sonst laeuft alles im Browser weiter.
  */
 async function leitungSuchen() {
   try {
     const antwort = await fetch('/api/zustand', { signal: AbortSignal.timeout(2500) });
     if (antwort.ok) return new ServerLeitung();
   } catch {
-    // Kein lokaler Server - der Normalfall im Netz.
+    // Kein Server erreichbar - das ist kein Fehler, sondern der Normalfall,
+    // wenn die Seite als statische Datei ausgeliefert wird.
   }
-
-  try {
-    const antwort = await fetch('/api/dj/track', { signal: AbortSignal.timeout(4000) });
-    if (antwort.ok) {
-      const { tracks } = await antwort.json();
-      if (Array.isArray(tracks) && tracks.length > 0) return new WebLeitung(tracks);
-    }
-  } catch {
-    // Keine Bibliothek erreichbar - dann eben nur der Pruefstand.
-  }
-
   return new EigenLeitung();
 }
 
@@ -2144,16 +2105,17 @@ $('startEcht').addEventListener('click', () => starten(false));
 welt.leitung = await leitungSuchen();
 
 if (welt.leitung.art === 'allein') {
-  // Ohne Bibliothek ist der Pruefstand die einzige Betriebsart - und genau
-  // dafuer ist er gebaut.
+  // Ohne Server gibt es keine Musikdateien zum Ausliefern - der Pruefstand
+  // ist dann die einzige Betriebsart, und das ist genau der Fall, fuer den er
+  // gebaut ist.
   $('echtHinweis').textContent =
-    'Noch keine Musik da. Im Adminbereich unter /admin/dj hochladen.';
+    'Braucht den lokalen Server. Diese Seite läuft ohne – nimm den Prüfstand.';
   $('startEcht').disabled = true;
 } else {
   const tracks = await welt.leitung.bibliothek();
   $('echtHinweis').textContent = tracks.length
-    ? `${tracks.length} Tracks, vermessen und bereit.`
-    : 'Noch leer – unter /admin/dj hochladen.';
+    ? `${tracks.length} Tracks aus musik/ – analysiert und bereit.`
+    : 'Noch leer. Erst `npm run einlesen` laufen lassen.';
   $('startEcht').disabled = tracks.length === 0;
 }
 
@@ -2218,12 +2180,7 @@ async function naechstenErfragen() {
 async function pufferFuer(track) {
   if (welt.puffer.has(track.id)) return welt.puffer.get(track.id);
 
-  // `quelle` ist eine fertige Adresse (Supabase), `datei` ein Name im
-  // Musikordner des lokalen Servers. Die Buehne muss nicht wissen, welches
-  // von beiden gerade der Fall ist.
-  const adresse = track.quelle ?? `/musik/${encodeURIComponent(track.datei)}`;
-  const antwort = await fetch(adresse);
-  if (!antwort.ok) throw new Error(`${track.titel} liess sich nicht laden (${antwort.status})`);
+  const antwort = await fetch(`/musik/${encodeURIComponent(track.datei)}`);
   const roh = await antwort.arrayBuffer();
   const puffer = await welt.ctx.decodeAudioData(roh);
   welt.puffer.set(track.id, puffer);
@@ -2392,10 +2349,6 @@ function schleife() {
   if (naechster) {
     const g = welt.naechsterGrund;
     $('naechsterGrund').textContent = `${g?.grund === 'wunsch' ? 'Gästewunsch' : 'Autopilot'} · ${Math.round(naechster.bpm)} BPM · Energie ${Math.round((naechster.energie ?? 0) * 100)} %`;
-  } else {
-    // Sonst bliebe die Begruendung des vorigen Tracks stehen und behauptet
-    // etwas ueber einen, der schon gar nicht mehr ansteht.
-    $('naechsterGrund').textContent = '';
   }
 
   nachschubPruefen();

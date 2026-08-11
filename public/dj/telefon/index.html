@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <link rel="icon" href="/favicon.svg" />
+    <title>Mitreden</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --grund: #0a0a0f;
+        --karte: #16161f;
+        --rand: #2a2a3a;
+        --text: #eeeef5;
+        --leise: #8a8aa0;
+        --akzent: #ff3d7f;
+        --kuehl: #3d9bff;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 1.25rem 1rem 3rem;
+        background: var(--grund);
+        color: var(--text);
+        font: 16px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif;
+        max-width: 32rem;
+        margin-inline: auto;
+      }
+      h1 {
+        font-size: 1.1rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--leise);
+        margin: 0 0 1rem;
+      }
+      .jetzt {
+        padding: 1rem;
+        border-radius: 0.9rem;
+        background: var(--karte);
+        border: 1px solid var(--rand);
+        margin-bottom: 1.5rem;
+      }
+      .jetzt small {
+        color: var(--akzent);
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        font-size: 0.7rem;
+      }
+      .jetzt strong {
+        display: block;
+        font-size: 1.35rem;
+        margin-top: 0.35rem;
+        line-height: 1.2;
+      }
+      .jetzt span {
+        color: var(--leise);
+      }
+      .richtung {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+      }
+      .richtung button {
+        padding: 1.1rem 0.5rem;
+        border-radius: 0.9rem;
+        border: 1px solid var(--rand);
+        background: var(--karte);
+        color: var(--text);
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .richtung button[aria-pressed='true'] {
+        border-color: currentColor;
+      }
+      #chilliger[aria-pressed='true'] {
+        color: var(--kuehl);
+      }
+      #haerter[aria-pressed='true'] {
+        color: var(--akzent);
+      }
+      .richtung em {
+        display: block;
+        font-style: normal;
+        font-weight: 400;
+        font-size: 0.8rem;
+        color: var(--leise);
+        margin-top: 0.2rem;
+      }
+      input[type='search'] {
+        width: 100%;
+        padding: 0.9rem 1rem;
+        border-radius: 0.9rem;
+        border: 1px solid var(--rand);
+        background: var(--karte);
+        color: var(--text);
+        font: inherit;
+        margin-bottom: 0.75rem;
+      }
+      ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+      li {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        padding: 0.7rem 0;
+        border-bottom: 1px solid var(--rand);
+      }
+      li div {
+        flex: 1;
+        min-width: 0;
+      }
+      li strong {
+        display: block;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      li span {
+        color: var(--leise);
+        font-size: 0.85rem;
+      }
+      li button {
+        flex: none;
+        padding: 0.5rem 0.9rem;
+        border-radius: 999px;
+        border: 1px solid var(--rand);
+        background: transparent;
+        color: var(--text);
+        font: inherit;
+        font-size: 0.85rem;
+        cursor: pointer;
+      }
+      .meldung {
+        margin: 1rem 0 0;
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+        background: #2a1020;
+        color: #ffb3cc;
+        font-size: 0.9rem;
+      }
+      .meldung[hidden] {
+        display: none;
+      }
+      h2 {
+        font-size: 0.75rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--leise);
+        margin: 2rem 0 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <h1 id="anlass">Mitreden</h1>
+
+    <div class="jetzt">
+      <small>Laeuft gerade</small>
+      <strong id="titel">–</strong>
+      <span id="interpret"></span>
+    </div>
+
+    <div class="richtung">
+      <button id="chilliger" aria-pressed="false">
+        Chilliger<em id="zaehlerChilliger">0</em>
+      </button>
+      <button id="haerter" aria-pressed="false">Haerter<em id="zaehlerHaerter">0</em></button>
+    </div>
+
+    <h2>Wunsch</h2>
+    <input type="search" id="suche" placeholder="Titel oder Interpret suchen" />
+    <ul id="treffer"></ul>
+
+    <h2>Gewuenscht</h2>
+    <ul id="liste"></ul>
+
+    <p class="meldung" id="meldung" hidden></p>
+
+    <script type="module">
+      // NOTFALLSEITE fuers lokale WLAN. Die richtige Gaeste-App laeuft ueber
+      // Supabase und liegt spaeter unter gast/ - siehe PLAN.md.
+      const $ = (id) => document.getElementById(id);
+
+      // Geraetekennung: unterscheidet Gaeste, ohne irgendwen zu identifizieren.
+      let geraetId = localStorage.getItem('geraetId');
+      if (!geraetId) {
+        geraetId = crypto.randomUUID();
+        localStorage.setItem('geraetId', geraetId);
+      }
+
+      let katalog = [];
+      let meineWuensche = new Set(JSON.parse(localStorage.getItem('meineWuensche') ?? '[]'));
+
+      const melden = (text) => {
+        const feld = $('meldung');
+        feld.textContent = text;
+        feld.hidden = !text;
+        if (text) setTimeout(() => (feld.hidden = true), 4000);
+      };
+
+      const schicken = async (weg, koerper) => {
+        const antwort = await fetch(weg, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...koerper, geraetId }),
+        });
+        const daten = await antwort.json();
+        if (!antwort.ok) melden(daten.fehler ?? 'Hat nicht geklappt.');
+        return daten;
+      };
+
+      // --- Richtung ---------------------------------------------------------
+      for (const richtung of ['chilliger', 'haerter']) {
+        $(richtung).addEventListener('click', async () => {
+          await schicken('/api/richtung', { richtung });
+          localStorage.setItem('richtung', richtung);
+          richtungMarkieren();
+        });
+      }
+
+      function richtungMarkieren() {
+        const meine = localStorage.getItem('richtung');
+        $('chilliger').setAttribute('aria-pressed', String(meine === 'chilliger'));
+        $('haerter').setAttribute('aria-pressed', String(meine === 'haerter'));
+      }
+      richtungMarkieren();
+
+      // --- Suche ------------------------------------------------------------
+      $('suche').addEventListener('input', (ereignis) => {
+        const suchwort = ereignis.target.value.trim().toLowerCase();
+        if (suchwort.length < 2) return ($('treffer').innerHTML = '');
+
+        const gefunden = katalog
+          .filter(
+            (t) =>
+              t.titel.toLowerCase().includes(suchwort) ||
+              t.interpret.toLowerCase().includes(suchwort),
+          )
+          .slice(0, 8);
+
+        $('treffer').innerHTML = '';
+        for (const track of gefunden) {
+          const zeile = document.createElement('li');
+          const text = document.createElement('div');
+          text.innerHTML = `<strong></strong><span></span>`;
+          text.querySelector('strong').textContent = track.titel;
+          text.querySelector('span').textContent = track.interpret;
+
+          const knopf = document.createElement('button');
+          knopf.textContent = meineWuensche.has(track.id) ? 'drin' : 'wuenschen';
+          knopf.disabled = meineWuensche.has(track.id);
+          knopf.addEventListener('click', async () => {
+            const daten = await schicken('/api/wunsch', { trackId: track.id });
+            if (daten.wuensche) {
+              meineWuensche.add(track.id);
+              localStorage.setItem('meineWuensche', JSON.stringify([...meineWuensche]));
+              knopf.textContent = 'drin';
+              knopf.disabled = true;
+            }
+          });
+
+          zeile.append(text, knopf);
+          $('treffer').append(zeile);
+        }
+      });
+
+      // --- Laufender Zustand ------------------------------------------------
+      const strom = new EventSource('/api/strom');
+      strom.onmessage = (nachricht) => {
+        const zustand = JSON.parse(nachricht.data);
+        $('anlass').textContent = zustand.anlass ?? 'Mitreden';
+        $('titel').textContent = zustand.laeuft?.titel ?? 'Noch nichts';
+        $('interpret').textContent = zustand.laeuft?.interpret ?? '';
+        $('zaehlerChilliger').textContent = zustand.richtungen?.chilliger ?? 0;
+        $('zaehlerHaerter').textContent = zustand.richtungen?.haerter ?? 0;
+
+        $('liste').innerHTML = '';
+        for (const wunsch of zustand.wuensche ?? []) {
+          const zeile = document.createElement('li');
+          const text = document.createElement('div');
+          text.innerHTML = `<strong></strong><span></span>`;
+          text.querySelector('strong').textContent = wunsch.titel;
+          text.querySelector('span').textContent =
+            `${wunsch.interpret} · ${wunsch.stimmen} ${wunsch.stimmen === 1 ? 'Stimme' : 'Stimmen'}`;
+
+          const knopf = document.createElement('button');
+          knopf.textContent = meineWuensche.has(wunsch.id) ? 'drin' : '+1';
+          knopf.disabled = meineWuensche.has(wunsch.id);
+          knopf.addEventListener('click', async () => {
+            await schicken('/api/wunsch', { trackId: wunsch.id });
+            meineWuensche.add(wunsch.id);
+            localStorage.setItem('meineWuensche', JSON.stringify([...meineWuensche]));
+            knopf.textContent = 'drin';
+            knopf.disabled = true;
+          });
+
+          zeile.append(text, knopf);
+          $('liste').append(zeile);
+        }
+      };
+
+      // Der Katalog aendert sich selten - einmal holen reicht.
+      fetch('/api/bibliothek')
+        .then((antwort) => antwort.json())
+        .then((daten) => (katalog = daten.tracks ?? []));
+    </script>
+  </body>
+</html>
