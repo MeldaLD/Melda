@@ -47,9 +47,12 @@ export default function DjAufnahme() {
   const bibliothekLaden = useCallback(async () => {
     try {
       const antwort = await fetch("/api/dj/track", { cache: "no-store" });
-      const daten = await antwort.json();
-      if (!antwort.ok) throw new Error(daten.fehler ?? "Bibliothek nicht lesbar.");
+      const daten = await alsJson(antwort);
+      if (!antwort.ok) {
+        throw new Error(hinweisZu(antwort.status, daten.fehler ?? daten.roh ?? ""));
+      }
       setBibliothek(daten.tracks ?? []);
+      setFehler(null);
     } catch (grund) {
       setFehler(grund instanceof Error ? grund.message : String(grund));
     }
@@ -59,17 +62,41 @@ export default function DjAufnahme() {
     void bibliothekLaden();
   }, [bibliothekLaden]);
 
+  // Weil das Dateifeld absichtlich alles anbietet (siehe unten), wird hier
+  // geprüft statt im Dialog. Ein Video oder ein PDF soll nicht erst beim
+  // Dekodieren mit einer kryptischen Meldung auffallen.
+  const HOERBAR = /\.(mp3|m4a|mp4|aac|wav|aiff?|flac|ogg|oga|opus|webm|caf)$/i;
+
   function dateienGewaehlt(liste: FileList | null) {
-    if (!liste) return;
+    if (!liste || liste.length === 0) return;
+
+    const alle = Array.from(liste);
+    const tauglich = alle.filter(
+      (datei) => HOERBAR.test(datei.name) || datei.type.startsWith("audio/"),
+    );
+    const abgelehnt = alle.filter((datei) => !tauglich.includes(datei));
+
+    setFehler(
+      abgelehnt.length > 0
+        ? `Übersprungen, weil keine Audiodatei: ${abgelehnt.map((d) => d.name).join(", ")}`
+        : null,
+    );
+
+    if (tauglich.length === 0) return;
+
     setEintraege((bisher) => [
       ...bisher,
-      ...Array.from(liste).map((datei) => ({
+      ...tauglich.map((datei) => ({
         datei,
         ...ausDateiname(datei.name),
         zustand: "wartet" as Zustand,
         schritt: "",
       })),
     ]);
+
+    // Damit dieselbe Datei nach einem Fehlversuch nochmal gewählt werden kann:
+    // ohne das Zurücksetzen feuert `change` beim zweiten Mal nicht.
+    if (auswahl.current) auswahl.current.value = "";
   }
 
   const aendern = (nummer: number, teil: Partial<Eintrag>) =>
@@ -112,8 +139,14 @@ export default function DjAufnahme() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dateiname: eintrag.datei.name }),
         });
-        const erlaubt = await erlaubnis.json();
-        if (!erlaubnis.ok) throw new Error(erlaubt.fehler ?? "Keine Erlaubnis zum Hochladen.");
+        const erlaubt = await alsJson(erlaubnis);
+        if (!erlaubnis.ok) {
+          throw new Error(hinweisZu(erlaubnis.status, erlaubt.fehler ?? erlaubt.roh ?? ""));
+        }
+
+        if (!erlaubt.adresse || !erlaubt.pfad) {
+          throw new Error("Der Server hat keine Adresse zum Hochladen geliefert.");
+        }
 
         const hochgeladen = await fetch(erlaubt.adresse, {
           method: "PUT",
@@ -133,8 +166,10 @@ export default function DjAufnahme() {
             ...befund,
           }),
         });
-        const ergebnis = await eingetragen.json();
-        if (!eingetragen.ok) throw new Error(ergebnis.fehler ?? "Eintragen fehlgeschlagen.");
+        const ergebnis = await alsJson(eingetragen);
+        if (!eingetragen.ok) {
+          throw new Error(hinweisZu(eingetragen.status, ergebnis.fehler ?? ergebnis.roh ?? ""));
+        }
 
         aendern(nummer, { zustand: "fertig", schritt: "" });
       } catch (grund) {
@@ -172,18 +207,33 @@ export default function DjAufnahme() {
       )}
 
       <section className="space-y-3">
+        {/*
+          Zwei Dinge sind hier bewusst so und nicht anders, beide wegen iOS:
+
+          1. Ein echtes <label> statt eines Knopfes, der das Feld per
+             JavaScript anklickt. Safari auf dem iPad blockiert einen
+             programmatischen Klick auf ein Dateifeld – der Knopf tut dann
+             einfach nichts, und es sieht aus, als wäre die Seite kaputt.
+          2. Kein `accept`. Eine Liste aus MIME-Typen und Endungen kann iOS
+             nicht zuverlässig zuordnen und graut dann im Dateien-Dialog alles
+             aus. Lieber alles anbieten und hinterher prüfen.
+        */}
         <input
           ref={auswahl}
+          id="dj-dateien"
           type="file"
-          accept="audio/*,.mp3,.m4a,.wav,.flac,.aac,.ogg"
           multiple
-          className="hidden"
           onChange={(e) => dateienGewaehlt(e.target.files)}
+          className="sr-only"
         />
-        <div className="flex flex-wrap gap-3">
-          <Button type="button" onClick={() => auswahl.current?.click()} disabled={laeuft}>
+        <div className="flex flex-wrap items-center gap-3">
+          <label
+            htmlFor="dj-dateien"
+            className="inline-flex h-9 cursor-pointer items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-xs transition-colors hover:bg-primary/90 aria-disabled:pointer-events-none aria-disabled:opacity-50"
+            aria-disabled={laeuft}
+          >
             Dateien auswählen
-          </Button>
+          </label>
           <Button
             type="button"
             variant="secondary"
@@ -260,6 +310,41 @@ export default function DjAufnahme() {
       </section>
     </main>
   );
+}
+
+/**
+ * Antwort auslesen, ohne an einer Fehlerseite zu zerbrechen.
+ *
+ * Bei einem Serverfehler liefert Next HTML oder gar nichts. Ein blindes
+ * `.json()` scheitert dann mit "Unexpected end of JSON input" – und diese
+ * Meldung verdeckt genau den Fehler, den man sehen müsste.
+ */
+async function alsJson(antwort: Response): Promise<Record<string, string | undefined> & { tracks?: Vorhanden[] }> {
+  const roh = await antwort.text();
+  if (!roh) return { roh: "" };
+  try {
+    return JSON.parse(roh);
+  } catch {
+    return { roh: roh.slice(0, 300) };
+  }
+}
+
+/**
+ * Aus einem Serverfehler eine Anweisung machen.
+ *
+ * Die beiden Stolpersteine beim Einrichten sind immer dieselben: Die Migration
+ * ist noch nicht eingespielt, oder der Service-Role-Schlüssel fehlt in den
+ * Umgebungsvariablen. Beides sieht als roher Fehler gleich aus.
+ */
+function hinweisZu(status: number, text: string) {
+  if (/SUPABASE_SERVICE_ROLE_KEY/i.test(text)) {
+    return "SUPABASE_SERVICE_ROLE_KEY fehlt. In Vercel unter Settings → Environment Variables eintragen und neu bereitstellen.";
+  }
+  if (/dj_track|relation .* does not exist|schema cache/i.test(text)) {
+    return "Die Tabelle dj_track gibt es noch nicht. Im Supabase-Dashboard unter SQL Editor die Datei supabase/migrations/20260811210000_dj.sql ausführen.";
+  }
+  if (status === 401) return "Nicht angemeldet – bitte neu am Adminbereich anmelden.";
+  return `Bibliothek nicht lesbar (Fehler ${status}). ${text.slice(0, 200)}`;
 }
 
 function beschriftung(eintrag: Eintrag) {

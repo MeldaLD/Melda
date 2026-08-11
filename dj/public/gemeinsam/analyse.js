@@ -23,7 +23,10 @@
 // zwei Tracks im Uebergang nicht in die Begrenzung laufen.
 export const ZIEL_LUFS = -9;
 
-const HOPS_PRO_SEKUNDE = 100; // Aufloesung der Anschlagskurve: 10 ms
+// Aufloesung der Anschlagskurve. 5 ms statt 10: Bei 128 BPM ist ein Zehntel
+// einer Sekunde schon ein Fuenfzigstel Beat, und dieser Rundungsfehler
+// summiert sich ueber ein paar hundert Schlaege zu einem verschobenen Raster.
+const HOPS_PRO_SEKUNDE = 200;
 const BPM_VON = 70;
 const BPM_BIS = 185;
 
@@ -39,13 +42,14 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
 
   beiSchritt('Bassband');
   const bass = await bandRendern(puffer, 'lowpass', 160);
-  const anschlaege = anschlagskurve(bass, puffer.sampleRate);
+  const { kurve: anschlaege, hops } = anschlagskurve(bass, puffer.sampleRate);
 
   beiSchritt('Tempo');
-  const { bpm, phase } = tempoFinden(anschlaege);
+  const grobesTempo = tempoFinden(anschlaege, hops);
 
   beiSchritt('Raster');
-  const raster = rasterFinden(anschlaege, bpm, phase);
+  const grobesRaster = rasterFinden(anschlaege, grobesTempo.bpm, grobesTempo.phase, hops);
+  const { bpm, raster } = ausgleichen(anschlaege, grobesTempo.bpm, grobesRaster, hops);
 
   beiSchritt('Aufbau');
   const takte = taktEnergien(bass, puffer.sampleRate, bpm, raster);
@@ -172,7 +176,14 @@ async function bandRendern(puffer, art, frequenz) {
 // behalten, was gegenueber dem Fenster davor zugenommen hat.
 
 function anschlagskurve(daten, rate) {
+  // Die Fensterlaenge muss eine ganze Zahl von Abtastwerten sein, also ist die
+  // tatsaechliche Aufloesung nie genau HOPS_PRO_SEKUNDE. Bei 44,1 kHz sind es
+  // 220 statt 220,5 Abtastwerte - und damit 200,45 statt 200 Punkte je
+  // Sekunde. Wer weiter mit dem Sollwert rechnet, misst jedes Tempo um 0,23
+  // Prozent zu hoch. Deshalb wird die echte Rate zurueckgegeben und ueberall
+  // sie benutzt.
   const fenster = Math.round(rate / HOPS_PRO_SEKUNDE);
+  const hops = rate / fenster;
   const anzahl = Math.floor(daten.length / fenster);
   const kurve = new Float32Array(anzahl);
 
@@ -191,7 +202,37 @@ function anschlagskurve(daten, rate) {
   let hoechster = 0;
   for (const wert of kurve) if (wert > hoechster) hoechster = wert;
   if (hoechster > 0) for (let i = 0; i < kurve.length; i++) kurve[i] /= hoechster;
-  return kurve;
+
+  return { kurve: zuspitzen(kurve), hops };
+}
+
+// Eine Bassdrum ist im Tiefband kein Nadelstich, sondern ein breiter Huegel -
+// der Anstieg zieht sich ueber mehrere Fenster. Fuer alles Weitere zaehlt aber
+// nur der *eine* Zeitpunkt, an dem der Schlag beginnt. Also von jedem Huegel
+// nur die Spitze behalten und den Rest auf null setzen.
+//
+// Das ist der Unterschied zwischen "irgendwo hier ungefaehr" und einem
+// Beatraster, auf das sich ein Uebergang legen laesst.
+function zuspitzen(kurve) {
+  const spitz = new Float32Array(kurve.length);
+  const umgebung = 3;
+
+  for (let i = umgebung; i < kurve.length - umgebung; i++) {
+    const wert = kurve[i];
+    if (wert < 0.04) continue;
+    let istSpitze = true;
+    for (let j = -umgebung; j <= umgebung; j++) {
+      if (j === 0) continue;
+      // Bei Gleichstand gewinnt der fruehere Punkt - der Anschlag beginnt
+      // vorne, nicht hinten.
+      if (kurve[i + j] > wert || (j < 0 && kurve[i + j] === wert)) {
+        istSpitze = false;
+        break;
+      }
+    }
+    if (istSpitze) spitz[i] = wert;
+  }
+  return spitz;
 }
 
 // --- Tempo ----------------------------------------------------------------
@@ -200,13 +241,64 @@ function anschlagskurve(daten, rate) {
 // Das Tempo, bei dem die Zinken die meisten Anschlaege treffen, gewinnt.
 // Fuer Vierviertel-Musik mit durchlaufender Bassdrum ist das sehr zuverlaessig.
 
-function tempoFinden(kurve) {
-  const grob = kammSuche(kurve, BPM_VON, BPM_BIS, 0.5);
-  // Nachschaerfen: ein halbes BPM daneben sind ueber vier Minuten schon
-  // mehrere Beats Versatz.
-  const fein = kammSuche(kurve, grob.bpm - 0.5, grob.bpm + 0.5, 0.02);
-  const bester = fein.punkte >= grob.punkte ? fein : grob;
-  return oktaveKlaeren(kurve, bester);
+function tempoFinden(kurve, hops) {
+  // Zwei Stufen, und die erste ist bewusst keine Kammsuche.
+  //
+  // Ein Kamm allein taugt nicht zur Grobsuche: Eine Bassdrum ist im Tiefband
+  // kein Nadelstich, sondern ein breiter Huegel, und dann trifft ein Kamm bei
+  // fast jedem Tempo irgendetwas. Gemessen an einem echten 128er-Track lagen
+  // 85,5 und 128 BPM nur fuenf Prozent auseinander - reiner Zufall, welches
+  // gewinnt.
+  //
+  // Die Autokorrelation fragt stattdessen: In welchem Abstand aehnelt sich die
+  // Kurve selbst? Darauf gibt es bei einem durchlaufenden Beat genau eine
+  // Antwort. Der Kamm kommt erst danach, um das Tempo scharf zu stellen.
+  const grob = periodeSchaetzen(kurve, hops);
+  const bpmGrob = (hops * 60) / grob;
+
+  const fein = kammSuche(
+    kurve,
+    Math.max(BPM_VON, bpmGrob - 2),
+    Math.min(BPM_BIS + 40, bpmGrob + 2),
+    0.02,
+    hops,
+  );
+  return oktaveKlaeren(kurve, fein, hops);
+}
+
+// Autokorrelation: Wie sehr aehnelt die Anschlagskurve sich selbst, wenn man
+// sie um `lag` verschiebt? Beim Beatabstand ist die Aehnlichkeit am groessten.
+function autokorrelation(kurve, hoechsterLag) {
+  const R = new Float32Array(hoechsterLag + 1);
+  for (let lag = 1; lag <= hoechsterLag; lag++) {
+    const n = kurve.length - lag;
+    if (n <= 0) break;
+    let summe = 0;
+    for (let i = 0; i < n; i++) summe += kurve[i] * kurve[i + lag];
+    R[lag] = summe / n;
+  }
+  return R;
+}
+
+function periodeSchaetzen(kurve, hops) {
+  const lagVon = Math.floor((hops * 60) / BPM_BIS);
+  const lagBis = Math.ceil((hops * 60) / BPM_VON);
+  const R = autokorrelation(kurve, Math.min(kurve.length - 2, lagBis * 4 + 2));
+
+  let besterLag = Math.round((hops * 60) / 128);
+  let bestePunkte = -1;
+  for (let lag = lagVon; lag <= lagBis; lag++) {
+    // Auch den doppelten und vierfachen Abstand mitzaehlen: Ein echter Puls
+    // wiederholt sich auch ueber zwei und vier Schlaege, ein zufaelliger
+    // Nebenmaximum nicht. Das haelt Zwischenwerte wie zwei Drittel des
+    // Tempos zuverlaessig heraus.
+    const punkte = R[lag] + 0.5 * (R[2 * lag] ?? 0) + 0.25 * (R[4 * lag] ?? 0);
+    if (punkte > bestePunkte) {
+      bestePunkte = punkte;
+      besterLag = lag;
+    }
+  }
+  return besterLag;
 }
 
 // Halbes oder doppeltes Tempo trifft den Kamm genauso gut: Wer jeden zweiten
@@ -217,8 +309,8 @@ function tempoFinden(kurve) {
 // Entschieden wird es nicht am Punktestand, sondern an der Frage: Liegt
 // *zwischen* den gefundenen Schlaegen auch etwas? Wenn ja, ist das Tempo in
 // Wahrheit doppelt so hoch.
-function oktaveKlaeren(kurve, gefunden) {
-  const periode = (HOPS_PRO_SEKUNDE * 60) / gefunden.bpm;
+function oktaveKlaeren(kurve, gefunden, hops) {
+  const periode = (hops * 60) / gefunden.bpm;
 
   const mittelAuf = (start, abstand) => {
     let summe = 0;
@@ -242,27 +334,39 @@ function oktaveKlaeren(kurve, gefunden) {
   return { bpm: gefunden.bpm * 2, phase: gefunden.phase, punkte: gefunden.punkte };
 }
 
-function kammSuche(kurve, von, bis, schrittweite) {
+// Zwischen den Stuetzstellen ablesen. Das ist der entscheidende Unterschied
+// zum Runden: Ein gerundeter Kamm springt beim Durchstimmen des Tempos in
+// Stufen, viele Tempi ergeben denselben Punktestand, und welches davon
+// gewinnt, ist Zufall. Mit Interpolation wird der Punktestand eine glatte
+// Kurve ueber dem Tempo - und das echte Tempo gewinnt eindeutig.
+function ablesen(kurve, stelle) {
+  if (stelle < 0 || stelle >= kurve.length - 1) return 0;
+  const unten = Math.floor(stelle);
+  const anteil = stelle - unten;
+  return kurve[unten] * (1 - anteil) + kurve[unten + 1] * anteil;
+}
+
+function kammSuche(kurve, von, bis, schrittweite, hops) {
   let bester = { bpm: 128, phase: 0, punkte: -1 };
 
   for (let bpm = von; bpm <= bis; bpm += schrittweite) {
-    const periode = (HOPS_PRO_SEKUNDE * 60) / bpm;
+    const periode = (hops * 60) / bpm;
     const zinken = Math.floor(kurve.length / periode);
     if (zinken < 8) continue;
 
-    // Nur ganze Phasen durchprobieren; die Feinlage kommt beim Raster.
-    const phasen = Math.ceil(periode);
-    for (let phase = 0; phase < phasen; phase++) {
+    // Phasen in halben Stuetzstellen durchprobieren - feiner lohnt hier nicht,
+    // die Feinlage kommt beim Raster.
+    for (let phase = 0; phase < periode; phase += 0.5) {
       let punkte = 0;
       for (let k = 0; k < zinken; k++) {
-        const stelle = Math.round(phase + k * periode);
-        if (stelle >= kurve.length) break;
-        // Auch die Nachbarn zaehlen, damit ein leicht schwankender
-        // Schlagzeuger nicht durchfaellt.
+        const stelle = phase + k * periode;
+        if (stelle >= kurve.length - 1) break;
+        // Auch die unmittelbaren Nachbarn zaehlen mit, damit ein leicht
+        // schwankender Schlagzeuger nicht durchfaellt.
         punkte +=
-          kurve[stelle] +
-          0.5 * (kurve[stelle - 1] ?? 0) +
-          0.5 * (kurve[stelle + 1] ?? 0);
+          ablesen(kurve, stelle) +
+          0.4 * ablesen(kurve, stelle - 1) +
+          0.4 * ablesen(kurve, stelle + 1);
       }
       punkte /= zinken;
       if (punkte > bester.punkte) bester = { bpm, phase, punkte };
@@ -274,20 +378,19 @@ function kammSuche(kurve, von, bis, schrittweite) {
 // Die Phase aus der Kammsuche ist auf 10 ms genau. Fuer ein Beatraster ist das
 // zu grob, also wird um sie herum feiner gesucht - und gleichzeitig geklaert,
 // welcher der vier Schlaege die Eins ist.
-function rasterFinden(kurve, bpm, grobePhase) {
-  const periode = (HOPS_PRO_SEKUNDE * 60) / bpm;
+function rasterFinden(kurve, bpm, grobePhase, hops) {
+  const periode = (hops * 60) / bpm;
 
+  // Die volle Periode absuchen, nicht nur die Umgebung der groben Phase. Die
+  // stammt aus der Tempo-Suche, wo das Tempo noch anders war - sie kann um
+  // einen guten Teil eines Beats danebenliegen, und ein Raster, das ein
+  // Drittel Beat verschoben ist, macht jeden Uebergang kaputt.
   let beste = { versatz: grobePhase, punkte: -1 };
-  for (let fein = -1; fein <= 1; fein += 0.05) {
-    const versatz = grobePhase + fein;
-    if (versatz < 0) continue;
+  for (let versatz = 0; versatz < periode; versatz += 0.05) {
     let punkte = 0;
     let zinken = 0;
     for (let stelle = versatz; stelle < kurve.length - 1; stelle += periode) {
-      const unten = Math.floor(stelle);
-      const anteil = stelle - unten;
-      // Zwischen den Stuetzstellen linear ablesen.
-      punkte += kurve[unten] * (1 - anteil) + (kurve[unten + 1] ?? 0) * anteil;
+      punkte += ablesen(kurve, stelle);
       zinken++;
     }
     if (zinken > 0 && punkte / zinken > beste.punkte) {
@@ -313,7 +416,147 @@ function rasterFinden(kurve, bpm, grobePhase) {
   }
 
   const versatzHops = beste.versatz + besterTakt * periode;
-  return versatzHops / HOPS_PRO_SEKUNDE;
+  return versatzHops / hops;
+}
+
+// --- Tempo und Raster zusammen ausgleichen --------------------------------
+//
+// Der Kamm findet das Tempo nur so genau, wie seine Schrittweite erlaubt. Zwei
+// Zehntel BPM klingen nach nichts, sind aber ueber neunzig Sekunden schon
+// hundertvierzig Millisekunden Versatz - und ueber einen Sechsminueter mehr als
+// eine halbe Sekunde. Am Ende eines langen Uebergangs waere das Raster dann
+// voellig neben der Musik.
+//
+// Deshalb der letzte Schritt: An jeder vorhergesagten Beatstelle wird der
+// tatsaechliche Anschlag gesucht, und durch alle gefundenen Punkte wird eine
+// Gerade gelegt. Ihre Steigung ist die echte Beatlaenge, ihr Achsenabschnitt
+// das echte Raster. Das nutzt den ganzen Track als Hebel, statt sich auf eine
+// Stelle zu verlassen.
+function ausgleichen(kurve, bpm, raster, hops) {
+  // Zuerst das Tempo ueber die volle Tracklaenge scharf stellen, dann das
+  // Raster darauf neu setzen. Danach noch zweimal nachziehen - jeder Durchgang
+  // startet naeher an der Wahrheit, also darf das Suchfenster enger werden.
+  let ergebnis = { bpm: tempoUeberDieLaenge(kurve, bpm, hops), raster };
+
+  for (const weite of [0.3, 0.15, 0.08]) {
+    const naechstes = einmalAusgleichen(kurve, ergebnis.bpm, ergebnis.raster, weite, hops);
+    if (!naechstes) break;
+    ergebnis = naechstes;
+  }
+  return ergebnis;
+}
+
+/**
+ * Das Tempo mit dem ganzen Track als Hebel bestimmen.
+ *
+ * Der Kamm findet das Tempo nur so genau, wie seine Schrittweite erlaubt, und
+ * zwei Zehntel BPM sind ueber einen Sechsminueter schon mehr als eine halbe
+ * Sekunde Versatz - ausgerechnet am Ende, wo die Uebergaenge stattfinden.
+ *
+ * Der Ausweg: die beste Beatlage einmal im ersten und einmal im letzten
+ * Fuenftel bestimmen. Beide Werte mitteln ueber viele Schlaege und sind daher
+ * belastbar. Der Abstand zwischen ihnen ist eine ganze Zahl von Beats - und
+ * durch diese Zahl geteilt ergibt er die Beatlaenge auf Bruchteile genau.
+ */
+function tempoUeberDieLaenge(kurve, bpm, hops) {
+  const periode = (hops * 60) / bpm;
+  const fensterLaenge = Math.floor(kurve.length / 5);
+  if (fensterLaenge < periode * 8) return bpm;
+
+  const vorne = besteLage(kurve, 0, fensterLaenge, periode);
+  const hinten = besteLage(kurve, kurve.length - fensterLaenge, kurve.length, periode);
+  if (vorne === null || hinten === null) return bpm;
+
+  const abstand = hinten - vorne;
+  const beats = Math.round(abstand / periode);
+  if (beats < 8) return bpm;
+
+  const genauePeriode = abstand / beats;
+  const neuesBpm = (hops * 60) / genauePeriode;
+
+  // Mehr als zwei Prozent Abweichung heisst: eine der beiden Lagen sass auf
+  // dem falschen Schlag. Dann lieber beim bisherigen Wert bleiben.
+  return Math.abs(neuesBpm / bpm - 1) < 0.02 ? neuesBpm : bpm;
+}
+
+// Die Lage des ersten Beats innerhalb eines Ausschnitts, absolut gerechnet.
+function besteLage(kurve, von, bis, periode) {
+  let beste = null;
+  let bestePunkte = 0;
+
+  for (let versatz = 0; versatz < periode; versatz += 0.1) {
+    let punkte = 0;
+    let zinken = 0;
+    for (let stelle = von + versatz; stelle < bis - 1; stelle += periode) {
+      punkte += ablesen(kurve, stelle);
+      zinken++;
+    }
+    if (zinken > 0 && punkte / zinken > bestePunkte) {
+      bestePunkte = punkte / zinken;
+      beste = von + versatz;
+    }
+  }
+  return beste;
+}
+
+function einmalAusgleichen(kurve, bpm, raster, anteil, hops) {
+  const periode = (hops * 60) / bpm;
+  const start = raster * hops;
+  // Nur in der naeheren Umgebung suchen, sonst zieht ein Nachbarschlag den
+  // Punkt auf den falschen Beat.
+  const suchweite = periode * anteil;
+
+  const nummern = [];
+  const zeiten = [];
+  let k = 0;
+  for (let ziel = start; ziel < kurve.length - 1; ziel += periode, k++) {
+    let bester = -1;
+    let bestePunkte = 0;
+    for (let s = ziel - suchweite; s <= ziel + suchweite; s += 0.25) {
+      const wert = ablesen(kurve, s);
+      if (wert > bestePunkte) {
+        bestePunkte = wert;
+        bester = s;
+      }
+    }
+    // Schwache Stellen weglassen: In einem Breakdown gibt es keinen Anschlag,
+    // und ein erfundener Punkt wuerde die Gerade verbiegen.
+    if (bester >= 0 && bestePunkte > 0.08) {
+      nummern.push(k);
+      zeiten.push(bester);
+    }
+  }
+
+  // Zu wenige Stuetzpunkte - dann bleibt es beim bisherigen Ergebnis.
+  if (nummern.length < 12) return null;
+
+  const mittelK = nummern.reduce((a, b) => a + b, 0) / nummern.length;
+  const mittelT = zeiten.reduce((a, b) => a + b, 0) / zeiten.length;
+  let oben = 0;
+  let unten = 0;
+  for (let i = 0; i < nummern.length; i++) {
+    oben += (nummern[i] - mittelK) * (zeiten[i] - mittelT);
+    unten += (nummern[i] - mittelK) ** 2;
+  }
+  if (unten === 0) return null;
+
+  const steigung = oben / unten;
+  const abschnitt = mittelT - steigung * mittelK;
+
+  const neuesBpm = (hops * 60) / steigung;
+  // Ein Ausgleich, der das Tempo um mehr als zwei Prozent verschiebt, hat sich
+  // an etwas anderem festgehalten als am Beat. Dann lieber das Bisherige.
+  if (!Number.isFinite(neuesBpm) || Math.abs(neuesBpm / bpm - 1) > 0.02) {
+    return null;
+  }
+
+  // Der Achsenabschnitt kann durch die Ausgleichsrechnung vor den Dateianfang
+  // rutschen; um ganze Beats nach vorne holen.
+  let neuesRaster = abschnitt / hops;
+  const beat = 60 / neuesBpm;
+  while (neuesRaster < 0) neuesRaster += beat;
+
+  return { bpm: neuesBpm, raster: neuesRaster };
 }
 
 // --- Aufbau ---------------------------------------------------------------
