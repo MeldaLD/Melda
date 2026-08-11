@@ -12,6 +12,7 @@
     "format:check": "prettier --check .",
     "dj": "node dj/werkzeuge/einedatei.mjs ../public/dj/index.html",
     "dj:pruefen": "node dj/pruefungen/auswahl.mjs && node dj/pruefungen/takt.mjs",
+    "dj:server": "DJ_PORT=3200 node dj/server/index.js",
     "seed:sql": "tsx scripts/seed-sql.ts",
     "pruefen:ansicht": "tsx scripts/ansicht-pruefen.ts",
     "pruefen:ki": "tsx scripts/ki-pruefen.ts",

@@ -69,16 +69,20 @@ const server = http.createServer((anfrage, antwort) => {
   });
 });
 
-server.listen(konfiguration.port, () => {
+// Der Port laesst sich von aussen setzen - praktisch, wenn parallel etwas
+// anderes auf 3000 laeuft.
+const PORT = Number(process.env.DJ_PORT) || konfiguration.port;
+
+server.listen(PORT, () => {
   const adressen = lanAdressen();
   console.log('');
   console.log(`  ${konfiguration.anlass} - resident-dj laeuft`);
   console.log('');
-  console.log(`  Buehne (Monitor)   http://localhost:${konfiguration.port}/buehne`);
+  console.log(`  Buehne (Monitor)   http://localhost:${PORT}/buehne`);
   console.log('');
   console.log('  Notfall-Abstimmung im lokalen WLAN (normal laeuft das ueber Supabase):');
   for (const adresse of adressen) {
-    console.log(`    http://${adresse}:${konfiguration.port}/p`);
+    console.log(`    http://${adresse}:${PORT}/p`);
   }
   if (adressen.length === 0) {
     console.log('    (keine LAN-Adresse gefunden - haengt der Laptop im WLAN?)');

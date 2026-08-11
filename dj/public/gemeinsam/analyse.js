@@ -1,0 +1,438 @@
+// Echte Musik vermessen - im Browser, ohne Python, ohne ffmpeg.
+//
+// Beim Pruefstand ist alles bekannt, weil wir die Musik selbst erzeugen. Bei
+// einem echten Track muss es herausgefunden werden, und zwar so genau, dass
+// ein Uebergang auf der Phrasengrenze sitzt: Ein Beatraster, das um 30
+// Millisekunden verrutscht ist, hoert man sofort als Eiern.
+//
+// Was hier herauskommt, hat dieselbe Form wie ein Pruefstand-Track. Deshalb
+// muss der Mixer nichts davon wissen.
+//
+//   bpm          Tempo
+//   raster       Sekunden bis zum ersten Downbeat
+//   einstiegBeat erster Beat, an dem durchgehend eine Bassdrum laeuft
+//   lufs         Lautheit nach EBU R128
+//   angleichDb   was drauf muss, damit alle Tracks gleich laut sind
+//   energie      0 bis 1, spaeter gegen die Bibliothek normiert
+//   marken       Breakdown, Drop, Outro
+//
+// Die schweren Filter laufen ueber OfflineAudioContext - der Browser rechnet
+// die um ein Vielfaches schneller als handgeschriebene Schleifen.
+
+// Auf diese Lautheit wird alles gezogen. Clubniveau, mit genug Luft, damit
+// zwei Tracks im Uebergang nicht in die Begrenzung laufen.
+export const ZIEL_LUFS = -9;
+
+const HOPS_PRO_SEKUNDE = 100; // Aufloesung der Anschlagskurve: 10 ms
+const BPM_VON = 70;
+const BPM_BIS = 185;
+
+/**
+ * Vermisst einen dekodierten Track.
+ * @param {AudioBuffer} puffer
+ */
+export async function analysiere(puffer, beiSchritt = () => {}) {
+  const dauer = puffer.duration;
+
+  beiSchritt('Lautheit');
+  const lufs = await lautheitMessen(puffer);
+
+  beiSchritt('Bassband');
+  const bass = await bandRendern(puffer, 'lowpass', 160);
+  const anschlaege = anschlagskurve(bass, puffer.sampleRate);
+
+  beiSchritt('Tempo');
+  const { bpm, phase } = tempoFinden(anschlaege);
+
+  beiSchritt('Raster');
+  const raster = rasterFinden(anschlaege, bpm, phase);
+
+  beiSchritt('Aufbau');
+  const takte = taktEnergien(bass, puffer.sampleRate, bpm, raster);
+  const einstiegBeat = einstiegFinden(takte);
+  const marken = aufbauErkennen(takte, bpm, raster, einstiegBeat);
+
+  beiSchritt('Energie');
+  const hoehen = await bandRendern(puffer, 'highpass', 3000);
+  const energie = energieSchaetzen(puffer, bass, hoehen, bpm);
+
+  return {
+    dauer,
+    bpm: Number(bpm.toFixed(2)),
+    raster: Number(raster.toFixed(4)),
+    einstiegBeat,
+    lufs: Number(lufs.toFixed(1)),
+    angleichDb: Number((ZIEL_LUFS - lufs).toFixed(2)),
+    energie: Number(energie.toFixed(3)),
+    marken,
+  };
+}
+
+// --- Lautheit nach EBU R128 -----------------------------------------------
+//
+// Der wichtigste Einzelwert. Uploads liegen zwischen -6 und -20 LUFS, und zwei
+// Tracks mit zwoelf Dezibel Unterschied hintereinander sind haesslicher als
+// jedes Codec-Artefakt.
+//
+// R128 misst nicht einfach die Leistung, sondern gewichtet vorher zwei Filter
+// ein (die Ohren hoeren Baesse leiser) und laesst dann die stillen Stellen
+// weg. Beides bilden wir nach - die Filter mit dem Browser, das Tor in JS.
+
+async function lautheitMessen(puffer) {
+  const ctx = new OfflineAudioContext(
+    puffer.numberOfChannels,
+    puffer.length,
+    puffer.sampleRate,
+  );
+  const quelle = ctx.createBufferSource();
+  quelle.buffer = puffer;
+
+  // Stufe 1: Hochtonanhebung, die den Kopf des Hoerers nachbildet.
+  const regal = ctx.createBiquadFilter();
+  regal.type = 'highshelf';
+  regal.frequency.value = 1681.97;
+  regal.gain.value = 3.999;
+  regal.Q.value = 0.7071;
+
+  // Stufe 2: Hochpass, der die untersten Frequenzen herausnimmt.
+  const hochpass = ctx.createBiquadFilter();
+  hochpass.type = 'highpass';
+  hochpass.frequency.value = 38.13;
+  hochpass.Q.value = 0.5003;
+
+  quelle.connect(regal).connect(hochpass).connect(ctx.destination);
+  quelle.start();
+  const gewichtet = await ctx.startRendering();
+
+  // Bloecke von 400 ms mit 75 Prozent Ueberlappung, wie in der Norm.
+  const rate = gewichtet.sampleRate;
+  const blockLaenge = Math.round(0.4 * rate);
+  const schritt = Math.round(blockLaenge / 4);
+  const kanaele = [];
+  for (let k = 0; k < gewichtet.numberOfChannels; k++) kanaele.push(gewichtet.getChannelData(k));
+
+  const blockLautheiten = [];
+  for (let start = 0; start + blockLaenge <= gewichtet.length; start += schritt) {
+    let summe = 0;
+    for (const daten of kanaele) {
+      let teil = 0;
+      for (let i = start; i < start + blockLaenge; i++) teil += daten[i] * daten[i];
+      // Alle Kanaele mit Gewicht 1 - bei Stereo entspricht das der Norm.
+      summe += teil / blockLaenge;
+    }
+    blockLautheiten.push(-0.691 + 10 * Math.log10(summe + 1e-12));
+  }
+
+  if (blockLautheiten.length === 0) return -70;
+
+  // Erstes Tor: alles unter -70 LUFS ist Stille und zaehlt nicht.
+  const ueberAbsolut = blockLautheiten.filter((l) => l > -70);
+  if (ueberAbsolut.length === 0) return -70;
+
+  // Zweites Tor: relativ zum Mittel, zehn Dezibel darunter abschneiden. Das
+  // sorgt dafuer, dass leise Passagen einen lauten Track nicht kleinrechnen.
+  const mittel = (werte) =>
+    -0.691 +
+    10 *
+      Math.log10(
+        werte.reduce((summe, l) => summe + 10 ** ((l + 0.691) / 10), 0) / werte.length + 1e-12,
+      );
+
+  const schwelle = mittel(ueberAbsolut) - 10;
+  const uebrig = ueberAbsolut.filter((l) => l > schwelle);
+  return uebrig.length > 0 ? mittel(uebrig) : mittel(ueberAbsolut);
+}
+
+// --- Ein Frequenzband herausrechnen ---------------------------------------
+
+async function bandRendern(puffer, art, frequenz) {
+  // Mono reicht und halbiert die Arbeit.
+  const ctx = new OfflineAudioContext(1, puffer.length, puffer.sampleRate);
+  const quelle = ctx.createBufferSource();
+  quelle.buffer = puffer;
+
+  // Zweimal filtern: eine einzelne Stufe laesst zu viel durch, und ein
+  // weicher Uebergang verwischt genau die Kanten, die wir suchen.
+  const a = ctx.createBiquadFilter();
+  const b = ctx.createBiquadFilter();
+  a.type = b.type = art;
+  a.frequency.value = b.frequency.value = frequenz;
+  a.Q.value = b.Q.value = 0.7071;
+
+  quelle.connect(a).connect(b).connect(ctx.destination);
+  quelle.start();
+  const fertig = await ctx.startRendering();
+  return fertig.getChannelData(0);
+}
+
+// --- Anschlagskurve -------------------------------------------------------
+//
+// Wo faengt ein Schlag an? Nicht der laute Teil zaehlt, sondern der *Anstieg*.
+// Deshalb wird die Lautstaerke pro Zeitfenster gemessen und davon nur
+// behalten, was gegenueber dem Fenster davor zugenommen hat.
+
+function anschlagskurve(daten, rate) {
+  const fenster = Math.round(rate / HOPS_PRO_SEKUNDE);
+  const anzahl = Math.floor(daten.length / fenster);
+  const kurve = new Float32Array(anzahl);
+
+  let vorher = 0;
+  for (let i = 0; i < anzahl; i++) {
+    let summe = 0;
+    const von = i * fenster;
+    for (let j = von; j < von + fenster; j++) summe += daten[j] * daten[j];
+    const jetzt = Math.sqrt(summe / fenster);
+    kurve[i] = Math.max(0, jetzt - vorher);
+    vorher = jetzt;
+  }
+
+  // Auf den Hoechstwert normieren, damit die Schwellen unabhaengig von der
+  // Aussteuerung des Tracks gelten.
+  let hoechster = 0;
+  for (const wert of kurve) if (wert > hoechster) hoechster = wert;
+  if (hoechster > 0) for (let i = 0; i < kurve.length; i++) kurve[i] /= hoechster;
+  return kurve;
+}
+
+// --- Tempo ----------------------------------------------------------------
+//
+// Ein Kamm aus gleichmaessigen Zinken wird ueber die Anschlagskurve geschoben.
+// Das Tempo, bei dem die Zinken die meisten Anschlaege treffen, gewinnt.
+// Fuer Vierviertel-Musik mit durchlaufender Bassdrum ist das sehr zuverlaessig.
+
+function tempoFinden(kurve) {
+  const grob = kammSuche(kurve, BPM_VON, BPM_BIS, 0.5);
+  // Nachschaerfen: ein halbes BPM daneben sind ueber vier Minuten schon
+  // mehrere Beats Versatz.
+  const fein = kammSuche(kurve, grob.bpm - 0.5, grob.bpm + 0.5, 0.02);
+  const bester = fein.punkte >= grob.punkte ? fein : grob;
+  return oktaveKlaeren(kurve, bester);
+}
+
+// Halbes oder doppeltes Tempo trifft den Kamm genauso gut: Wer jeden zweiten
+// Schlag anvisiert, liegt auf jedem davon richtig. Ein 174er-Track wird so
+// leicht als 87er gemessen - und dann waere eine Phrase doppelt so lang wie
+// gedacht und jeder Uebergang saesse falsch.
+//
+// Entschieden wird es nicht am Punktestand, sondern an der Frage: Liegt
+// *zwischen* den gefundenen Schlaegen auch etwas? Wenn ja, ist das Tempo in
+// Wahrheit doppelt so hoch.
+function oktaveKlaeren(kurve, gefunden) {
+  const periode = (HOPS_PRO_SEKUNDE * 60) / gefunden.bpm;
+
+  const mittelAuf = (start, abstand) => {
+    let summe = 0;
+    let zinken = 0;
+    for (let stelle = start; stelle < kurve.length; stelle += abstand) {
+      summe += kurve[Math.round(stelle)] ?? 0;
+      zinken++;
+    }
+    return zinken > 0 ? summe / zinken : 0;
+  };
+
+  const aufDemRaster = mittelAuf(gefunden.phase, periode);
+  const dazwischen = mittelAuf(gefunden.phase + periode / 2, periode);
+
+  // Sind die Zwischenschlaege fast so kraeftig wie die auf dem Raster, dann
+  // gehoeren sie dazu. Die Grenze liegt hoch, damit ein Offbeat-Hihat oder
+  // eine Synkope das Tempo nicht faelschlich verdoppelt.
+  const verdoppeln = dazwischen > aufDemRaster * 0.7 && gefunden.bpm * 2 <= BPM_BIS + 20;
+  if (!verdoppeln) return gefunden;
+
+  return { bpm: gefunden.bpm * 2, phase: gefunden.phase, punkte: gefunden.punkte };
+}
+
+function kammSuche(kurve, von, bis, schrittweite) {
+  let bester = { bpm: 128, phase: 0, punkte: -1 };
+
+  for (let bpm = von; bpm <= bis; bpm += schrittweite) {
+    const periode = (HOPS_PRO_SEKUNDE * 60) / bpm;
+    const zinken = Math.floor(kurve.length / periode);
+    if (zinken < 8) continue;
+
+    // Nur ganze Phasen durchprobieren; die Feinlage kommt beim Raster.
+    const phasen = Math.ceil(periode);
+    for (let phase = 0; phase < phasen; phase++) {
+      let punkte = 0;
+      for (let k = 0; k < zinken; k++) {
+        const stelle = Math.round(phase + k * periode);
+        if (stelle >= kurve.length) break;
+        // Auch die Nachbarn zaehlen, damit ein leicht schwankender
+        // Schlagzeuger nicht durchfaellt.
+        punkte +=
+          kurve[stelle] +
+          0.5 * (kurve[stelle - 1] ?? 0) +
+          0.5 * (kurve[stelle + 1] ?? 0);
+      }
+      punkte /= zinken;
+      if (punkte > bester.punkte) bester = { bpm, phase, punkte };
+    }
+  }
+  return bester;
+}
+
+// Die Phase aus der Kammsuche ist auf 10 ms genau. Fuer ein Beatraster ist das
+// zu grob, also wird um sie herum feiner gesucht - und gleichzeitig geklaert,
+// welcher der vier Schlaege die Eins ist.
+function rasterFinden(kurve, bpm, grobePhase) {
+  const periode = (HOPS_PRO_SEKUNDE * 60) / bpm;
+
+  let beste = { versatz: grobePhase, punkte: -1 };
+  for (let fein = -1; fein <= 1; fein += 0.05) {
+    const versatz = grobePhase + fein;
+    if (versatz < 0) continue;
+    let punkte = 0;
+    let zinken = 0;
+    for (let stelle = versatz; stelle < kurve.length - 1; stelle += periode) {
+      const unten = Math.floor(stelle);
+      const anteil = stelle - unten;
+      // Zwischen den Stuetzstellen linear ablesen.
+      punkte += kurve[unten] * (1 - anteil) + (kurve[unten + 1] ?? 0) * anteil;
+      zinken++;
+    }
+    if (zinken > 0 && punkte / zinken > beste.punkte) {
+      beste = { versatz, punkte: punkte / zinken };
+    }
+  }
+
+  // Welcher Schlag ist die Eins? Der, auf dem ueber den ganzen Track die
+  // meiste Bassenergie liegt.
+  let besterTakt = 0;
+  let bestePunkte = -1;
+  for (let takt = 0; takt < 4; takt++) {
+    let punkte = 0;
+    let zinken = 0;
+    for (let stelle = beste.versatz + takt * periode; stelle < kurve.length; stelle += periode * 4) {
+      punkte += kurve[Math.round(stelle)] ?? 0;
+      zinken++;
+    }
+    if (zinken > 0 && punkte / zinken > bestePunkte) {
+      bestePunkte = punkte / zinken;
+      besterTakt = takt;
+    }
+  }
+
+  const versatzHops = beste.versatz + besterTakt * periode;
+  return versatzHops / HOPS_PRO_SEKUNDE;
+}
+
+// --- Aufbau ---------------------------------------------------------------
+
+// Bassenergie je Takt. Daran haengt alles Weitere: Wo faellt die Bassdrum weg
+// (Breakdown), wo kommt sie schlagartig zurueck (Drop), wo hoert sie auf (Outro).
+function taktEnergien(bass, rate, bpm, raster) {
+  const taktSekunden = (60 / bpm) * 4;
+  const anzahl = Math.floor((bass.length / rate - raster) / taktSekunden);
+  const werte = [];
+  for (let t = 0; t < anzahl; t++) {
+    const von = Math.floor((raster + t * taktSekunden) * rate);
+    const bis = Math.min(bass.length, Math.floor((raster + (t + 1) * taktSekunden) * rate));
+    let summe = 0;
+    for (let i = von; i < bis; i++) summe += bass[i] * bass[i];
+    werte.push(Math.sqrt(summe / Math.max(1, bis - von)));
+  }
+  return werte;
+}
+
+function aufbauErkennen(takte, bpm, raster, einstiegBeat = 0) {
+  if (takte.length < 8) return [];
+  const median = mittelwert(takte);
+  const taktSekunden = (60 / bpm) * 4;
+  const marke = (name, takt) => ({
+    name,
+    beat: takt * 4,
+    sekunde: raster + takt * taktSekunden,
+  });
+
+  const marken = [];
+  const leise = takte.map((w) => w < median * 0.45);
+
+  // Das Intro ist auch "leise", aber es ist kein Breakdown - da hat der Track
+  // noch gar nicht angefangen. Wer das verwechselt, legt einen drop_swap auf
+  // den Beginn der Datei statt auf den echten Drop.
+  const abTakt = Math.floor(einstiegBeat / 4);
+
+  // Breakdown: mindestens vier Takte am Stueck ohne Fundament.
+  let lauf = 0;
+  for (let t = abTakt; t < takte.length; t++) {
+    if (leise[t]) {
+      lauf++;
+    } else {
+      if (lauf >= 4) {
+        marken.push(marke('breakdown', t - lauf));
+        // Der Drop ist der Takt, in dem es zurueckkommt - der Moment, auf den
+        // sich ein Uebergang legen laesst.
+        marken.push(marke('drop', t));
+      }
+      lauf = 0;
+    }
+  }
+
+  // Outro: ab wo es dauerhaft leise bleibt.
+  for (let t = takte.length - 1; t > 4; t--) {
+    if (!leise[t]) {
+      if (t < takte.length - 3) marken.push(marke('outro', t + 1));
+      break;
+    }
+  }
+
+  return marken.sort((a, b) => a.beat - b.beat);
+}
+
+// Ab welchem Beat laeuft die Bassdrum durch? Davor ist Intro, und darauf
+// laesst sich nicht mischen, weil es keinen Puls gibt.
+function einstiegFinden(takte) {
+  if (takte.length === 0) return 0;
+  const median = mittelwert(takte);
+  for (let t = 0; t < takte.length - 2; t++) {
+    if (takte[t] > median * 0.6 && takte[t + 1] > median * 0.6) {
+      // Auf eine Achtergruppe aufrunden - Uebergaenge sollen auf Phrasen sitzen.
+      return Math.ceil(t / 8) * 8 * 4;
+    }
+  }
+  return 0;
+}
+
+// --- Energie --------------------------------------------------------------
+
+// Wie treibend ist der Track? Drei Anteile, die zusammen gut mit dem
+// uebereinstimmen, was man auf der Tanzflaeche als "geht ab" empfindet:
+// Wucht im Bass, Anteil der Hoehen (Hihats, Percussion) und das Tempo.
+function energieSchaetzen(puffer, bass, hoehen, bpm) {
+  const effektiv = (daten) => {
+    let summe = 0;
+    // Jeden zwanzigsten Wert nehmen; genauer muss es dafuer nicht sein.
+    for (let i = 0; i < daten.length; i += 20) summe += daten[i] * daten[i];
+    return Math.sqrt(summe / (daten.length / 20));
+  };
+
+  const gesamt = effektiv(puffer.getChannelData(0));
+  const tief = effektiv(bass);
+  const hoch = effektiv(hoehen);
+
+  const anteilHoch = gesamt > 0 ? Math.min(1, hoch / gesamt / 0.5) : 0;
+  const anteilTief = gesamt > 0 ? Math.min(1, tief / gesamt / 0.9) : 0;
+  const tempoAnteil = Math.min(1, Math.max(0, (bpm - 110) / 40));
+
+  return Math.min(1, Math.max(0, 0.4 * anteilHoch + 0.35 * anteilTief + 0.25 * tempoAnteil));
+}
+
+function mittelwert(werte) {
+  const sortiert = [...werte].sort((a, b) => a - b);
+  return sortiert[Math.floor(sortiert.length / 2)] || 0;
+}
+
+// --- Energie ueber die Bibliothek normieren -------------------------------
+//
+// Ein absoluter Energiewert sagt wenig: Eine Sammlung aus reinem Ambient
+// haette sonst nirgends "hohe Energie", eine reine Hardtechno-Sammlung
+// ueberall. Die Kurve ueber den Abend soll aber in *deiner* Sammlung
+// funktionieren. Also zaehlt der Rang, nicht der Absolutwert.
+
+export function energienNormieren(tracks) {
+  if (tracks.length < 2) return tracks;
+  const sortiert = [...tracks].sort((a, b) => (a.energie ?? 0) - (b.energie ?? 0));
+  const rang = new Map();
+  sortiert.forEach((track, i) => rang.set(track.id, i / (sortiert.length - 1)));
+  return tracks.map((track) => ({ ...track, energie: Number((rang.get(track.id) ?? 0.5).toFixed(3)) }));
+}
