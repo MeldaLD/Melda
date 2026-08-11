@@ -243,13 +243,31 @@ class Deck {
 
     this.quelle = quelle;
     this.track = track;
+    this.geplanterAnker = null;
     this.startZeit = zeit;
     this.startInDatei = startInDatei;
     this.tempo = tempo;
     this.laeuft = true;
   }
 
+  // Eine Verankerung, die erst spaeter gilt. Ein Loop-Roll wiederholt Material,
+  // also laufen Musikzeit und Dateizeit auseinander; ab dem Zielbeat stimmt
+  // beides wieder, und genau dann wird umgehaengt.
+  verankernAb(abZeit, startZeit, startInDatei) {
+    this.geplanterAnker = { abZeit, startZeit, startInDatei };
+  }
+
+  ankerPruefen() {
+    const geplant = this.geplanterAnker;
+    if (geplant && this.ctx.currentTime >= geplant.abZeit) {
+      this.startZeit = geplant.startZeit;
+      this.startInDatei = geplant.startInDatei;
+      this.geplanterAnker = null;
+    }
+  }
+
   stoppen(zeit) {
+    this.geplanterAnker = null;
     if (!this.quelle) return;
     try {
       this.quelle.stop(zeit);
@@ -263,6 +281,7 @@ class Deck {
   // Wo steht das Deck jetzt in seiner Datei?
   stelle(jetzt = this.ctx.currentTime) {
     if (!this.laeuft) return 0;
+    this.ankerPruefen();
     return stelleInDatei(this, jetzt);
   }
 

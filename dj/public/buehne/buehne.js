@@ -216,6 +216,42 @@ function verlaufEintragen(plan) {
   zeichneVerlauf();
 }
 
+// --- Wiedergabe anhalten und weiterlaufen lassen ---------------------------
+//
+// iOS friert den Tonkontext ein, sobald man die App wechselt oder das Display
+// sperrt, und gibt ihn nur nach einer Beruehrung wieder frei. Ohne das hier
+// stuende die Buehne danach stumm da und saehe kaputt aus.
+
+async function tonWeiter() {
+  if (!welt.ctx) return;
+  try {
+    await welt.ctx.resume();
+  } catch {
+    // Beim naechsten Antippen nochmal.
+  }
+  tonZustandZeigen();
+}
+
+function tonZustandZeigen() {
+  const laeuft = welt.ctx?.state === 'running';
+  $('weiter').hidden = laeuft || !welt.ctx;
+  $('wiedergabe').textContent = laeuft ? '⏸' : '▶';
+}
+
+$('weiter').addEventListener('click', tonWeiter);
+
+$('wiedergabe').addEventListener('click', async () => {
+  if (!welt.ctx) return;
+  if (welt.ctx.state === 'running') await welt.ctx.suspend();
+  else await welt.ctx.resume();
+  tonZustandZeigen();
+});
+
+// Beim Zurueckkommen aus dem Hintergrund gleich nachsehen.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) tonZustandZeigen();
+});
+
 // --- Bedienung ------------------------------------------------------------
 
 $('jetztUeberblenden').addEventListener('click', () => ueberblenden($('artWahl').value));
@@ -308,6 +344,7 @@ function schleife(jetzt = 0) {
     ? `${g?.grund === 'wunsch' ? 'Gästewunsch' : 'Autopilot'} · Energie ${Math.round((welt.naechster.energie ?? 0) * 100)} %`
     : '';
 
+  tonZustandZeigen();
   nachschubPruefen();
   wachhund(zustand);
 }
@@ -331,6 +368,11 @@ const STILL = 0.00005;
 const STILLE_ERLAUBT_MS = 2500;
 
 function wachhund(zustand) {
+  // Angehalten ist keine Stoerung, sondern Absicht.
+  if (welt.ctx?.state !== 'running') {
+    welt.stilleSeit = null;
+    return;
+  }
   const einDeckLaeuft = zustand.decks.some((d) => d.laeuft);
   if (!einDeckLaeuft || zustand.pegel >= STILL) {
     welt.stilleSeit = null;

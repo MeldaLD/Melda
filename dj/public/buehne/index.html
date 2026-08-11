@@ -25,14 +25,14 @@
 
         <div class="start-wahl">
           <button class="gross" id="startDemo">
-            <strong>Pruefstand starten</strong>
+            <strong><span class="play">▶</span> Pruefstand starten</strong>
             <span
               >Acht erzeugte Tracks von chillig bis hart. Sofort hoerbar, ohne eigene
               Musik.</span
             >
           </button>
           <button class="gross" id="startEcht">
-            <strong>Eigene Bibliothek</strong>
+            <strong><span class="play">▶</span> Eigene Bibliothek</strong>
             <span id="echtHinweis">Prüfe …</span>
           </button>
         </div>
@@ -40,6 +40,16 @@
         <p class="fussnote" id="startFehler" hidden></p>
       </div>
     </div>
+
+    <!--
+      iOS haelt den Ton an, sobald man die App wechselt oder das Display
+      sperrt - und laesst ihn nur nach einer Beruehrung wieder laufen. Ohne
+      diesen Schirm steht die Buehne dann stumm da und sieht kaputt aus.
+    -->
+    <button class="weiter" id="weiter" hidden>
+      <span class="play gross-play">▶</span>
+      <span>Ton weiterlaufen lassen</span>
+    </button>
 
     <main id="konsole" hidden>
       <header>
@@ -102,6 +112,7 @@
       <div class="steuerung" id="steuerung">
         <span class="naechster-grund" id="naechsterGrund"></span>
         <span class="naechster" id="naechster" hidden></span>
+        <button id="wiedergabe" title="Anhalten und weiterlaufen lassen">▶</button>
         <button id="jetztUeberblenden">Jetzt überblenden</button>
         <select id="artWahl" title="Übergangsart erzwingen">
           <option value="">automatisch</option>

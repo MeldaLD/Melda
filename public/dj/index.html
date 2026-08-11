@@ -464,6 +464,56 @@ header {
   }
 }
 
+/* --- Wiedergabe --------------------------------------------------------- */
+
+.play {
+  color: var(--akzent);
+  font-size: 0.85em;
+}
+
+/*
+  iOS friert den Ton ein, wenn man die App wechselt. Dieser Schirm holt ihn
+  mit einer Beruehrung zurueck - ohne ihn stuende die Buehne stumm da und
+  saehe kaputt aus.
+*/
+.weiter {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2rem;
+  border: 0;
+  background: rgba(7, 7, 12, 0.86);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.weiter[hidden] {
+  display: none;
+}
+
+.gross-play {
+  display: grid;
+  place-items: center;
+  width: 5.5rem;
+  height: 5.5rem;
+  padding-left: 0.4rem;
+  border: 2px solid var(--akzent);
+  border-radius: 50%;
+  font-size: 2.2rem;
+}
+
+#wiedergabe {
+  min-width: 2.4rem;
+}
+
 </style>
   </head>
   <body>
@@ -484,14 +534,14 @@ header {
 
         <div class="start-wahl">
           <button class="gross" id="startDemo">
-            <strong>Pruefstand starten</strong>
+            <strong><span class="play">▶</span> Pruefstand starten</strong>
             <span
               >Acht erzeugte Tracks von chillig bis hart. Sofort hoerbar, ohne eigene
               Musik.</span
             >
           </button>
           <button class="gross" id="startEcht">
-            <strong>Eigene Bibliothek</strong>
+            <strong><span class="play">▶</span> Eigene Bibliothek</strong>
             <span id="echtHinweis">Prüfe …</span>
           </button>
         </div>
@@ -499,6 +549,16 @@ header {
         <p class="fussnote" id="startFehler" hidden></p>
       </div>
     </div>
+
+    <!--
+      iOS haelt den Ton an, sobald man die App wechselt oder das Display
+      sperrt - und laesst ihn nur nach einer Beruehrung wieder laufen. Ohne
+      diesen Schirm steht die Buehne dann stumm da und sieht kaputt aus.
+    -->
+    <button class="weiter" id="weiter" hidden>
+      <span class="play gross-play">▶</span>
+      <span>Ton weiterlaufen lassen</span>
+    </button>
 
     <main id="konsole" hidden>
       <header>
@@ -561,6 +621,7 @@ header {
       <div class="steuerung" id="steuerung">
         <span class="naechster-grund" id="naechsterGrund"></span>
         <span class="naechster" id="naechster" hidden></span>
+        <button id="wiedergabe" title="Anhalten und weiterlaufen lassen">▶</button>
         <button id="jetztUeberblenden">Jetzt überblenden</button>
         <select id="artWahl" title="Übergangsart erzwingen">
           <option value="">automatisch</option>
@@ -583,129 +644,6 @@ header {
     </main>
 
     <script type="module">
-// ===== public/gemeinsam/konfiguration.js =====
-// Alles, was du vor der Party einstellst, steht hier. Eine Datei, damit du am
-// Abend nicht im Code suchen musst.
-
-const konfiguration = {
-  // Wie der Abend heisst - steht gross auf dem Monitor.
-  anlass: '30. Geburtstag',
-
-  // Port des Servers. Gaeste erreichen die Abstimmung unter
-  // http://<IP-des-Laptops>:<port>/p
-  port: 3000,
-
-  // Ordner mit deinen Musikdateien (relativ zum Projekt oder absolut).
-  musikOrdner: './musik',
-
-  // ------------------------------------------------------------------
-  // Die Energiekurve: das Herzstueck. Erst chillig, spaeter haerter.
-  // ------------------------------------------------------------------
-  // Uhrzeit -> Zielenergie zwischen 0 (Ambient) und 1 (Brett).
-  // Dazwischen wird linear interpoliert. Zeiten nach Mitternacht einfach
-  // weiterzaehlen (25:00 = 1 Uhr nachts), dann gibt es keine Sprungstelle.
-  energiekurve: [
-    { zeit: '19:00', energie: 0.15 }, // Ankommen, Reden muss moeglich sein
-    { zeit: '21:00', energie: 0.35 }, // Es fuellt sich
-    { zeit: '22:30', energie: 0.55 }, // Erste tanzen
-    { zeit: '24:00', energie: 0.75 }, // Der Laden laeuft
-    { zeit: '25:30', energie: 0.9 }, // Haerter
-    { zeit: '27:00', energie: 0.8 }, // Auslaufen
-    { zeit: '28:00', energie: 0.5 },
-  ],
-
-  // Wie stark die Gaeste die Kurve verbiegen duerfen. 0.15 heisst: die
-  // Abstimmung kann die Zielenergie um hoechstens +/- 0.15 verschieben.
-  // Damit bleibt der Abend in deiner Hand, aber die Gaeste merken ihren Einfluss.
-  stimmenEinfluss: 0.15,
-
-  // ------------------------------------------------------------------
-  // Mischen
-  // ------------------------------------------------------------------
-  mix: {
-    // Laenge eines Uebergangs in Beats. 32 Beats sind bei 128 BPM 15 Sekunden.
-    uebergangBeats: 32,
-    // Wie weit das Tempo eines Tracks gezogen werden darf, bevor es unnatuerlich
-    // klingt. 0.06 = +/- 6 Prozent. Darueber wird nicht mehr angeglichen.
-    tempoToleranz: 0.06,
-    // Zielkorridor beim Aussuchen: naechster Track darf so weit vom aktuellen
-    // Tempo abweichen, sonst faellt er raus.
-    bpmFenster: 0.1,
-    // Wie viele Tracks ein gespielter Titel gesperrt bleibt.
-    sperreNachTracks: 25,
-  },
-
-  // ------------------------------------------------------------------
-  // Klangqualitaet
-  // ------------------------------------------------------------------
-  // Jeder Track bekommt beim Einlesen eine gemessene Note (siehe
-  // einlesen/qualitaet.mjs). Statt schwaechere Aufnahmen auszusortieren,
-  // setzen wir sie dort ein, wo sie nicht auffallen: Um 21 Uhr bei halber
-  // Lautstaerke hoert man einen 16-kHz-Abbruch, um zwei Uhr im vollen Raum
-  // niemand mehr. So bleibt ein YouTube-Wunsch spielbar, ohne dass er den
-  // aufmerksamen Teil des Abends kostet.
-  klang: {
-    // Ab dieser Note gilt ein Track als einwandfrei und laeuft immer.
-    guteNote: 0.85,
-    // Wie viel Zielenergie ein gerade noch zugelassener Track braucht.
-    maxAnforderung: 0.75,
-    // Wie stark die Note bei sonst gleicher Passung den Ausschlag gibt.
-    gewicht: 0.1,
-    // Tracks ohne Messung (aelteres Material) werden so bewertet.
-    annahmeOhneMessung: 0.8,
-  },
-
-  // ------------------------------------------------------------------
-  // Abstimmung
-  // ------------------------------------------------------------------
-  abstimmung: {
-    // Hoechstens jeder n-te Track ist ein Gaestewunsch. Der Rest kommt vom
-    // Autopilot. Sonst zerlegt der erste Gast mit Handy den ganzen Abend.
-    wunschJederNteTrack: 3,
-    // Wie lange eine Richtungsstimme (chilliger/haerter) zaehlt, in Minuten.
-    stimmeGiltMinuten: 20,
-    // Wie viele offene Wuensche ein Geraet gleichzeitig haben darf.
-    wuenscheProGeraet: 2,
-  },
-};
-
-// Interpoliert die Zielenergie fuer einen Zeitpunkt aus der Kurve.
-// `minuten` sind Minuten seit Mitternacht, Werte ueber 24h erlaubt.
-function zielenergie(minuten, kurve = konfiguration.energiekurve) {
-  const punkte = kurve.map((p) => ({
-    minuten: inMinuten(p.zeit),
-    energie: p.energie,
-  }));
-
-  if (minuten <= punkte[0].minuten) return punkte[0].energie;
-  const letzter = punkte[punkte.length - 1];
-  if (minuten >= letzter.minuten) return letzter.energie;
-
-  for (let i = 0; i < punkte.length - 1; i++) {
-    const a = punkte[i];
-    const b = punkte[i + 1];
-    if (minuten >= a.minuten && minuten <= b.minuten) {
-      const anteil = (minuten - a.minuten) / (b.minuten - a.minuten);
-      return a.energie + anteil * (b.energie - a.energie);
-    }
-  }
-  return letzter.energie;
-}
-
-// '25:30' -> 1530. Stunden ueber 24 sind erlaubt und meinen den Folgetag.
-function inMinuten(zeit) {
-  const [h, m] = zeit.split(':').map(Number);
-  return h * 60 + m;
-}
-
-// Jetzt als Minuten seit Mitternacht - nach 24 Uhr wird weitergezaehlt, solange
-// es vor 10 Uhr morgens ist. Damit passt die Kurve ueber den Tageswechsel.
-function jetztInMinuten(datum = new Date()) {
-  const minuten = datum.getHours() * 60 + datum.getMinutes();
-  return datum.getHours() < 10 ? minuten + 24 * 60 : minuten;
-}
-
-
 // ===== public/gemeinsam/takt.js =====
 // Die Rechnerei hinter jedem Uebergang: Wo ist die naechste Phrasengrenze, wann
 // faellt Beat Nummer n, und wie weit darf ich am Tempo drehen?
@@ -814,275 +752,6 @@ function kontextZeitVonBeat(deck, beatNr) {
 // Umgekehrt: Wo steht ein laufendes Deck jetzt in seiner Datei?
 function stelleInDatei(deck, kontextZeit) {
   return deck.startInDatei + (kontextZeit - deck.startZeit) * deck.tempo;
-}
-
-
-// ===== public/gemeinsam/zustand.js =====
-// Der Zustand des Abends. Bewusst nur im Arbeitsspeicher: Wenn der Server neu
-// startet, faengt der Abend halt neu an - das ist in vier Stunden Party
-// verschmerzbar und spart eine Datenbank, die auf einer Laptop-Party nur
-// kaputtgehen kann.
-
-
-const zustand = {
-  // Was gerade laeuft, gemeldet von der Buehne.
-  laeuft: null, // { id, titel, interpret, bpm, energie, dauer, begonnen }
-  alsNaechstes: null,
-
-  // Reihenfolge der bereits gespielten Track-IDs, neuester zuletzt.
-  gespielt: [],
-
-  // trackId -> { stimmen: Set<geraetId>, erstellt: ms }
-  wuensche: new Map(),
-
-  // Richtungsstimmen: { geraetId, richtung: 'chilliger'|'haerter', zeit: ms }
-  richtungen: [],
-
-  // Zaehler, damit nicht jeder Track ein Gaestewunsch ist.
-  seitLetztemWunsch: 99,
-
-  // Handbetrieb: setzt der Gastgeber das, ignoriert der Autopilot die Kurve.
-  handEnergie: null,
-};
-
-// --- Richtungsstimmen -----------------------------------------------------
-
-// Nur Stimmen aus dem Zeitfenster zaehlen. Aeltere fallen still raus, damit
-// die Stimmung von vor zwei Stunden nicht den Rest des Abends bestimmt.
-function frischeRichtungen(jetzt = Date.now()) {
-  const fenster = konfiguration.abstimmung.stimmeGiltMinuten * 60_000;
-  zustand.richtungen = zustand.richtungen.filter((r) => jetzt - r.zeit < fenster);
-  return zustand.richtungen;
-}
-
-// Verschiebung der Zielenergie durch die Gaeste, begrenzt auf stimmenEinfluss.
-function stimmenVerschiebung(jetzt = Date.now()) {
-  const stimmen = frischeRichtungen(jetzt);
-  if (stimmen.length === 0) return 0;
-
-  // Pro Geraet zaehlt nur die letzte Stimme - sonst gewinnt, wer am meisten tippt.
-  const jeGeraet = new Map();
-  for (const s of stimmen) jeGeraet.set(s.geraetId, s.richtung);
-
-  let summe = 0;
-  for (const richtung of jeGeraet.values()) {
-    summe += richtung === 'haerter' ? 1 : -1;
-  }
-
-  // Der Ausschlag waechst mit der Einigkeit, nicht mit der reinen Anzahl:
-  // 8 von 10 fuer haerter wiegt schwerer als 8 von 30.
-  const anteil = summe / jeGeraet.size;
-  return anteil * konfiguration.stimmenEinfluss;
-}
-
-// Die Zielenergie, an der sich die Auswahl orientiert.
-function aktuelleZielenergie(jetzt = Date.now()) {
-  if (zustand.handEnergie !== null) return zustand.handEnergie;
-  const basis = zielenergie(jetztInMinuten(new Date(jetzt)));
-  const roh = basis + stimmenVerschiebung(jetzt);
-  return Math.min(1, Math.max(0, roh));
-}
-
-// --- Wuensche -------------------------------------------------------------
-
-function wunschEintragen(trackId, geraetId) {
-  let wunsch = zustand.wuensche.get(trackId);
-  if (!wunsch) {
-    wunsch = { stimmen: new Set(), erstellt: Date.now() };
-    zustand.wuensche.set(trackId, wunsch);
-  }
-  wunsch.stimmen.add(geraetId);
-  return wunsch;
-}
-
-function wunschZuruecknehmen(trackId, geraetId) {
-  const wunsch = zustand.wuensche.get(trackId);
-  if (!wunsch) return;
-  wunsch.stimmen.delete(geraetId);
-  if (wunsch.stimmen.size === 0) zustand.wuensche.delete(trackId);
-}
-
-// Wie viele offene Wuensche ein Geraet gerade traegt.
-function wuenscheVon(geraetId) {
-  let anzahl = 0;
-  for (const wunsch of zustand.wuensche.values()) {
-    if (wunsch.stimmen.has(geraetId)) anzahl++;
-  }
-  return anzahl;
-}
-
-// Wuensche nach Stimmen sortiert, bereits Gespieltes faellt raus.
-function wunschliste() {
-  const gespielt = new Set(zustand.gespielt);
-  return [...zustand.wuensche.entries()]
-    .filter(([id]) => !gespielt.has(id))
-    .map(([id, w]) => ({ id, stimmen: w.stimmen.size, erstellt: w.erstellt }))
-    .sort((a, b) => b.stimmen - a.stimmen || a.erstellt - b.erstellt);
-}
-
-function alsGespieltVermerken(trackId) {
-  zustand.gespielt.push(trackId);
-  zustand.wuensche.delete(trackId);
-}
-
-
-// ===== public/gemeinsam/auswahl.js =====
-// Wer kommt als naechstes? Diese Datei ist der eigentliche DJ-Kopf.
-//
-// Grundsatz: Es wird *immer* ein Track zurueckgegeben. Stille ist auf einer
-// Party der einzige echte Fehler, den dieses System machen kann. Lieber ein
-// mittelmaessiger Uebergang als drei Sekunden nichts.
-
-
-// Gewichte der Bewertung. Energie dominiert, weil sie den Bogen des Abends
-// traegt; das Tempo ist eher Handwerk und wird beim Mischen ohnehin angeglichen.
-const GEWICHT = {
-  energie: 0.5,
-  tempo: 0.25,
-  frische: 0.15,
-  stimmen: 0.1,
-};
-
-// Ab welcher Zielenergie ein Track mit dieser Note ueberhaupt in Frage kommt.
-// Der laute Raum spaeter am Abend deckt zu, was um neun aufgefallen waere.
-function benoetigteEnergie(note) {
-  const { guteNote, maxAnforderung, annahmeOhneMessung } = konfiguration.klang;
-  const wert = typeof note === 'number' ? note : annahmeOhneMessung;
-  if (wert >= guteNote) return 0;
-  const spanne = guteNote - 0.35; // 0.35 ist die Untergrenze beim Einlesen
-  const wieSchlecht = Math.min(1, (guteNote - wert) / spanne);
-  return wieSchlecht * maxAnforderung;
-}
-
-function naechsterTrack(bibliothek, aktuellerBpm = null) {
-  if (!bibliothek || bibliothek.length === 0) return null;
-
-  const ziel = aktuelleZielenergie();
-  const gesperrt = neulichGespielt();
-
-  // 1. Darf ein Gaestewunsch dran? -----------------------------------------
-  const wunsch = faelligerWunsch(bibliothek, aktuellerBpm, gesperrt, ziel);
-  if (wunsch) {
-    zustand.seitLetztemWunsch = 0;
-    return { track: wunsch, grund: 'wunsch', ziel };
-  }
-
-  // 2. Sonst entscheidet die Bewertung --------------------------------------
-  // Ist nach Sperre und Qualitaetsschranke nichts mehr uebrig, muss eine der
-  // beiden fallen. Welche, haengt vom Raum ab: Im leisen Raum hoert man eine
-  // dumpfe Aufnahme sofort, eine Wiederholung nach anderthalb Stunden kaum.
-  // Spaeter ist es umgekehrt - da faellt Wiederholung auf und Dumpfheit geht
-  // im Pegel unter.
-  const frei = bibliothek.filter((t) => !gesperrt.has(t.id));
-  const hoerbar = frei.filter((t) => benoetigteEnergie(t.note) <= ziel + 1e-6);
-
-  let menge = hoerbar;
-  if (menge.length === 0) {
-    const leiserRaum = ziel < 0.5;
-    const trotzSperre = bibliothek.filter((t) => benoetigteEnergie(t.note) <= ziel + 1e-6);
-    menge = leiserRaum
-      ? // Qualitaet halten, Wiederholung in Kauf nehmen.
-        (trotzSperre.length > 0 ? trotzSperre : frei)
-      : // Frische halten, dumpferes Material zulassen.
-        (frei.length > 0 ? frei : trotzSperre);
-  }
-  if (menge.length === 0) menge = bibliothek;
-
-  const stimmen = stimmenNachTrack();
-  let bester = null;
-  let besteBewertung = -Infinity;
-
-  for (const track of menge) {
-    const bewertung =
-      GEWICHT.energie * energiePassung(track.energie, ziel) +
-      GEWICHT.tempo * tempoPassung(track.bpm, aktuellerBpm) +
-      GEWICHT.frische * frische(track.id) +
-      GEWICHT.stimmen * (stimmen.get(track.id) ?? 0) +
-      // Bei sonst gleicher Passung gewinnt die bessere Aufnahme.
-      konfiguration.klang.gewicht * (track.note ?? konfiguration.klang.annahmeOhneMessung) +
-      // Ein Hauch Zufall, damit zwei aehnliche Abende nicht identisch klingen
-      // und der Autopilot nicht immer denselben Lieblingstrack zieht.
-      Math.random() * 0.05;
-
-    if (bewertung > besteBewertung) {
-      besteBewertung = bewertung;
-      bester = track;
-    }
-  }
-
-  zustand.seitLetztemWunsch++;
-  return { track: bester, grund: 'autopilot', ziel };
-}
-
-// --- Teilbewertungen ------------------------------------------------------
-
-// 1 bei perfekter Passung, 0 bei maximalem Abstand.
-function energiePassung(energie, ziel) {
-  if (typeof energie !== 'number') return 0.5;
-  return 1 - Math.abs(energie - ziel);
-}
-
-// Innerhalb des Fensters voll, ausserhalb faellt es steil ab. Ohne laufenden
-// Track ist jedes Tempo recht.
-function tempoPassung(bpm, aktuellerBpm) {
-  if (!aktuellerBpm || !bpm) return 1;
-  const abweichung = Math.abs(bpm - aktuellerBpm) / aktuellerBpm;
-  const fenster = konfiguration.mix.bpmFenster;
-  if (abweichung <= fenster) return 1 - abweichung / fenster / 4;
-
-  // Halbes oder doppeltes Tempo passt musikalisch oft trotzdem (128 zu 64).
-  const halb = Math.abs(bpm * 2 - aktuellerBpm) / aktuellerBpm;
-  const doppelt = Math.abs(bpm / 2 - aktuellerBpm) / aktuellerBpm;
-  if (Math.min(halb, doppelt) <= fenster) return 0.6;
-
-  return Math.max(0, 1 - abweichung * 3);
-}
-
-// 1, wenn der Track heute noch nicht lief.
-function frische(id) {
-  const stelle = zustand.gespielt.lastIndexOf(id);
-  if (stelle === -1) return 1;
-  const her = zustand.gespielt.length - stelle;
-  return Math.min(1, her / (konfiguration.mix.sperreNachTracks * 2));
-}
-
-function neulichGespielt() {
-  return new Set(zustand.gespielt.slice(-konfiguration.mix.sperreNachTracks));
-}
-
-// Stimmen auf 0..1 normiert, damit ein Track mit 8 Stimmen nicht alles kippt.
-function stimmenNachTrack() {
-  const liste = wunschliste();
-  const karte = new Map();
-  if (liste.length === 0) return karte;
-  const hoechste = liste[0].stimmen || 1;
-  for (const eintrag of liste) {
-    karte.set(eintrag.id, eintrag.stimmen / hoechste);
-  }
-  return karte;
-}
-
-// --- Gaestewuensche -------------------------------------------------------
-
-// Der meistgewaehlte Wunsch, aber nur wenn er dran ist und tempomaessig nicht
-// voellig aus dem Rahmen faellt. Ein Wunsch, der den Abend zerlegt, wartet auf
-// den naechsten passenden Moment statt abgelehnt zu werden.
-function faelligerWunsch(bibliothek, aktuellerBpm, gesperrt, ziel) {
-  if (zustand.seitLetztemWunsch < konfiguration.abstimmung.wunschJederNteTrack) {
-    return null;
-  }
-
-  const nachId = new Map(bibliothek.map((t) => [t.id, t]));
-  for (const eintrag of wunschliste()) {
-    const track = nachId.get(eintrag.id);
-    if (!track || gesperrt.has(track.id)) continue;
-    if (tempoPassung(track.bpm, aktuellerBpm) < 0.5) continue;
-    // Ein dumpfer YouTube-Wunsch wird nicht abgelehnt, sondern wartet auf den
-    // lauten Teil des Abends. Der Gast bekommt ihn - nur eben spaeter.
-    if (benoetigteEnergie(track.note) > ziel + 1e-6) continue;
-    return track;
-  }
-  return null;
 }
 
 
@@ -1323,13 +992,31 @@ class Deck {
 
     this.quelle = quelle;
     this.track = track;
+    this.geplanterAnker = null;
     this.startZeit = zeit;
     this.startInDatei = startInDatei;
     this.tempo = tempo;
     this.laeuft = true;
   }
 
+  // Eine Verankerung, die erst spaeter gilt. Ein Loop-Roll wiederholt Material,
+  // also laufen Musikzeit und Dateizeit auseinander; ab dem Zielbeat stimmt
+  // beides wieder, und genau dann wird umgehaengt.
+  verankernAb(abZeit, startZeit, startInDatei) {
+    this.geplanterAnker = { abZeit, startZeit, startInDatei };
+  }
+
+  ankerPruefen() {
+    const geplant = this.geplanterAnker;
+    if (geplant && this.ctx.currentTime >= geplant.abZeit) {
+      this.startZeit = geplant.startZeit;
+      this.startInDatei = geplant.startInDatei;
+      this.geplanterAnker = null;
+    }
+  }
+
   stoppen(zeit) {
+    this.geplanterAnker = null;
     if (!this.quelle) return;
     try {
       this.quelle.stop(zeit);
@@ -1343,6 +1030,7 @@ class Deck {
   // Wo steht das Deck jetzt in seiner Datei?
   stelle(jetzt = this.ctx.currentTime) {
     if (!this.laeuft) return 0;
+    this.ankerPruefen();
     return stelleInDatei(this, jetzt);
   }
 
@@ -1906,6 +1594,398 @@ function weich(wert) {
 }
 
 
+// ===== public/gemeinsam/konfiguration.js =====
+// Alles, was du vor der Party einstellst, steht hier. Eine Datei, damit du am
+// Abend nicht im Code suchen musst.
+
+const konfiguration = {
+  // Wie der Abend heisst - steht gross auf dem Monitor.
+  anlass: '30. Geburtstag',
+
+  // Port des Servers. Gaeste erreichen die Abstimmung unter
+  // http://<IP-des-Laptops>:<port>/p
+  port: 3000,
+
+  // Ordner mit deinen Musikdateien (relativ zum Projekt oder absolut).
+  musikOrdner: './musik',
+
+  // ------------------------------------------------------------------
+  // Die Energiekurve: das Herzstueck. Erst chillig, spaeter haerter.
+  // ------------------------------------------------------------------
+  // Uhrzeit -> Zielenergie zwischen 0 (Ambient) und 1 (Brett).
+  // Dazwischen wird linear interpoliert. Zeiten nach Mitternacht einfach
+  // weiterzaehlen (25:00 = 1 Uhr nachts), dann gibt es keine Sprungstelle.
+  energiekurve: [
+    { zeit: '19:00', energie: 0.15 }, // Ankommen, Reden muss moeglich sein
+    { zeit: '21:00', energie: 0.35 }, // Es fuellt sich
+    { zeit: '22:30', energie: 0.55 }, // Erste tanzen
+    { zeit: '24:00', energie: 0.75 }, // Der Laden laeuft
+    { zeit: '25:30', energie: 0.9 }, // Haerter
+    { zeit: '27:00', energie: 0.8 }, // Auslaufen
+    { zeit: '28:00', energie: 0.5 },
+  ],
+
+  // Wie stark die Gaeste die Kurve verbiegen duerfen. 0.15 heisst: die
+  // Abstimmung kann die Zielenergie um hoechstens +/- 0.15 verschieben.
+  // Damit bleibt der Abend in deiner Hand, aber die Gaeste merken ihren Einfluss.
+  stimmenEinfluss: 0.15,
+
+  // ------------------------------------------------------------------
+  // Mischen
+  // ------------------------------------------------------------------
+  mix: {
+    // Laenge eines Uebergangs in Beats. 32 Beats sind bei 128 BPM 15 Sekunden.
+    uebergangBeats: 32,
+    // Wie weit das Tempo eines Tracks gezogen werden darf, bevor es unnatuerlich
+    // klingt. 0.06 = +/- 6 Prozent. Darueber wird nicht mehr angeglichen.
+    tempoToleranz: 0.06,
+    // Zielkorridor beim Aussuchen: naechster Track darf so weit vom aktuellen
+    // Tempo abweichen, sonst faellt er raus.
+    bpmFenster: 0.1,
+    // Wie viele Tracks ein gespielter Titel gesperrt bleibt.
+    sperreNachTracks: 25,
+  },
+
+  // ------------------------------------------------------------------
+  // Klangqualitaet
+  // ------------------------------------------------------------------
+  // Jeder Track bekommt beim Einlesen eine gemessene Note (siehe
+  // einlesen/qualitaet.mjs). Statt schwaechere Aufnahmen auszusortieren,
+  // setzen wir sie dort ein, wo sie nicht auffallen: Um 21 Uhr bei halber
+  // Lautstaerke hoert man einen 16-kHz-Abbruch, um zwei Uhr im vollen Raum
+  // niemand mehr. So bleibt ein YouTube-Wunsch spielbar, ohne dass er den
+  // aufmerksamen Teil des Abends kostet.
+  klang: {
+    // Ab dieser Note gilt ein Track als einwandfrei und laeuft immer.
+    guteNote: 0.85,
+    // Wie viel Zielenergie ein gerade noch zugelassener Track braucht.
+    maxAnforderung: 0.75,
+    // Wie stark die Note bei sonst gleicher Passung den Ausschlag gibt.
+    gewicht: 0.1,
+    // Tracks ohne Messung (aelteres Material) werden so bewertet.
+    annahmeOhneMessung: 0.8,
+  },
+
+  // ------------------------------------------------------------------
+  // Abstimmung
+  // ------------------------------------------------------------------
+  abstimmung: {
+    // Hoechstens jeder n-te Track ist ein Gaestewunsch. Der Rest kommt vom
+    // Autopilot. Sonst zerlegt der erste Gast mit Handy den ganzen Abend.
+    wunschJederNteTrack: 3,
+    // Wie lange eine Richtungsstimme (chilliger/haerter) zaehlt, in Minuten.
+    stimmeGiltMinuten: 20,
+    // Wie viele offene Wuensche ein Geraet gleichzeitig haben darf.
+    wuenscheProGeraet: 2,
+  },
+};
+
+// Interpoliert die Zielenergie fuer einen Zeitpunkt aus der Kurve.
+// `minuten` sind Minuten seit Mitternacht, Werte ueber 24h erlaubt.
+function zielenergie(minuten, kurve = konfiguration.energiekurve) {
+  const punkte = kurve.map((p) => ({
+    minuten: inMinuten(p.zeit),
+    energie: p.energie,
+  }));
+
+  if (minuten <= punkte[0].minuten) return punkte[0].energie;
+  const letzter = punkte[punkte.length - 1];
+  if (minuten >= letzter.minuten) return letzter.energie;
+
+  for (let i = 0; i < punkte.length - 1; i++) {
+    const a = punkte[i];
+    const b = punkte[i + 1];
+    if (minuten >= a.minuten && minuten <= b.minuten) {
+      const anteil = (minuten - a.minuten) / (b.minuten - a.minuten);
+      return a.energie + anteil * (b.energie - a.energie);
+    }
+  }
+  return letzter.energie;
+}
+
+// '25:30' -> 1530. Stunden ueber 24 sind erlaubt und meinen den Folgetag.
+function inMinuten(zeit) {
+  const [h, m] = zeit.split(':').map(Number);
+  return h * 60 + m;
+}
+
+// Jetzt als Minuten seit Mitternacht - nach 24 Uhr wird weitergezaehlt, solange
+// es vor 10 Uhr morgens ist. Damit passt die Kurve ueber den Tageswechsel.
+function jetztInMinuten(datum = new Date()) {
+  const minuten = datum.getHours() * 60 + datum.getMinutes();
+  return datum.getHours() < 10 ? minuten + 24 * 60 : minuten;
+}
+
+
+// ===== public/gemeinsam/zustand.js =====
+// Der Zustand des Abends. Bewusst nur im Arbeitsspeicher: Wenn der Server neu
+// startet, faengt der Abend halt neu an - das ist in vier Stunden Party
+// verschmerzbar und spart eine Datenbank, die auf einer Laptop-Party nur
+// kaputtgehen kann.
+
+
+const zustand = {
+  // Was gerade laeuft, gemeldet von der Buehne.
+  laeuft: null, // { id, titel, interpret, bpm, energie, dauer, begonnen }
+  alsNaechstes: null,
+
+  // Reihenfolge der bereits gespielten Track-IDs, neuester zuletzt.
+  gespielt: [],
+
+  // trackId -> { stimmen: Set<geraetId>, erstellt: ms }
+  wuensche: new Map(),
+
+  // Richtungsstimmen: { geraetId, richtung: 'chilliger'|'haerter', zeit: ms }
+  richtungen: [],
+
+  // Zaehler, damit nicht jeder Track ein Gaestewunsch ist.
+  seitLetztemWunsch: 99,
+
+  // Handbetrieb: setzt der Gastgeber das, ignoriert der Autopilot die Kurve.
+  handEnergie: null,
+};
+
+// --- Richtungsstimmen -----------------------------------------------------
+
+// Nur Stimmen aus dem Zeitfenster zaehlen. Aeltere fallen still raus, damit
+// die Stimmung von vor zwei Stunden nicht den Rest des Abends bestimmt.
+function frischeRichtungen(jetzt = Date.now()) {
+  const fenster = konfiguration.abstimmung.stimmeGiltMinuten * 60_000;
+  zustand.richtungen = zustand.richtungen.filter((r) => jetzt - r.zeit < fenster);
+  return zustand.richtungen;
+}
+
+// Verschiebung der Zielenergie durch die Gaeste, begrenzt auf stimmenEinfluss.
+function stimmenVerschiebung(jetzt = Date.now()) {
+  const stimmen = frischeRichtungen(jetzt);
+  if (stimmen.length === 0) return 0;
+
+  // Pro Geraet zaehlt nur die letzte Stimme - sonst gewinnt, wer am meisten tippt.
+  const jeGeraet = new Map();
+  for (const s of stimmen) jeGeraet.set(s.geraetId, s.richtung);
+
+  let summe = 0;
+  for (const richtung of jeGeraet.values()) {
+    summe += richtung === 'haerter' ? 1 : -1;
+  }
+
+  // Der Ausschlag waechst mit der Einigkeit, nicht mit der reinen Anzahl:
+  // 8 von 10 fuer haerter wiegt schwerer als 8 von 30.
+  const anteil = summe / jeGeraet.size;
+  return anteil * konfiguration.stimmenEinfluss;
+}
+
+// Die Zielenergie, an der sich die Auswahl orientiert.
+function aktuelleZielenergie(jetzt = Date.now()) {
+  if (zustand.handEnergie !== null) return zustand.handEnergie;
+  const basis = zielenergie(jetztInMinuten(new Date(jetzt)));
+  const roh = basis + stimmenVerschiebung(jetzt);
+  return Math.min(1, Math.max(0, roh));
+}
+
+// --- Wuensche -------------------------------------------------------------
+
+function wunschEintragen(trackId, geraetId) {
+  let wunsch = zustand.wuensche.get(trackId);
+  if (!wunsch) {
+    wunsch = { stimmen: new Set(), erstellt: Date.now() };
+    zustand.wuensche.set(trackId, wunsch);
+  }
+  wunsch.stimmen.add(geraetId);
+  return wunsch;
+}
+
+function wunschZuruecknehmen(trackId, geraetId) {
+  const wunsch = zustand.wuensche.get(trackId);
+  if (!wunsch) return;
+  wunsch.stimmen.delete(geraetId);
+  if (wunsch.stimmen.size === 0) zustand.wuensche.delete(trackId);
+}
+
+// Wie viele offene Wuensche ein Geraet gerade traegt.
+function wuenscheVon(geraetId) {
+  let anzahl = 0;
+  for (const wunsch of zustand.wuensche.values()) {
+    if (wunsch.stimmen.has(geraetId)) anzahl++;
+  }
+  return anzahl;
+}
+
+// Wuensche nach Stimmen sortiert, bereits Gespieltes faellt raus.
+function wunschliste() {
+  const gespielt = new Set(zustand.gespielt);
+  return [...zustand.wuensche.entries()]
+    .filter(([id]) => !gespielt.has(id))
+    .map(([id, w]) => ({ id, stimmen: w.stimmen.size, erstellt: w.erstellt }))
+    .sort((a, b) => b.stimmen - a.stimmen || a.erstellt - b.erstellt);
+}
+
+function alsGespieltVermerken(trackId) {
+  zustand.gespielt.push(trackId);
+  zustand.wuensche.delete(trackId);
+}
+
+
+// ===== public/gemeinsam/auswahl.js =====
+// Wer kommt als naechstes? Diese Datei ist der eigentliche DJ-Kopf.
+//
+// Grundsatz: Es wird *immer* ein Track zurueckgegeben. Stille ist auf einer
+// Party der einzige echte Fehler, den dieses System machen kann. Lieber ein
+// mittelmaessiger Uebergang als drei Sekunden nichts.
+
+
+// Gewichte der Bewertung. Energie dominiert, weil sie den Bogen des Abends
+// traegt; das Tempo ist eher Handwerk und wird beim Mischen ohnehin angeglichen.
+const GEWICHT = {
+  energie: 0.5,
+  tempo: 0.25,
+  frische: 0.15,
+  stimmen: 0.1,
+};
+
+// Ab welcher Zielenergie ein Track mit dieser Note ueberhaupt in Frage kommt.
+// Der laute Raum spaeter am Abend deckt zu, was um neun aufgefallen waere.
+function benoetigteEnergie(note) {
+  const { guteNote, maxAnforderung, annahmeOhneMessung } = konfiguration.klang;
+  const wert = typeof note === 'number' ? note : annahmeOhneMessung;
+  if (wert >= guteNote) return 0;
+  const spanne = guteNote - 0.35; // 0.35 ist die Untergrenze beim Einlesen
+  const wieSchlecht = Math.min(1, (guteNote - wert) / spanne);
+  return wieSchlecht * maxAnforderung;
+}
+
+function naechsterTrack(bibliothek, aktuellerBpm = null) {
+  if (!bibliothek || bibliothek.length === 0) return null;
+
+  const ziel = aktuelleZielenergie();
+  const gesperrt = neulichGespielt();
+
+  // 1. Darf ein Gaestewunsch dran? -----------------------------------------
+  const wunsch = faelligerWunsch(bibliothek, aktuellerBpm, gesperrt, ziel);
+  if (wunsch) {
+    zustand.seitLetztemWunsch = 0;
+    return { track: wunsch, grund: 'wunsch', ziel };
+  }
+
+  // 2. Sonst entscheidet die Bewertung --------------------------------------
+  // Ist nach Sperre und Qualitaetsschranke nichts mehr uebrig, muss eine der
+  // beiden fallen. Welche, haengt vom Raum ab: Im leisen Raum hoert man eine
+  // dumpfe Aufnahme sofort, eine Wiederholung nach anderthalb Stunden kaum.
+  // Spaeter ist es umgekehrt - da faellt Wiederholung auf und Dumpfheit geht
+  // im Pegel unter.
+  const frei = bibliothek.filter((t) => !gesperrt.has(t.id));
+  const hoerbar = frei.filter((t) => benoetigteEnergie(t.note) <= ziel + 1e-6);
+
+  let menge = hoerbar;
+  if (menge.length === 0) {
+    const leiserRaum = ziel < 0.5;
+    const trotzSperre = bibliothek.filter((t) => benoetigteEnergie(t.note) <= ziel + 1e-6);
+    menge = leiserRaum
+      ? // Qualitaet halten, Wiederholung in Kauf nehmen.
+        (trotzSperre.length > 0 ? trotzSperre : frei)
+      : // Frische halten, dumpferes Material zulassen.
+        (frei.length > 0 ? frei : trotzSperre);
+  }
+  if (menge.length === 0) menge = bibliothek;
+
+  const stimmen = stimmenNachTrack();
+  let bester = null;
+  let besteBewertung = -Infinity;
+
+  for (const track of menge) {
+    const bewertung =
+      GEWICHT.energie * energiePassung(track.energie, ziel) +
+      GEWICHT.tempo * tempoPassung(track.bpm, aktuellerBpm) +
+      GEWICHT.frische * frische(track.id) +
+      GEWICHT.stimmen * (stimmen.get(track.id) ?? 0) +
+      // Bei sonst gleicher Passung gewinnt die bessere Aufnahme.
+      konfiguration.klang.gewicht * (track.note ?? konfiguration.klang.annahmeOhneMessung) +
+      // Ein Hauch Zufall, damit zwei aehnliche Abende nicht identisch klingen
+      // und der Autopilot nicht immer denselben Lieblingstrack zieht.
+      Math.random() * 0.05;
+
+    if (bewertung > besteBewertung) {
+      besteBewertung = bewertung;
+      bester = track;
+    }
+  }
+
+  zustand.seitLetztemWunsch++;
+  return { track: bester, grund: 'autopilot', ziel };
+}
+
+// --- Teilbewertungen ------------------------------------------------------
+
+// 1 bei perfekter Passung, 0 bei maximalem Abstand.
+function energiePassung(energie, ziel) {
+  if (typeof energie !== 'number') return 0.5;
+  return 1 - Math.abs(energie - ziel);
+}
+
+// Innerhalb des Fensters voll, ausserhalb faellt es steil ab. Ohne laufenden
+// Track ist jedes Tempo recht.
+function tempoPassung(bpm, aktuellerBpm) {
+  if (!aktuellerBpm || !bpm) return 1;
+  const abweichung = Math.abs(bpm - aktuellerBpm) / aktuellerBpm;
+  const fenster = konfiguration.mix.bpmFenster;
+  if (abweichung <= fenster) return 1 - abweichung / fenster / 4;
+
+  // Halbes oder doppeltes Tempo passt musikalisch oft trotzdem (128 zu 64).
+  const halb = Math.abs(bpm * 2 - aktuellerBpm) / aktuellerBpm;
+  const doppelt = Math.abs(bpm / 2 - aktuellerBpm) / aktuellerBpm;
+  if (Math.min(halb, doppelt) <= fenster) return 0.6;
+
+  return Math.max(0, 1 - abweichung * 3);
+}
+
+// 1, wenn der Track heute noch nicht lief.
+function frische(id) {
+  const stelle = zustand.gespielt.lastIndexOf(id);
+  if (stelle === -1) return 1;
+  const her = zustand.gespielt.length - stelle;
+  return Math.min(1, her / (konfiguration.mix.sperreNachTracks * 2));
+}
+
+function neulichGespielt() {
+  return new Set(zustand.gespielt.slice(-konfiguration.mix.sperreNachTracks));
+}
+
+// Stimmen auf 0..1 normiert, damit ein Track mit 8 Stimmen nicht alles kippt.
+function stimmenNachTrack() {
+  const liste = wunschliste();
+  const karte = new Map();
+  if (liste.length === 0) return karte;
+  const hoechste = liste[0].stimmen || 1;
+  for (const eintrag of liste) {
+    karte.set(eintrag.id, eintrag.stimmen / hoechste);
+  }
+  return karte;
+}
+
+// --- Gaestewuensche -------------------------------------------------------
+
+// Der meistgewaehlte Wunsch, aber nur wenn er dran ist und tempomaessig nicht
+// voellig aus dem Rahmen faellt. Ein Wunsch, der den Abend zerlegt, wartet auf
+// den naechsten passenden Moment statt abgelehnt zu werden.
+function faelligerWunsch(bibliothek, aktuellerBpm, gesperrt, ziel) {
+  if (zustand.seitLetztemWunsch < konfiguration.abstimmung.wunschJederNteTrack) {
+    return null;
+  }
+
+  const nachId = new Map(bibliothek.map((t) => [t.id, t]));
+  for (const eintrag of wunschliste()) {
+    const track = nachId.get(eintrag.id);
+    if (!track || gesperrt.has(track.id)) continue;
+    if (tempoPassung(track.bpm, aktuellerBpm) < 0.5) continue;
+    // Ein dumpfer YouTube-Wunsch wird nicht abgelehnt, sondern wartet auf den
+    // lauten Teil des Abends. Der Gast bekommt ihn - nur eben spaeter.
+    if (benoetigteEnergie(track.note) > ziel + 1e-6) continue;
+    return track;
+  }
+  return null;
+}
+
+
 // ===== public/gemeinsam/leitung.js =====
 // Woher kommt der Zustand - vom Server oder aus dem Browser selbst?
 //
@@ -2114,6 +2194,460 @@ async function leitungSuchen() {
   }
 
   return new EigenLeitung();
+}
+
+
+// ===== public/gemeinsam/visual.js =====
+// Die Visualisierung.
+//
+// Der Unterschied zu jedem gewoehnlichen Visualizer: Dieser hier *weiss, was
+// kommt*. Tempo, Beatraster und die Position des Drops stehen in der Analyse.
+// Also muss er nicht nur auf Lautstaerke zappeln, sondern kann sich aufbauen -
+// sechzehn Takte vor dem Drop zieht sich alles zusammen, und im richtigen
+// Moment platzt es auf. Ein Mensch mit Lichtpult macht genau das.
+//
+// Vier Schichten, von hinten nach vorne:
+//
+//   1. Lava      grosse, langsame Farbblasen. Additiv gezeichnet, damit sie
+//                ineinanderlaufen wie in einer Lampe.
+//   2. Iris      ein Ring in der Mitte, dessen Rand vom Frequenzband verformt
+//                wird. Das Herz des Bildes.
+//   3. Puls      Ringe auf jedem Beat, staerker auf der Eins, am staerksten
+//                auf der Phrasengrenze.
+//   4. Ausbruch  Schockwellen und Funken beim Drop.
+//
+// Nichts davon wiederholt sich exakt: Jeder Track bekommt seine eigene Palette
+// aus seiner Kennung, und die Bewegung laeuft ueber langsames Rauschen, das nie
+// denselben Weg nimmt.
+
+const TAU = Math.PI * 2;
+
+// --- Zufall, der sich wiederholen laesst ----------------------------------
+
+function streuung(startwert) {
+  let z = startwert >>> 0;
+  return () => {
+    z = (z * 1664525 + 1013904223) >>> 0;
+    return z / 4294967296;
+  };
+}
+
+function ausText(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+// Weiches Rauschen ueber die Zeit. Sorgt fuer Bewegung, die driftet statt zu
+// zappeln - der Unterschied zwischen "lebendig" und "nervoes".
+function rauschen(startwert) {
+  const wuerfel = streuung(startwert);
+  const stuetzen = Array.from({ length: 256 }, wuerfel);
+  return (t) => {
+    const i = Math.floor(t);
+    const a = t - i;
+    const v0 = stuetzen[i % 256];
+    const v1 = stuetzen[(i + 1) % 256];
+    // Glatte Ueberblendung, damit keine Knicke entstehen.
+    const s = a * a * (3 - 2 * a);
+    return v0 + (v1 - v0) * s;
+  };
+}
+
+// --- Farben ---------------------------------------------------------------
+
+// Jeder Track bekommt seine eigene Palette, aber keine zufaellige: Der
+// Grundton kommt aus der Kennung, die uebrigen Toene stehen in festen
+// Abstaenden dazu. So sieht jeder Track anders aus und trotzdem nie schlecht.
+function palette(kennung, energie = 0.5) {
+  const wuerfel = streuung(ausText(kennung || 'ohne'));
+  const grundton = Math.floor(wuerfel() * 360);
+  // Mit steigender Energie waermer und gesaettigter.
+  const saettigung = 62 + energie * 30;
+  const helligkeit = 48 + energie * 12;
+
+  return {
+    grundton,
+    toene: [
+      `hsl(${grundton} ${saettigung}% ${helligkeit}%)`,
+      `hsl(${(grundton + 42) % 360} ${saettigung}% ${helligkeit - 6}%)`,
+      `hsl(${(grundton + 318) % 360} ${saettigung - 8}% ${helligkeit + 6}%)`,
+      `hsl(${(grundton + 180) % 360} ${saettigung - 14}% ${helligkeit}%)`,
+    ],
+    hell: `hsl(${grundton} 90% 72%)`,
+  };
+}
+
+// --- Die Visualisierung ---------------------------------------------------
+
+class Visualisierung {
+  constructor(leinwand) {
+    this.leinwand = leinwand;
+    this.stift = leinwand.getContext('2d');
+
+    // Die Lava wird klein gerechnet und gross gezogen. Sie ist ohnehin
+    // unscharf, und ein Viertel der Flaeche ist ein Viertel der Arbeit - das
+    // ist der Unterschied zwischen fluessig und ruckelig auf einem iPad.
+    this.lavaLeinwand = document.createElement('canvas');
+    this.lavaStift = this.lavaLeinwand.getContext('2d');
+
+    this.zeit = 0;
+    this.letzterBeat = -1;
+    this.ringe = [];
+    this.funken = [];
+    this.blasen = [];
+    this.paletten = new Map();
+    this.stossHalt = 0;
+    this.letzterDrop = -1;
+
+    // Drei Rauschquellen, damit sich die Bewegungen nicht synchronisieren.
+    this.n1 = rauschen(7919);
+    this.n2 = rauschen(104729);
+    this.n3 = rauschen(1299709);
+
+    this.masseSetzen();
+  }
+
+  masseSetzen() {
+    const dichte = Math.min(window.devicePixelRatio || 1, 2);
+    this.breite = this.leinwand.clientWidth;
+    this.hoehe = this.leinwand.clientHeight;
+    this.leinwand.width = this.breite * dichte;
+    this.leinwand.height = this.hoehe * dichte;
+    this.stift.setTransform(dichte, 0, 0, dichte, 0, 0);
+
+    this.lavaLeinwand.width = Math.max(1, Math.round(this.breite / 3));
+    this.lavaLeinwand.height = Math.max(1, Math.round(this.hoehe / 3));
+  }
+
+  paletteFuer(track) {
+    if (!track) return palette('leer', 0.3);
+    const schluessel = track.id ?? track.titel ?? 'leer';
+    if (!this.paletten.has(schluessel)) {
+      this.paletten.set(schluessel, palette(schluessel, track.energie ?? 0.5));
+    }
+    return this.paletten.get(schluessel);
+  }
+
+  /**
+   * Ein Bild zeichnen.
+   * @param {object} zustand   Momentaufnahme des Mixers
+   * @param {Uint8Array} spektrum
+   * @param {number} sekunden  Zeit seit dem letzten Bild
+   */
+  zeichne(zustand, spektrum, sekunden) {
+    this.zeit += sekunden;
+    const { stift, breite, hoehe } = this;
+
+    const aktiv = zustand.decks.find((d) => d.aktiv && d.laeuft) ?? zustand.decks[0];
+    const zweit = zustand.decks.find((d) => d !== aktiv && d.laeuft);
+    const uebergang = zustand.uebergang?.fortschritt > 0 ? zustand.uebergang : null;
+
+    const takt = this.taktLage(aktiv);
+    const spannung = this.spannungBis(aktiv, takt);
+    const wucht = this.pegelWucht(spektrum);
+
+    // Beim Drop: alles auf einmal.
+    if (takt && this.dropErreicht(aktiv, takt)) this.ausbruch(spannung);
+    if (takt) this.beatPruefen(takt, wucht);
+
+    stift.clearRect(0, 0, breite, hoehe);
+
+    this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
+    this.irisZeichnen(aktiv, zweit, uebergang, spektrum, takt, spannung, wucht);
+    this.ringeZeichnen(sekunden);
+    this.funkenZeichnen(sekunden);
+    this.spannungZeigen(spannung, aktiv);
+
+    if (this.stossHalt > 0) {
+      // Kurzes Aufblitzen nach dem Drop.
+      stift.globalCompositeOperation = 'lighter';
+      stift.fillStyle = `rgba(255,255,255,${this.stossHalt * 0.5})`;
+      stift.fillRect(0, 0, breite, hoehe);
+      stift.globalCompositeOperation = 'source-over';
+      this.stossHalt = Math.max(0, this.stossHalt - sekunden * 3.5);
+    }
+  }
+
+  // --- Wo stehen wir im Takt? ---------------------------------------------
+
+  taktLage(deck) {
+    if (!deck?.laeuft || !deck.track?.bpm) return null;
+    const beatLaenge = 60 / deck.track.bpm;
+    const beat = (deck.stelle - (deck.track.raster ?? 0)) / beatLaenge;
+    return {
+      beat,
+      // Nachkommastelle: 0 direkt auf dem Schlag, 1 kurz davor.
+      imBeat: beat - Math.floor(beat),
+      nummer: Math.floor(beat),
+      aufEins: Math.floor(beat) % 4 === 0,
+      aufPhrase: Math.floor(beat) % 32 === 0,
+    };
+  }
+
+  // Wie nah ist der naechste Drop? 0 = weit weg, 1 = jetzt gleich.
+  //
+  // Das ist der Wert, der diese Visualisierung von einem Pegelzappler
+  // unterscheidet. Sechzehn Takte vorher fangen wir an, uns zusammenzuziehen.
+  spannungBis(deck, takt) {
+    if (!takt || !deck?.track?.marken?.length) return 0;
+    const drops = deck.track.marken.filter((m) => m.name === 'drop');
+    const kommend = drops.find((m) => m.beat > takt.beat);
+    if (!kommend) return 0;
+
+    const abstand = kommend.beat - takt.beat;
+    const anlauf = 64; // sechzehn Takte
+    if (abstand > anlauf) return 0;
+    const roh = 1 - abstand / anlauf;
+    // Hinten steiler: die letzten Takte sollen sich deutlich anders anfuehlen.
+    return roh * roh;
+  }
+
+  dropErreicht(deck, takt) {
+    const drops = deck.track?.marken?.filter((m) => m.name === 'drop') ?? [];
+    for (const drop of drops) {
+      if (takt.beat >= drop.beat && takt.beat < drop.beat + 1 && this.letzterDrop !== drop.beat) {
+        this.letzterDrop = drop.beat;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  pegelWucht(spektrum) {
+    if (!spektrum) return 0;
+    // Nur das untere Achtel: Bass und Kick tragen die Wucht.
+    let summe = 0;
+    const bis = Math.floor(spektrum.length / 8);
+    for (let i = 0; i < bis; i++) summe += spektrum[i];
+    return Math.min(1, summe / bis / 200);
+  }
+
+  beatPruefen(takt, wucht) {
+    if (takt.nummer === this.letzterBeat) return;
+    this.letzterBeat = takt.nummer;
+
+    const staerke = takt.aufPhrase ? 1 : takt.aufEins ? 0.6 : 0.28;
+    this.ringe.push({
+      radius: 0,
+      staerke: staerke * (0.5 + wucht),
+      tempo: 320 + staerke * 500,
+      dicke: 1 + staerke * 4,
+    });
+    if (this.ringe.length > 24) this.ringe.shift();
+  }
+
+  ausbruch(spannung) {
+    this.stossHalt = 0.5 + spannung * 0.5;
+    // Zwei Schockwellen kurz hintereinander wirken wuchtiger als eine.
+    this.ringe.push({ radius: 0, staerke: 2.2, tempo: 1500, dicke: 10 });
+    this.ringe.push({ radius: 0, staerke: 1.4, tempo: 900, dicke: 5 });
+
+    const mitte = { x: this.breite / 2, y: this.hoehe / 2 };
+    for (let i = 0; i < 90; i++) {
+      const winkel = Math.random() * TAU;
+      const tempo = 200 + Math.random() * 900;
+      this.funken.push({
+        x: mitte.x,
+        y: mitte.y,
+        vx: Math.cos(winkel) * tempo,
+        vy: Math.sin(winkel) * tempo,
+        leben: 0.7 + Math.random() * 0.9,
+        alter: 0,
+      });
+    }
+  }
+
+  // --- Schicht 1: Lava ----------------------------------------------------
+
+  lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht) {
+    const { lavaStift: ls, lavaLeinwand: ll } = this;
+    const b = ll.width;
+    const h = ll.height;
+
+    ls.globalCompositeOperation = 'source-over';
+    ls.fillStyle = '#07070c';
+    ls.fillRect(0, 0, b, h);
+    ls.globalCompositeOperation = 'lighter';
+
+    const paletteA = this.paletteFuer(aktiv?.track);
+    const paletteB = zweit ? this.paletteFuer(zweit.track) : null;
+    const anteilB = uebergang ? uebergang.fortschritt : 0;
+
+    // Beim Aufbau ziehen sich die Blasen zur Mitte und werden kleiner - das
+    // Bild wird enger, bevor es aufreisst.
+    const zug = 1 - spannung * 0.55;
+    const groesse = (0.42 - spannung * 0.14 + wucht * 0.07) * Math.min(b, h);
+
+    const anzahl = 7;
+    for (let i = 0; i < anzahl; i++) {
+      const t = this.zeit * 0.09 + i * 13.7;
+      // Drei Rauschquellen ergeben eine Bahn, die sich nie exakt wiederholt.
+      const x = (0.5 + (this.n1(t) - 0.5) * 1.3 * zug) * b;
+      const y = (0.5 + (this.n2(t + 40) - 0.5) * 1.3 * zug) * h;
+      const r = groesse * (0.55 + this.n3(t + 80) * 0.75);
+
+      // Waehrend eines Uebergangs mischen sich die Paletten beider Tracks -
+      // man sieht, dass zwei Welten uebereinanderliegen, bevor man es hoert.
+      const nimmB = paletteB && (i % 2 === 0 ? anteilB > 0.35 : anteilB > 0.65);
+      const farbe = (nimmB ? paletteB : paletteA).toene[i % 4];
+
+      const verlauf = ls.createRadialGradient(x, y, 0, x, y, r);
+      verlauf.addColorStop(0, farbe);
+      verlauf.addColorStop(0.45, farbe.replace(')', ' / 45%)').replace('hsl(', 'hsl('));
+      verlauf.addColorStop(1, 'transparent');
+      ls.globalAlpha = 0.5 + wucht * 0.35;
+      ls.fillStyle = verlauf;
+      ls.beginPath();
+      ls.arc(x, y, r, 0, TAU);
+      ls.fill();
+    }
+    ls.globalAlpha = 1;
+
+    // Klein gerechnet, gross gezogen: Die Unschaerfe beim Hochskalieren ist
+    // hier kein Makel, sondern genau der weiche Lampenlook.
+    this.stift.imageSmoothingEnabled = true;
+    this.stift.globalCompositeOperation = 'source-over';
+    this.stift.drawImage(ll, 0, 0, this.breite, this.hoehe);
+  }
+
+  // --- Schicht 2: Iris ----------------------------------------------------
+
+  irisZeichnen(aktiv, zweit, uebergang, spektrum, takt, spannung, wucht) {
+    const { stift, breite, hoehe } = this;
+    if (!spektrum) return;
+
+    const mx = breite / 2;
+    const my = hoehe / 2;
+    const grund = Math.min(breite, hoehe) * (0.17 + spannung * 0.04);
+
+    // Auf jedem Schlag ein kurzer Stoss nach aussen, der schnell abklingt.
+    const schlag = takt ? Math.exp(-takt.imBeat * 7) : 0;
+    const radius = grund * (1 + schlag * 0.13 + wucht * 0.1);
+
+    const paletteA = this.paletteFuer(aktiv?.track);
+    const paletteB = zweit ? this.paletteFuer(zweit.track) : null;
+    const anteilB = uebergang ? uebergang.fortschritt : 0;
+
+    stift.globalCompositeOperation = 'lighter';
+
+    // Der Rand wird vom Frequenzband verformt: tiefe Toene unten, hohe oben.
+    const punkte = 128;
+    const zeichneRing = (pal, skala, deckkraft, drehung) => {
+      stift.beginPath();
+      for (let i = 0; i <= punkte; i++) {
+        const winkel = (i / punkte) * TAU + drehung;
+        // Symmetrisch spiegeln, damit es wie ein Objekt aussieht und nicht
+        // wie ein aufgerolltes Diagramm.
+        const anteil = Math.abs(((i / punkte) * 2) % 2 - 1);
+        const bin = Math.floor(anteil ** 1.6 * (spektrum.length * 0.4));
+        const wert = (spektrum[bin] ?? 0) / 255;
+        const r = radius * skala * (1 + wert * 0.55);
+        const x = mx + Math.cos(winkel) * r;
+        const y = my + Math.sin(winkel) * r;
+        if (i === 0) stift.moveTo(x, y);
+        else stift.lineTo(x, y);
+      }
+      stift.closePath();
+      stift.strokeStyle = pal.hell;
+      stift.globalAlpha = deckkraft;
+      stift.lineWidth = 2 + wucht * 3;
+      stift.stroke();
+
+      // Ein weicher Kern dahinter gibt dem Ring Koerper.
+      const verlauf = stift.createRadialGradient(mx, my, 0, mx, my, radius * skala * 1.5);
+      verlauf.addColorStop(0, pal.toene[0]);
+      verlauf.addColorStop(1, 'transparent');
+      stift.globalAlpha = deckkraft * (0.25 + wucht * 0.25);
+      stift.fillStyle = verlauf;
+      stift.fill();
+    };
+
+    // Waehrend des Uebergangs zwei Iriden: die alte weicht nach aussen, die
+    // neue waechst aus der Mitte. Genau das passiert klanglich auch.
+    if (paletteB && anteilB > 0) {
+      zeichneRing(paletteA, 1 + anteilB * 0.5, 1 - anteilB, this.zeit * 0.15);
+      zeichneRing(paletteB, 0.5 + anteilB * 0.5, anteilB, -this.zeit * 0.12);
+    } else {
+      zeichneRing(paletteA, 1, 1, this.zeit * 0.15);
+    }
+
+    stift.globalAlpha = 1;
+    stift.globalCompositeOperation = 'source-over';
+  }
+
+  // --- Schicht 3: Puls ----------------------------------------------------
+
+  ringeZeichnen(sekunden) {
+    const { stift, breite, hoehe } = this;
+    const mx = breite / 2;
+    const my = hoehe / 2;
+    const grenze = Math.hypot(breite, hoehe) * 0.6;
+
+    stift.globalCompositeOperation = 'lighter';
+    for (const ring of this.ringe) {
+      ring.radius += ring.tempo * sekunden;
+      const rest = 1 - ring.radius / grenze;
+      if (rest <= 0) continue;
+      stift.beginPath();
+      stift.arc(mx, my, ring.radius, 0, TAU);
+      stift.strokeStyle = `rgba(255,255,255,${rest * rest * ring.staerke * 0.35})`;
+      stift.lineWidth = ring.dicke * rest;
+      stift.stroke();
+    }
+    this.ringe = this.ringe.filter((r) => r.radius < grenze);
+    stift.globalCompositeOperation = 'source-over';
+  }
+
+  // --- Schicht 4: Funken --------------------------------------------------
+
+  funkenZeichnen(sekunden) {
+    const { stift } = this;
+    stift.globalCompositeOperation = 'lighter';
+    for (const funke of this.funken) {
+      funke.alter += sekunden;
+      funke.x += funke.vx * sekunden;
+      funke.y += funke.vy * sekunden;
+      // Abbremsen, damit sie auslaufen statt davonzuschiessen.
+      funke.vx *= 1 - 1.6 * sekunden;
+      funke.vy *= 1 - 1.6 * sekunden;
+      const rest = 1 - funke.alter / funke.leben;
+      if (rest <= 0) continue;
+      stift.fillStyle = `rgba(255,255,255,${rest * 0.85})`;
+      stift.beginPath();
+      stift.arc(funke.x, funke.y, 1.5 + rest * 2, 0, TAU);
+      stift.fill();
+    }
+    this.funken = this.funken.filter((f) => f.alter < f.leben);
+    stift.globalCompositeOperation = 'source-over';
+  }
+
+  // --- Der Countdown zum Drop ---------------------------------------------
+
+  // Ein duenner Bogen, der sich schliesst. Nur wenn es wirklich gleich soweit
+  // ist - sonst waere es Dauerdeko und wuerde nichts mehr bedeuten.
+  spannungZeigen(spannung, aktiv) {
+    if (spannung < 0.25) return;
+    const { stift, breite, hoehe } = this;
+    const mx = breite / 2;
+    const my = hoehe / 2;
+    const r = Math.min(breite, hoehe) * 0.36;
+    const pal = this.paletteFuer(aktiv?.track);
+
+    stift.globalCompositeOperation = 'lighter';
+    stift.beginPath();
+    stift.arc(mx, my, r, -Math.PI / 2, -Math.PI / 2 + TAU * spannung);
+    stift.strokeStyle = pal.hell;
+    stift.globalAlpha = (spannung - 0.25) * 1.1;
+    stift.lineWidth = 2 + spannung * 6;
+    stift.lineCap = 'round';
+    stift.stroke();
+    stift.globalAlpha = 1;
+    stift.globalCompositeOperation = 'source-over';
+  }
 }
 
 
@@ -2332,6 +2866,42 @@ function verlaufEintragen(plan) {
   zeichneVerlauf();
 }
 
+// --- Wiedergabe anhalten und weiterlaufen lassen ---------------------------
+//
+// iOS friert den Tonkontext ein, sobald man die App wechselt oder das Display
+// sperrt, und gibt ihn nur nach einer Beruehrung wieder frei. Ohne das hier
+// stuende die Buehne danach stumm da und saehe kaputt aus.
+
+async function tonWeiter() {
+  if (!welt.ctx) return;
+  try {
+    await welt.ctx.resume();
+  } catch {
+    // Beim naechsten Antippen nochmal.
+  }
+  tonZustandZeigen();
+}
+
+function tonZustandZeigen() {
+  const laeuft = welt.ctx?.state === 'running';
+  $('weiter').hidden = laeuft || !welt.ctx;
+  $('wiedergabe').textContent = laeuft ? '⏸' : '▶';
+}
+
+$('weiter').addEventListener('click', tonWeiter);
+
+$('wiedergabe').addEventListener('click', async () => {
+  if (!welt.ctx) return;
+  if (welt.ctx.state === 'running') await welt.ctx.suspend();
+  else await welt.ctx.resume();
+  tonZustandZeigen();
+});
+
+// Beim Zurueckkommen aus dem Hintergrund gleich nachsehen.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) tonZustandZeigen();
+});
+
 // --- Bedienung ------------------------------------------------------------
 
 $('jetztUeberblenden').addEventListener('click', () => ueberblenden($('artWahl').value));
@@ -2424,6 +2994,7 @@ function schleife(jetzt = 0) {
     ? `${g?.grund === 'wunsch' ? 'Gästewunsch' : 'Autopilot'} · Energie ${Math.round((welt.naechster.energie ?? 0) * 100)} %`
     : '';
 
+  tonZustandZeigen();
   nachschubPruefen();
   wachhund(zustand);
 }
@@ -2447,6 +3018,11 @@ const STILL = 0.00005;
 const STILLE_ERLAUBT_MS = 2500;
 
 function wachhund(zustand) {
+  // Angehalten ist keine Stoerung, sondern Absicht.
+  if (welt.ctx?.state !== 'running') {
+    welt.stilleSeit = null;
+    return;
+  }
   const einDeckLaeuft = zustand.decks.some((d) => d.laeuft);
   if (!einDeckLaeuft || zustand.pegel >= STILL) {
     welt.stilleSeit = null;

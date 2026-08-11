@@ -455,3 +455,53 @@ header {
     justify-content: flex-start;
   }
 }
+
+/* --- Wiedergabe --------------------------------------------------------- */
+
+.play {
+  color: var(--akzent);
+  font-size: 0.85em;
+}
+
+/*
+  iOS friert den Ton ein, wenn man die App wechselt. Dieser Schirm holt ihn
+  mit einer Beruehrung zurueck - ohne ihn stuende die Buehne stumm da und
+  saehe kaputt aus.
+*/
+.weiter {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.2rem;
+  border: 0;
+  background: rgba(7, 7, 12, 0.86);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--text);
+  font: inherit;
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.weiter[hidden] {
+  display: none;
+}
+
+.gross-play {
+  display: grid;
+  place-items: center;
+  width: 5.5rem;
+  height: 5.5rem;
+  padding-left: 0.4rem;
+  border: 2px solid var(--akzent);
+  border-radius: 50%;
+  font-size: 2.2rem;
+}
+
+#wiedergabe {
+  min-width: 2.4rem;
+}
