@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" />
+    <title>resident-dj</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --grund: #0a0a0f;
+        --karte: #15151f;
+        --rand: #2a2a3a;
+        --text: #e8e8f0;
+        --leise: #8a8aa0;
+        --akzent: #ff3d7f;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 2rem;
+        background: var(--grund);
+        color: var(--text);
+        font: 16px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+      main {
+        width: min(34rem, 100%);
+      }
+      h1 {
+        margin: 0 0 0.25rem;
+        font-size: 2rem;
+        letter-spacing: -0.02em;
+      }
+      p.unterzeile {
+        margin: 0 0 2rem;
+        color: var(--leise);
+      }
+      a.ziel {
+        display: block;
+        padding: 1rem 1.25rem;
+        margin-bottom: 0.75rem;
+        border: 1px solid var(--rand);
+        border-radius: 0.75rem;
+        background: var(--karte);
+        color: var(--text);
+        text-decoration: none;
+      }
+      a.ziel:hover {
+        border-color: var(--akzent);
+      }
+      a.ziel strong {
+        display: block;
+        font-size: 1.05rem;
+      }
+      a.ziel span {
+        color: var(--leise);
+        font-size: 0.9rem;
+      }
+      footer {
+        margin-top: 2rem;
+        color: var(--leise);
+        font-size: 0.85rem;
+      }
+      code {
+        color: var(--akzent);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>resident-dj</h1>
+      <p class="unterzeile">Laeuft. Wohin?</p>
+
+      <a class="ziel" href="/buehne">
+        <strong>Buehne</strong>
+        <span>Das Fenster fuer den Monitor. Hier laeuft die Musik.</span>
+      </a>
+      <a class="ziel" href="/p">
+        <strong>Abstimmung (Notfall)</strong>
+        <span>Nur fuers lokale WLAN. Normal laufen die Gaeste ueber Supabase.</span>
+      </a>
+
+      <footer>
+        Bibliothek noch leer? Musik nach <code>musik/</code> legen und den
+        Analyselauf starten - siehe <code>README.md</code>.
+      </footer>
+    </main>
+  </body>
+</html>

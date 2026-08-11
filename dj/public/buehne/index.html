@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" />
+    <title>resident-dj · Buehne</title>
+    <link rel="stylesheet" href="/buehne/buehne.css" />
+  </head>
+  <body>
+    <!-- Browser lassen Ton erst nach einem Klick zu. Der Startschirm ist also
+         keine Deko, sondern Pflicht - und gleich der richtige Ort, um zu
+         erklaeren, was gleich passiert. -->
+    <div class="start" id="startschirm">
+      <div class="start-inhalt">
+        <h1>resident&#8209;dj</h1>
+        <p class="unterzeile">
+          Zwei Decks, phrasengenaue Uebergaenge, Bass&#8209;Tausch. Der Abend laeuft von allein.
+        </p>
+
+        <div class="start-wahl">
+          <button class="gross" id="startDemo">
+            <strong>Pruefstand starten</strong>
+            <span
+              >Acht erzeugte Tracks von chillig bis hart. Sofort hoerbar, ohne eigene
+              Musik.</span
+            >
+          </button>
+          <button class="gross" id="startEcht">
+            <strong>Eigene Bibliothek</strong>
+            <span id="echtHinweis">Prüfe …</span>
+          </button>
+        </div>
+
+        <p class="fussnote" id="startFehler" hidden></p>
+      </div>
+    </div>
+
+    <main id="konsole" hidden>
+      <header>
+        <div class="kopf-links">
+          <span class="marke" id="anlass">resident-dj</span>
+          <span class="pruefstand" id="pruefstandMarke" hidden>Prüfstand</span>
+        </div>
+        <div class="kopf-rechts">
+          <span id="uhr"></span>
+          <span class="pegel"><i id="pegelBalken"></i></span>
+        </div>
+      </header>
+
+      <canvas id="spektrum" aria-hidden="true"></canvas>
+
+      <section class="decks">
+        <article class="deck" id="deckA">
+          <div class="deck-kopf"><span class="deck-name">A</span><span class="deck-bpm"></span></div>
+          <h2 class="deck-titel">–</h2>
+          <p class="deck-interpret"></p>
+          <div class="fortschritt"><i></i><u></u></div>
+          <div class="regler">
+            <label>Blende<span class="reglerbalken"><i data-regler="blende"></i></span></label>
+            <label>Bass<span class="reglerbalken"><i data-regler="tief"></i></span></label>
+          </div>
+        </article>
+
+        <div class="mitte">
+          <div class="uebergang" id="uebergang" hidden>
+            <span class="uebergang-name" id="uebergangName"></span>
+            <div class="uebergang-balken"><i id="uebergangFortschritt"></i></div>
+            <span class="uebergang-grund" id="uebergangGrund"></span>
+          </div>
+          <div class="wartend" id="wartend">läuft</div>
+        </div>
+
+        <article class="deck" id="deckB">
+          <div class="deck-kopf"><span class="deck-name">B</span><span class="deck-bpm"></span></div>
+          <h2 class="deck-titel">–</h2>
+          <p class="deck-interpret"></p>
+          <div class="fortschritt"><i></i><u></u></div>
+          <div class="regler">
+            <label>Blende<span class="reglerbalken"><i data-regler="blende"></i></span></label>
+            <label>Bass<span class="reglerbalken"><i data-regler="tief"></i></span></label>
+          </div>
+        </article>
+      </section>
+
+      <section class="unten">
+        <div class="spalte">
+          <h3>Als nächstes</h3>
+          <p class="naechster" id="naechster">–</p>
+          <p class="naechster-grund" id="naechsterGrund"></p>
+        </div>
+
+        <div class="spalte">
+          <h3>Zielenergie <span id="energieWert"></span></h3>
+          <input type="range" id="energieRegler" min="0" max="100" value="50" />
+          <p class="fussnote" id="energieQuelle"></p>
+        </div>
+
+        <div class="spalte">
+          <h3>Steuerung</h3>
+          <div class="knoepfe">
+            <button id="jetztUeberblenden">Jetzt überblenden</button>
+            <select id="artWahl" title="Übergangsart erzwingen">
+              <option value="">Art: automatisch</option>
+              <option value="blende">Lange Blende</option>
+              <option value="aufzug">Filteraufzug</option>
+              <option value="echo">Echo-Schnitt</option>
+              <option value="schnitt">Harter Schnitt</option>
+            </select>
+            <label class="schalter">
+              <input type="checkbox" id="angleichAn" checked />
+              Lautheitsangleich
+            </label>
+          </div>
+        </div>
+
+        <div class="spalte breit">
+          <h3>Verlauf</h3>
+          <ol class="verlauf" id="verlauf"></ol>
+        </div>
+      </section>
+    </main>
+
+    <script type="module" src="/buehne/buehne.js"></script>
+  </body>
+</html>

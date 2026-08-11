@@ -44,6 +44,20 @@ const nextConfig: NextConfig = {
     ];
   },
 
+  /**
+   * Der automatische DJ liegt als einzelne, fertig gebaute HTML-Datei unter
+   * `public/dj/index.html` – er hat mit dieser Anwendung nichts zu tun und
+   * bringt weder Abhängigkeiten noch einen Bauschritt mit. Der Quelltext
+   * steht in `dj/`, gebaut wird mit `npm run dj`.
+   *
+   * Next.js liefert Dateien aus `public/` aus, sucht dort aber kein
+   * Verzeichnis-Index. Ohne diese Umschreibung wäre er nur unter
+   * `/dj/index.html` erreichbar statt unter `/dj`.
+   */
+  async rewrites() {
+    return [{ source: "/dj", destination: "/dj/index.html" }];
+  },
+
   // Mandantenlogos kommen aus Supabase Storage.
   images: {
     remotePatterns: [{ protocol: "https", hostname: "*.supabase.co" }],

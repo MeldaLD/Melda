@@ -25,6 +25,10 @@ const eslintConfig = [
       "build/**",
       "next-env.d.ts",
       "src/lib/supabase/datenbank.types.ts",
+      // Der DJ unter dj/ ist ein eigenstaendiges Projekt in reinem JavaScript
+      // ohne React und ohne Next. Die Regeln hier passen darauf nicht.
+      "dj/**",
+      "public/dj/**",
     ],
   },
 ];

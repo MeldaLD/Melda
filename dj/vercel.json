@@ -1,0 +1,18 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "echo 'keine Abhaengigkeiten'",
+  "buildCommand": "echo 'nichts zu bauen - reine statische Dateien'",
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "rewrites": [
+    { "source": "/buehne", "destination": "/buehne/index.html" },
+    { "source": "/p", "destination": "/telefon/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    }
+  ]
+}

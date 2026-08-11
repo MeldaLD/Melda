@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "dj": "node dj/werkzeuge/einedatei.mjs ../public/dj/index.html",
+    "dj:pruefen": "node dj/pruefungen/auswahl.mjs && node dj/pruefungen/takt.mjs",
     "seed:sql": "tsx scripts/seed-sql.ts",
     "pruefen:ansicht": "tsx scripts/ansicht-pruefen.ts",
     "pruefen:ki": "tsx scripts/ki-pruefen.ts",

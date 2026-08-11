@@ -1,0 +1,438 @@
+:root {
+  color-scheme: dark;
+  --grund: #07070c;
+  --karte: #12121b;
+  --rand: #24243a;
+  --text: #f0f0f8;
+  --leise: #7d7d9a;
+  --akzent: #ff3d7f;
+  --kuehl: #3d9bff;
+  --gut: #3ddc97;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--grund);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, 'Segoe UI', sans-serif;
+  overflow: hidden;
+}
+
+/* --- Startschirm -------------------------------------------------------- */
+
+.start {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 2rem;
+  background: radial-gradient(ellipse at 50% 0%, #1a0a18 0%, var(--grund) 60%);
+  z-index: 10;
+}
+
+.start[hidden] {
+  display: none;
+}
+
+.start-inhalt {
+  width: min(46rem, 100%);
+  text-align: center;
+}
+
+.start h1 {
+  margin: 0;
+  font-size: clamp(2.5rem, 7vw, 4.5rem);
+  letter-spacing: -0.04em;
+}
+
+.unterzeile {
+  margin: 0.5rem 0 2.5rem;
+  color: var(--leise);
+  font-size: clamp(1rem, 1.6vw, 1.15rem);
+}
+
+.start-wahl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+button.gross {
+  display: block;
+  padding: 1.4rem 1.5rem;
+  border: 1px solid var(--rand);
+  border-radius: 1rem;
+  background: var(--karte);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+button.gross:hover:not(:disabled) {
+  border-color: var(--akzent);
+}
+
+button.gross:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+button.gross strong {
+  display: block;
+  font-size: 1.1rem;
+  margin-bottom: 0.3rem;
+}
+
+button.gross span {
+  color: var(--leise);
+  font-size: 0.9rem;
+}
+
+.fussnote {
+  margin-top: 1.5rem;
+  color: var(--leise);
+  font-size: 0.85rem;
+}
+
+.fussnote[hidden] {
+  display: none;
+}
+
+/* --- Konsole ------------------------------------------------------------ */
+
+main {
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  gap: 1rem;
+  padding: 1.2rem 1.5rem 1.5rem;
+}
+
+main[hidden] {
+  display: none;
+}
+
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.kopf-links,
+.kopf-rechts {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+.marke,
+#uhr {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.8rem;
+  color: var(--leise);
+}
+
+.pruefstand {
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: #3a2410;
+  color: #ffc178;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.pruefstand[hidden] {
+  display: none;
+}
+
+.pegel {
+  display: block;
+  width: 6rem;
+  height: 5px;
+  border-radius: 3px;
+  background: #1c1c2a;
+  overflow: hidden;
+}
+
+.pegel > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--gut);
+}
+
+#spektrum {
+  width: 100%;
+  height: 15vh;
+  min-height: 90px;
+  display: block;
+}
+
+/* --- Decks -------------------------------------------------------------- */
+
+.decks {
+  display: grid;
+  grid-template-columns: 1fr minmax(11rem, 0.6fr) 1fr;
+  gap: 1.25rem;
+  align-items: center;
+  /* Die Decks stehen in der freien Zeile - mittig, damit die Ansicht auf
+     jedem Monitor ausgewogen bleibt statt oben zu kleben. */
+  align-self: center;
+  width: 100%;
+}
+
+.deck {
+  padding: 1.1rem 1.25rem;
+  border: 1px solid var(--rand);
+  border-radius: 1rem;
+  background: var(--karte);
+  opacity: 0.45;
+  transition: opacity 0.4s, border-color 0.4s;
+}
+
+.deck.aktiv {
+  opacity: 1;
+  border-color: #3a3a58;
+}
+
+.deck-kopf {
+  display: flex;
+  justify-content: space-between;
+  color: var(--leise);
+  font-size: 0.75rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.deck-titel {
+  margin: 0.5rem 0 0.15rem;
+  font-size: clamp(1.2rem, 2.2vw, 1.9rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+}
+
+.deck-interpret {
+  margin: 0;
+  color: var(--leise);
+  font-size: 0.9rem;
+}
+
+.fortschritt {
+  position: relative;
+  height: 6px;
+  margin: 0.9rem 0;
+  border-radius: 3px;
+  background: #1c1c2a;
+  overflow: hidden;
+}
+
+.fortschritt > i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: var(--akzent);
+}
+
+/* Die Marken aus der Struktur: Breakdown, Drop, Outro. */
+.fortschritt > u {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+}
+
+.regler {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.8rem;
+}
+
+.regler label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--leise);
+}
+
+.reglerbalken {
+  display: block;
+  height: 4px;
+  margin-top: 0.35rem;
+  border-radius: 2px;
+  background: #1c1c2a;
+  overflow: hidden;
+}
+
+.reglerbalken > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--kuehl);
+}
+
+/* --- Uebergang ---------------------------------------------------------- */
+
+.mitte {
+  display: grid;
+  place-items: center;
+  min-height: 8rem;
+  text-align: center;
+}
+
+.wartend {
+  color: var(--leise);
+  font-size: 0.8rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.uebergang {
+  width: 100%;
+}
+
+.uebergang[hidden] {
+  display: none;
+}
+
+.uebergang-name {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--akzent);
+}
+
+.uebergang-balken {
+  height: 4px;
+  margin: 0.6rem 0;
+  border-radius: 2px;
+  background: #1c1c2a;
+  overflow: hidden;
+}
+
+.uebergang-balken > i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--akzent);
+}
+
+.uebergang-grund {
+  color: var(--leise);
+  font-size: 0.78rem;
+}
+
+/* --- Unten -------------------------------------------------------------- */
+
+.unten {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.4fr);
+  gap: 1.25rem;
+  align-items: start;
+  border-top: 1px solid var(--rand);
+  padding-top: 1rem;
+}
+
+.unten h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--leise);
+  font-weight: 600;
+}
+
+.naechster {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.naechster-grund {
+  margin: 0.2rem 0 0;
+  color: var(--leise);
+  font-size: 0.8rem;
+}
+
+input[type='range'] {
+  width: 100%;
+  accent-color: var(--akzent);
+}
+
+.knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.knoepfe button,
+.knoepfe select {
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--rand);
+  border-radius: 0.5rem;
+  background: #191926;
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.knoepfe button:hover {
+  border-color: var(--akzent);
+}
+
+.schalter {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--leise);
+  cursor: pointer;
+}
+
+.verlauf {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 7.5rem;
+  overflow-y: auto;
+  font-size: 0.82rem;
+}
+
+.verlauf li {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid #1a1a28;
+  color: var(--leise);
+}
+
+.verlauf li b {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.verlauf li em {
+  font-style: normal;
+  color: var(--akzent);
+  flex: none;
+}
+
+@media (max-width: 60rem) {
+  .decks,
+  .unten {
+    grid-template-columns: 1fr;
+  }
+}

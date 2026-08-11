@@ -3,3 +3,6 @@ node_modules
 package-lock.json
 *.md
 public
+
+# Der DJ bringt seinen eigenen Stil mit und wird nicht mitformatiert.
+dj
