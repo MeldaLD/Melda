@@ -1,0 +1,370 @@
+[
+  {
+    "id": "demo-0",
+    "titel": "Erstes Licht",
+    "interpret": "Pruefstand",
+    "bpm": 118,
+    "raster": 0,
+    "einstiegBeat": 32,
+    "dauer": 131.16949152542372,
+    "energie": 0.12,
+    "note": 1,
+    "angleichDb": 5.59,
+    "versatzDb": -5.59,
+    "marken": [
+      {
+        "name": "intro",
+        "beat": 0,
+        "sekunde": 0
+      },
+      {
+        "name": "aufbau",
+        "beat": 32,
+        "sekunde": 16.271186440677965
+      },
+      {
+        "name": "haupt",
+        "beat": 64,
+        "sekunde": 32.54237288135593
+      },
+      {
+        "name": "breakdown",
+        "beat": 128,
+        "sekunde": 65.08474576271186
+      },
+      {
+        "name": "drop",
+        "beat": 160,
+        "sekunde": 81.35593220338983
+      },
+      {
+        "name": "outro",
+        "beat": 224,
+        "sekunde": 113.89830508474576
+      }
+    ],
+    "demo": true
+  },
+  {
+    "id": "demo-1",
+    "titel": "Langsam voll",
+    "interpret": "Pruefstand",
+    "bpm": 120,
+    "raster": 0,
+    "einstiegBeat": 32,
+    "dauer": 129,
+    "energie": 0.25,
+    "note": 1,
+    "angleichDb": 4.9,
+    "versatzDb": -4.9,
+    "marken": [
+      {
+        "name": "intro",
+        "beat": 0,
+        "sekunde": 0
+      },
+      {
+        "name": "aufbau",
+        "beat": 32,
+        "sekunde": 16
+      },
+      {
+        "name": "haupt",
+        "beat": 64,
+        "sekunde": 32
+      },
+      {
+        "name": "breakdown",
+        "beat": 128,
+        "sekunde": 64
+      },
+      {
+        "name": "drop",
+        "beat": 160,
+        "sekunde": 80
+      },
+      {
+        "name": "outro",
+        "beat": 224,
+        "sekunde": 112
+      }
+    ],
+    "demo": true
+  },
+  {
+    "id": "demo-2",
+    "titel": "Erste Bewegung",
+    "interpret": "Pruefstand",
+    "bpm": 122,
+    "raster": 0,
+    "einstiegBeat": 32,
+    "dauer": 126.90163934426229,
+    "energie": 0.38,
+    "note": 1,
+    "angleichDb": 4.21,
+    "versatzDb": -4.21,
+    "marken": [
+      {
+        "name": "intro",
+        "beat": 0,
+        "sekunde": 0
+      },
+      {
+        "name": "aufbau",
+        "beat": 32,
+        "sekunde": 15.737704918032787
+      },
+      {
+        "name": "haupt",
+        "beat": 64,
+        "sekunde": 31.475409836065573
+      },
+      {
+        "name": "breakdown",
+        "beat": 128,
+        "sekunde": 62.950819672131146
+      },
+      {
+        "name": "drop",
+        "beat": 160,
+        "sekunde": 78.68852459016394
+      },
+      {
+        "name": "outro",
+        "beat": 224,
+        "sekunde": 110.1639344262295
+      }
+    ],
+    "demo": true
+  },
+  {
+    "id": "demo-3",
+    "titel": "Es traegt",
+    "interpret": "Pruefstand",
+    "bpm": 124,
+    "raster": 0,
+    "einstiegBeat": 32,
+    "dauer": 124.87096774193549,
+    "energie": 0.5,
+    "note": 1,
+    "angleichDb": 3.52,
+    "versatzDb": -3.52,
+    "marken": [
+      {
+        "name": "intro",
+        "beat": 0,
+        "sekunde": 0
+      },
+      {
+        "name": "aufbau",
+        "beat": 32,
+        "sekunde": 15.483870967741936
+      },
+      {
+        "name": "haupt",
+        "beat": 64,
+        "sekunde": 30.967741935483872
+      },
+      {
+        "name": "breakdown",
+        "beat": 128,
+        "sekunde": 61.935483870967744
+      },
+      {
+        "name": "drop",
+        "beat": 160,
+        "sekunde": 77.41935483870968
+      },
+      {
+        "name": "outro",
+        "beat": 224,
+        "sekunde": 108.38709677419355
+      }
+    ],
+    "demo": true
+  },
+  {
+    "id": "demo-4",
+    "titel": "Kein Zurueck",
+    "interpret": "Pruefstand",
+    "bpm": 126,
+    "raster": 0,
+    "einstiegBeat": 32,
+    "dauer": 122.9047619047619,
+    "energie": 0.62,
+    "note": 1,
+    "angleichDb": 2.83,
+    "versatzDb": -2.83,
+    "marken": [
+      {
+        "name": "intro",
+        "beat": 0,
+        "sekunde": 0
+      },
+      {
+        "name": "aufbau",
+        "beat": 32,
+        "sekunde": 15.238095238095237
+      },
+      {
+        "name": "haupt",
+        "beat": 64,
+        "sekunde": 30.476190476190474
+      },
+      {
+        "name": "breakdown",
+        "beat": 128,
+        "sekunde": 60.95238095238095
+      },
+      {
+        "name": "drop",
+        "beat": 160,
+        "sekunde": 76.19047619047619
+      },
+      {
+        "name": "outro",
+        "beat": 224,
+        "sekunde": 106.66666666666666
+      }
+    ],
+    "demo": true
+  },
+  {
+    "id": "demo-5",
+    "titel": "Vollgas",
+    "interpret": "Pruefstand",
+    "bpm": 128,
+    "raster": 0,
+    "einstiegBeat": 32,
+    "dauer": 121,
+    "energie": 0.74,
+    "note": 1,
+    "angleichDb": 2.14,
+    "versatzDb": -2.14,
+    "marken": [
+      {
+        "name": "intro",
+        "beat": 0,
+        "sekunde": 0
+      },
+      {
+        "name": "aufbau",
+        "beat": 32,
+        "sekunde": 15
+      },
+      {
+        "name": "haupt",
+        "beat": 64,
+        "sekunde": 30
+      },
+      {
+        "name": "breakdown",
+        "beat": 128,
+        "sekunde": 60
+      },
+      {
+        "name": "drop",
+        "beat": 160,
+        "sekunde": 75
+      },
+      {
+        "name": "outro",
+        "beat": 224,
+        "sekunde": 105
+      }
+    ],
+    "demo": true
+  },
+  {
+    "id": "demo-6",
+    "titel": "Brett",
+    "interpret": "Pruefstand",
+    "bpm": 130,
+    "raster": 0,
+    "einstiegBeat": 32,
+    "dauer": 119.15384615384616,
+    "energie": 0.86,
+    "note": 1,
+    "angleichDb": 1.45,
+    "versatzDb": -1.45,
+    "marken": [
+      {
+        "name": "intro",
+        "beat": 0,
+        "sekunde": 0
+      },
+      {
+        "name": "aufbau",
+        "beat": 32,
+        "sekunde": 14.76923076923077
+      },
+      {
+        "name": "haupt",
+        "beat": 64,
+        "sekunde": 29.53846153846154
+      },
+      {
+        "name": "breakdown",
+        "beat": 128,
+        "sekunde": 59.07692307692308
+      },
+      {
+        "name": "drop",
+        "beat": 160,
+        "sekunde": 73.84615384615385
+      },
+      {
+        "name": "outro",
+        "beat": 224,
+        "sekunde": 103.38461538461539
+      }
+    ],
+    "demo": true
+  },
+  {
+    "id": "demo-7",
+    "titel": "Letzte Runde",
+    "interpret": "Pruefstand",
+    "bpm": 132,
+    "raster": 0,
+    "einstiegBeat": 32,
+    "dauer": 117.36363636363636,
+    "energie": 0.95,
+    "note": 1,
+    "angleichDb": 0.76,
+    "versatzDb": -0.76,
+    "marken": [
+      {
+        "name": "intro",
+        "beat": 0,
+        "sekunde": 0
+      },
+      {
+        "name": "aufbau",
+        "beat": 32,
+        "sekunde": 14.545454545454545
+      },
+      {
+        "name": "haupt",
+        "beat": 64,
+        "sekunde": 29.09090909090909
+      },
+      {
+        "name": "breakdown",
+        "beat": 128,
+        "sekunde": 58.18181818181818
+      },
+      {
+        "name": "drop",
+        "beat": 160,
+        "sekunde": 72.72727272727272
+      },
+      {
+        "name": "outro",
+        "beat": 224,
+        "sekunde": 101.81818181818181
+      }
+    ],
+    "demo": true
+  }
+]

@@ -1,12 +1,9 @@
 :root {
   color-scheme: dark;
   --grund: #07070c;
-  --karte: #12121b;
-  --rand: #24243a;
-  --text: #f0f0f8;
-  --leise: #7d7d9a;
+  --text: #f2f2f8;
+  --leise: #9a9ab4;
   --akzent: #ff3d7f;
-  --kuehl: #3d9bff;
   --gut: #3ddc97;
 }
 
@@ -69,9 +66,9 @@ body {
 button.gross {
   display: block;
   padding: 1.4rem 1.5rem;
-  border: 1px solid var(--rand);
+  border: 1px solid #24243a;
   border-radius: 1rem;
-  background: var(--karte);
+  background: #12121b;
   color: var(--text);
   font: inherit;
   text-align: left;
@@ -100,7 +97,6 @@ button.gross span {
 }
 
 .fussnote {
-  margin-top: 1.5rem;
   color: var(--leise);
   font-size: 0.85rem;
 }
@@ -109,24 +105,48 @@ button.gross span {
   display: none;
 }
 
-/* --- Konsole ------------------------------------------------------------ */
+/* --- Die Visualisierung fuellt das Fenster und liegt hinter allem -------- */
+
+#visual {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+}
+
+/* --- Aufteilung --------------------------------------------------------- */
+/*
+  Die Mitte bleibt bewusst frei. Alles Geschriebene sitzt am Rand, ohne Kasten
+  darunter - ein halbdurchsichtiger Kasten ueber einer bewegten Flaeche sieht
+  immer schmutzig aus. Lesbarkeit macht hier der Schattenwurf.
+*/
 
 main {
+  position: relative;
+  z-index: 1;
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
-  gap: 1rem;
-  padding: 1.2rem 1.5rem 1.5rem;
+  grid-template-rows: auto 1fr auto;
+  padding: 1.5rem 2rem;
+  pointer-events: none;
 }
 
 main[hidden] {
   display: none;
 }
 
+main :is(button, select, input, label) {
+  pointer-events: auto;
+}
+
 header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
 }
 
 .kopf-links,
@@ -139,17 +159,17 @@ header {
 .marke,
 #uhr {
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-size: 0.8rem;
-  color: var(--leise);
+  letter-spacing: 0.2em;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .pruefstand {
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
-  background: #3a2410;
+  background: rgba(255, 193, 120, 0.16);
   color: #ffc178;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
@@ -160,10 +180,10 @@ header {
 
 .pegel {
   display: block;
-  width: 6rem;
-  height: 5px;
+  width: 5rem;
+  height: 3px;
   border-radius: 3px;
-  background: #1c1c2a;
+  background: rgba(255, 255, 255, 0.14);
   overflow: hidden;
 }
 
@@ -174,68 +194,67 @@ header {
   background: var(--gut);
 }
 
-#spektrum {
-  width: 100%;
-  height: 15vh;
-  min-height: 90px;
-  display: block;
-}
+/* --- Fuss: was laeuft, was kommt ---------------------------------------- */
 
-/* --- Decks -------------------------------------------------------------- */
-
-.decks {
+.fuss {
   display: grid;
-  grid-template-columns: 1fr minmax(11rem, 0.6fr) 1fr;
-  gap: 1.25rem;
-  align-items: center;
-  /* Die Decks stehen in der freien Zeile - mittig, damit die Ansicht auf
-     jedem Monitor ausgewogen bleibt statt oben zu kleben. */
-  align-self: center;
-  width: 100%;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 2rem;
+  align-items: end;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.95);
 }
 
-.deck {
-  padding: 1.1rem 1.25rem;
-  border: 1px solid var(--rand);
-  border-radius: 1rem;
-  background: var(--karte);
-  opacity: 0.45;
-  transition: opacity 0.4s, border-color 0.4s;
+.jetzt {
+  min-width: 0;
+  opacity: 0.35;
+  transition: opacity 0.5s;
 }
 
-.deck.aktiv {
+.jetzt.aktiv {
   opacity: 1;
-  border-color: #3a3a58;
 }
 
-.deck-kopf {
-  display: flex;
-  justify-content: space-between;
-  color: var(--leise);
-  font-size: 0.75rem;
-  letter-spacing: 0.16em;
+.jetzt.rechts {
+  text-align: right;
+}
+
+.etikett {
+  display: block;
+  font-size: 0.68rem;
   text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .deck-titel {
-  margin: 0.5rem 0 0.15rem;
-  font-size: clamp(1.2rem, 2.2vw, 1.9rem);
-  line-height: 1.15;
-  letter-spacing: -0.02em;
+  margin: 0.3rem 0 0.1rem;
+  font-size: clamp(1.4rem, 3.2vw, 2.6rem);
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.deck-interpret {
+.zeile {
   margin: 0;
-  color: var(--leise);
+  display: flex;
+  gap: 0.8rem;
+  color: rgba(255, 255, 255, 0.72);
   font-size: 0.9rem;
+}
+
+.rechts .zeile {
+  justify-content: flex-end;
 }
 
 .fortschritt {
   position: relative;
-  height: 6px;
-  margin: 0.9rem 0;
-  border-radius: 3px;
-  background: #1c1c2a;
+  height: 3px;
+  margin: 0.7rem 0 0.4rem;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
   overflow: hidden;
 }
 
@@ -243,10 +262,10 @@ header {
   position: absolute;
   inset: 0 auto 0 0;
   width: 0;
-  background: var(--akzent);
+  background: #fff;
 }
 
-/* Die Marken aus der Struktur: Breakdown, Drop, Outro. */
+/* Die Marken aus der Analyse: Breakdown und Drop. */
 .fortschritt > u {
   position: absolute;
   inset: 0;
@@ -254,24 +273,15 @@ header {
 }
 
 .regler {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.8rem;
-}
-
-.regler label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--leise);
+  display: flex;
+  gap: 0.4rem;
 }
 
 .reglerbalken {
-  display: block;
-  height: 4px;
-  margin-top: 0.35rem;
-  border-radius: 2px;
-  background: #1c1c2a;
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
 }
 
@@ -279,27 +289,19 @@ header {
   display: block;
   height: 100%;
   width: 0;
-  background: var(--kuehl);
+  background: rgba(255, 255, 255, 0.85);
 }
 
-/* --- Uebergang ---------------------------------------------------------- */
+.reglerbalken.bass > i {
+  background: var(--akzent);
+}
+
+/* --- Uebergang in der Mitte --------------------------------------------- */
 
 .mitte {
-  display: grid;
-  place-items: center;
-  min-height: 8rem;
+  min-width: 12rem;
   text-align: center;
-}
-
-.wartend {
-  color: var(--leise);
-  font-size: 0.8rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.uebergang {
-  width: 100%;
+  padding-bottom: 0.6rem;
 }
 
 .uebergang[hidden] {
@@ -308,16 +310,16 @@ header {
 
 .uebergang-name {
   display: block;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: var(--akzent);
+  color: #fff;
 }
 
 .uebergang-balken {
-  height: 4px;
-  margin: 0.6rem 0;
+  height: 3px;
+  margin: 0.5rem 0;
   border-radius: 2px;
-  background: #1c1c2a;
+  background: rgba(255, 255, 255, 0.16);
   overflow: hidden;
 }
 
@@ -325,97 +327,106 @@ header {
   display: block;
   height: 100%;
   width: 0;
-  background: var(--akzent);
+  background: #fff;
 }
 
 .uebergang-grund {
-  color: var(--leise);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.65);
 }
 
-/* --- Unten -------------------------------------------------------------- */
+/* --- Steuerung: blendet sich aus ---------------------------------------- */
+/*
+  Am Partyabend fasst die niemand an, und sie soll das Bild nicht zerschneiden.
+  Beim Entwickeln ist sie mit einer Handbewegung wieder da.
+*/
 
-.unten {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.4fr);
-  gap: 1.25rem;
-  align-items: start;
-  border-top: 1px solid var(--rand);
-  padding-top: 1rem;
-}
-
-.unten h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: var(--leise);
-  font-weight: 600;
-}
-
-.naechster {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 500;
-}
-
-.naechster-grund {
-  margin: 0.2rem 0 0;
-  color: var(--leise);
-  font-size: 0.8rem;
-}
-
-input[type='range'] {
-  width: 100%;
-  accent-color: var(--akzent);
-}
-
-.knoepfe {
+.steuerung {
+  position: fixed;
+  left: 50%;
+  bottom: 1.2rem;
+  transform: translateX(-50%);
+  z-index: 3;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
   align-items: center;
+  gap: 0.6rem;
+  max-width: min(60rem, 94vw);
+  padding: 0.6rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.9rem;
+  background: rgba(8, 8, 14, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.45s;
 }
 
-.knoepfe button,
-.knoepfe select {
-  padding: 0.45rem 0.8rem;
-  border: 1px solid var(--rand);
+.steuerung.sichtbar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.steuerung button,
+.steuerung select {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 0.5rem;
-  background: #191926;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   font: inherit;
   font-size: 0.85rem;
   cursor: pointer;
 }
 
-.knoepfe button:hover {
+.steuerung button:hover {
   border-color: var(--akzent);
+}
+
+.schieber {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--leise);
+}
+
+.schieber input[type='range'] {
+  width: 9rem;
+  accent-color: var(--akzent);
 }
 
 .schalter {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   font-size: 0.85rem;
   color: var(--leise);
   cursor: pointer;
 }
 
+.naechster-grund,
+.naechster {
+  font-size: 0.8rem;
+  color: var(--leise);
+}
+
 .verlauf {
+  flex-basis: 100%;
   margin: 0;
-  padding: 0;
+  padding: 0.4rem 0 0;
   list-style: none;
-  max-height: 7.5rem;
+  max-height: 5rem;
   overflow-y: auto;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .verlauf li {
   display: flex;
   gap: 0.6rem;
-  padding: 0.25rem 0;
-  border-bottom: 1px solid #1a1a28;
+  padding: 0.15rem 0;
   color: var(--leise);
 }
 
@@ -431,8 +442,16 @@ input[type='range'] {
 }
 
 @media (max-width: 60rem) {
-  .decks,
-  .unten {
+  .fuss {
     grid-template-columns: 1fr;
+    gap: 0.8rem;
+  }
+
+  .jetzt.rechts {
+    text-align: left;
+  }
+
+  .rechts .zeile {
+    justify-content: flex-start;
   }
 }

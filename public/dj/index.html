@@ -9,12 +9,9 @@
 :root {
   color-scheme: dark;
   --grund: #07070c;
-  --karte: #12121b;
-  --rand: #24243a;
-  --text: #f0f0f8;
-  --leise: #7d7d9a;
+  --text: #f2f2f8;
+  --leise: #9a9ab4;
   --akzent: #ff3d7f;
-  --kuehl: #3d9bff;
   --gut: #3ddc97;
 }
 
@@ -77,9 +74,9 @@ body {
 button.gross {
   display: block;
   padding: 1.4rem 1.5rem;
-  border: 1px solid var(--rand);
+  border: 1px solid #24243a;
   border-radius: 1rem;
-  background: var(--karte);
+  background: #12121b;
   color: var(--text);
   font: inherit;
   text-align: left;
@@ -108,7 +105,6 @@ button.gross span {
 }
 
 .fussnote {
-  margin-top: 1.5rem;
   color: var(--leise);
   font-size: 0.85rem;
 }
@@ -117,24 +113,48 @@ button.gross span {
   display: none;
 }
 
-/* --- Konsole ------------------------------------------------------------ */
+/* --- Die Visualisierung fuellt das Fenster und liegt hinter allem -------- */
+
+#visual {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+}
+
+/* --- Aufteilung --------------------------------------------------------- */
+/*
+  Die Mitte bleibt bewusst frei. Alles Geschriebene sitzt am Rand, ohne Kasten
+  darunter - ein halbdurchsichtiger Kasten ueber einer bewegten Flaeche sieht
+  immer schmutzig aus. Lesbarkeit macht hier der Schattenwurf.
+*/
 
 main {
+  position: relative;
+  z-index: 1;
   height: 100%;
   display: grid;
-  grid-template-rows: auto auto 1fr auto;
-  gap: 1rem;
-  padding: 1.2rem 1.5rem 1.5rem;
+  grid-template-rows: auto 1fr auto;
+  padding: 1.5rem 2rem;
+  pointer-events: none;
 }
 
 main[hidden] {
   display: none;
 }
 
+main :is(button, select, input, label) {
+  pointer-events: auto;
+}
+
 header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
 }
 
 .kopf-links,
@@ -147,17 +167,17 @@ header {
 .marke,
 #uhr {
   text-transform: uppercase;
-  letter-spacing: 0.18em;
-  font-size: 0.8rem;
-  color: var(--leise);
+  letter-spacing: 0.2em;
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.75);
 }
 
 .pruefstand {
   padding: 0.15rem 0.55rem;
   border-radius: 999px;
-  background: #3a2410;
+  background: rgba(255, 193, 120, 0.16);
   color: #ffc178;
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
 }
@@ -168,10 +188,10 @@ header {
 
 .pegel {
   display: block;
-  width: 6rem;
-  height: 5px;
+  width: 5rem;
+  height: 3px;
   border-radius: 3px;
-  background: #1c1c2a;
+  background: rgba(255, 255, 255, 0.14);
   overflow: hidden;
 }
 
@@ -182,68 +202,67 @@ header {
   background: var(--gut);
 }
 
-#spektrum {
-  width: 100%;
-  height: 15vh;
-  min-height: 90px;
-  display: block;
-}
+/* --- Fuss: was laeuft, was kommt ---------------------------------------- */
 
-/* --- Decks -------------------------------------------------------------- */
-
-.decks {
+.fuss {
   display: grid;
-  grid-template-columns: 1fr minmax(11rem, 0.6fr) 1fr;
-  gap: 1.25rem;
-  align-items: center;
-  /* Die Decks stehen in der freien Zeile - mittig, damit die Ansicht auf
-     jedem Monitor ausgewogen bleibt statt oben zu kleben. */
-  align-self: center;
-  width: 100%;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 2rem;
+  align-items: end;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.95);
 }
 
-.deck {
-  padding: 1.1rem 1.25rem;
-  border: 1px solid var(--rand);
-  border-radius: 1rem;
-  background: var(--karte);
-  opacity: 0.45;
-  transition: opacity 0.4s, border-color 0.4s;
+.jetzt {
+  min-width: 0;
+  opacity: 0.35;
+  transition: opacity 0.5s;
 }
 
-.deck.aktiv {
+.jetzt.aktiv {
   opacity: 1;
-  border-color: #3a3a58;
 }
 
-.deck-kopf {
-  display: flex;
-  justify-content: space-between;
-  color: var(--leise);
-  font-size: 0.75rem;
-  letter-spacing: 0.16em;
+.jetzt.rechts {
+  text-align: right;
+}
+
+.etikett {
+  display: block;
+  font-size: 0.68rem;
   text-transform: uppercase;
+  letter-spacing: 0.2em;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .deck-titel {
-  margin: 0.5rem 0 0.15rem;
-  font-size: clamp(1.2rem, 2.2vw, 1.9rem);
-  line-height: 1.15;
-  letter-spacing: -0.02em;
+  margin: 0.3rem 0 0.1rem;
+  font-size: clamp(1.4rem, 3.2vw, 2.6rem);
+  font-weight: 650;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.deck-interpret {
+.zeile {
   margin: 0;
-  color: var(--leise);
+  display: flex;
+  gap: 0.8rem;
+  color: rgba(255, 255, 255, 0.72);
   font-size: 0.9rem;
+}
+
+.rechts .zeile {
+  justify-content: flex-end;
 }
 
 .fortschritt {
   position: relative;
-  height: 6px;
-  margin: 0.9rem 0;
-  border-radius: 3px;
-  background: #1c1c2a;
+  height: 3px;
+  margin: 0.7rem 0 0.4rem;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
   overflow: hidden;
 }
 
@@ -251,10 +270,10 @@ header {
   position: absolute;
   inset: 0 auto 0 0;
   width: 0;
-  background: var(--akzent);
+  background: #fff;
 }
 
-/* Die Marken aus der Struktur: Breakdown, Drop, Outro. */
+/* Die Marken aus der Analyse: Breakdown und Drop. */
 .fortschritt > u {
   position: absolute;
   inset: 0;
@@ -262,24 +281,15 @@ header {
 }
 
 .regler {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0.8rem;
-}
-
-.regler label {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--leise);
+  display: flex;
+  gap: 0.4rem;
 }
 
 .reglerbalken {
-  display: block;
-  height: 4px;
-  margin-top: 0.35rem;
-  border-radius: 2px;
-  background: #1c1c2a;
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
 }
 
@@ -287,27 +297,19 @@ header {
   display: block;
   height: 100%;
   width: 0;
-  background: var(--kuehl);
+  background: rgba(255, 255, 255, 0.85);
 }
 
-/* --- Uebergang ---------------------------------------------------------- */
+.reglerbalken.bass > i {
+  background: var(--akzent);
+}
+
+/* --- Uebergang in der Mitte --------------------------------------------- */
 
 .mitte {
-  display: grid;
-  place-items: center;
-  min-height: 8rem;
+  min-width: 12rem;
   text-align: center;
-}
-
-.wartend {
-  color: var(--leise);
-  font-size: 0.8rem;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-}
-
-.uebergang {
-  width: 100%;
+  padding-bottom: 0.6rem;
 }
 
 .uebergang[hidden] {
@@ -316,16 +318,16 @@ header {
 
 .uebergang-name {
   display: block;
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: var(--akzent);
+  color: #fff;
 }
 
 .uebergang-balken {
-  height: 4px;
-  margin: 0.6rem 0;
+  height: 3px;
+  margin: 0.5rem 0;
   border-radius: 2px;
-  background: #1c1c2a;
+  background: rgba(255, 255, 255, 0.16);
   overflow: hidden;
 }
 
@@ -333,97 +335,106 @@ header {
   display: block;
   height: 100%;
   width: 0;
-  background: var(--akzent);
+  background: #fff;
 }
 
 .uebergang-grund {
-  color: var(--leise);
-  font-size: 0.78rem;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.65);
 }
 
-/* --- Unten -------------------------------------------------------------- */
+/* --- Steuerung: blendet sich aus ---------------------------------------- */
+/*
+  Am Partyabend fasst die niemand an, und sie soll das Bild nicht zerschneiden.
+  Beim Entwickeln ist sie mit einer Handbewegung wieder da.
+*/
 
-.unten {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr)) minmax(0, 1.4fr);
-  gap: 1.25rem;
-  align-items: start;
-  border-top: 1px solid var(--rand);
-  padding-top: 1rem;
-}
-
-.unten h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: var(--leise);
-  font-weight: 600;
-}
-
-.naechster {
-  margin: 0;
-  font-size: 1rem;
-  font-weight: 500;
-}
-
-.naechster-grund {
-  margin: 0.2rem 0 0;
-  color: var(--leise);
-  font-size: 0.8rem;
-}
-
-input[type='range'] {
-  width: 100%;
-  accent-color: var(--akzent);
-}
-
-.knoepfe {
+.steuerung {
+  position: fixed;
+  left: 50%;
+  bottom: 1.2rem;
+  transform: translateX(-50%);
+  z-index: 3;
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
   align-items: center;
+  gap: 0.6rem;
+  max-width: min(60rem, 94vw);
+  padding: 0.6rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.9rem;
+  background: rgba(8, 8, 14, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.45s;
 }
 
-.knoepfe button,
-.knoepfe select {
-  padding: 0.45rem 0.8rem;
-  border: 1px solid var(--rand);
+.steuerung.sichtbar {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.steuerung button,
+.steuerung select {
+  padding: 0.4rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 0.5rem;
-  background: #191926;
+  background: rgba(255, 255, 255, 0.06);
   color: var(--text);
   font: inherit;
   font-size: 0.85rem;
   cursor: pointer;
 }
 
-.knoepfe button:hover {
+.steuerung button:hover {
   border-color: var(--akzent);
+}
+
+.schieber {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--leise);
+}
+
+.schieber input[type='range'] {
+  width: 9rem;
+  accent-color: var(--akzent);
 }
 
 .schalter {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.35rem;
   font-size: 0.85rem;
   color: var(--leise);
   cursor: pointer;
 }
 
+.naechster-grund,
+.naechster {
+  font-size: 0.8rem;
+  color: var(--leise);
+}
+
 .verlauf {
+  flex-basis: 100%;
   margin: 0;
-  padding: 0;
+  padding: 0.4rem 0 0;
   list-style: none;
-  max-height: 7.5rem;
+  max-height: 5rem;
   overflow-y: auto;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .verlauf li {
   display: flex;
   gap: 0.6rem;
-  padding: 0.25rem 0;
-  border-bottom: 1px solid #1a1a28;
+  padding: 0.15rem 0;
   color: var(--leise);
 }
 
@@ -439,15 +450,28 @@ input[type='range'] {
 }
 
 @media (max-width: 60rem) {
-  .decks,
-  .unten {
+  .fuss {
     grid-template-columns: 1fr;
+    gap: 0.8rem;
+  }
+
+  .jetzt.rechts {
+    text-align: left;
+  }
+
+  .rechts .zeile {
+    justify-content: flex-start;
   }
 }
 
 </style>
   </head>
   <body>
+    <!-- Die Visualisierung liegt hinter allem und fuellt das ganze Bild. Auf
+         einem Monitor im Raum ist sie die Hauptsache; die Schrift darueber ist
+         fuer den, der davorsteht. Deshalb bleibt die Mitte frei. -->
+    <canvas id="visual" aria-hidden="true"></canvas>
+
     <!-- Browser lassen Ton erst nach einem Klick zu. Der Startschirm ist also
          keine Deko, sondern Pflicht - und gleich der richtige Ort, um zu
          erklaeren, was gleich passiert. -->
@@ -488,19 +512,22 @@ input[type='range'] {
         </div>
       </header>
 
-      <canvas id="spektrum" aria-hidden="true"></canvas>
+      <!-- Die Mitte bleibt leer. Da laeuft das Bild. -->
 
-      <section class="decks">
-        <article class="deck" id="deckA">
-          <div class="deck-kopf"><span class="deck-name">A</span><span class="deck-bpm"></span></div>
+      <footer class="fuss">
+        <div class="jetzt" id="deckA">
+          <span class="etikett">Läuft</span>
           <h2 class="deck-titel">–</h2>
-          <p class="deck-interpret"></p>
+          <p class="zeile">
+            <span class="deck-interpret"></span>
+            <span class="deck-bpm"></span>
+          </p>
           <div class="fortschritt"><i></i><u></u></div>
           <div class="regler">
-            <label>Blende<span class="reglerbalken"><i data-regler="blende"></i></span></label>
-            <label>Bass<span class="reglerbalken"><i data-regler="tief"></i></span></label>
+            <span class="reglerbalken"><i data-regler="blende"></i></span>
+            <span class="reglerbalken bass"><i data-regler="tief"></i></span>
           </div>
-        </article>
+        </div>
 
         <div class="mitte">
           <div class="uebergang" id="uebergang" hidden>
@@ -508,57 +535,51 @@ input[type='range'] {
             <div class="uebergang-balken"><i id="uebergangFortschritt"></i></div>
             <span class="uebergang-grund" id="uebergangGrund"></span>
           </div>
-          <div class="wartend" id="wartend">läuft</div>
+          <div class="wartend" id="wartend"></div>
         </div>
 
-        <article class="deck" id="deckB">
-          <div class="deck-kopf"><span class="deck-name">B</span><span class="deck-bpm"></span></div>
+        <div class="jetzt rechts" id="deckB">
+          <span class="etikett">Als nächstes</span>
           <h2 class="deck-titel">–</h2>
-          <p class="deck-interpret"></p>
+          <p class="zeile">
+            <span class="deck-interpret"></span>
+            <span class="deck-bpm"></span>
+          </p>
           <div class="fortschritt"><i></i><u></u></div>
           <div class="regler">
-            <label>Blende<span class="reglerbalken"><i data-regler="blende"></i></span></label>
-            <label>Bass<span class="reglerbalken"><i data-regler="tief"></i></span></label>
+            <span class="reglerbalken"><i data-regler="blende"></i></span>
+            <span class="reglerbalken bass"><i data-regler="tief"></i></span>
           </div>
-        </article>
-      </section>
-
-      <section class="unten">
-        <div class="spalte">
-          <h3>Als nächstes</h3>
-          <p class="naechster" id="naechster">–</p>
-          <p class="naechster-grund" id="naechsterGrund"></p>
         </div>
+      </footer>
 
-        <div class="spalte">
-          <h3>Zielenergie <span id="energieWert"></span></h3>
+      <!--
+        Die Steuerung blendet sich nach ein paar Sekunden ohne Mausbewegung
+        aus. Am Partyabend fasst sie niemand an und soll das Bild nicht
+        zerschneiden; beim Entwickeln ist sie mit einer Handbewegung wieder da.
+      -->
+      <div class="steuerung" id="steuerung">
+        <span class="naechster-grund" id="naechsterGrund"></span>
+        <span class="naechster" id="naechster" hidden></span>
+        <button id="jetztUeberblenden">Jetzt überblenden</button>
+        <select id="artWahl" title="Übergangsart erzwingen">
+          <option value="">automatisch</option>
+          <option value="blende">Lange Blende</option>
+          <option value="aufzug">Filteraufzug</option>
+          <option value="echo">Echo-Schnitt</option>
+          <option value="schnitt">Harter Schnitt</option>
+        </select>
+        <label class="schieber">
+          <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
-          <p class="fussnote" id="energieQuelle"></p>
-        </div>
-
-        <div class="spalte">
-          <h3>Steuerung</h3>
-          <div class="knoepfe">
-            <button id="jetztUeberblenden">Jetzt überblenden</button>
-            <select id="artWahl" title="Übergangsart erzwingen">
-              <option value="">Art: automatisch</option>
-              <option value="blende">Lange Blende</option>
-              <option value="aufzug">Filteraufzug</option>
-              <option value="echo">Echo-Schnitt</option>
-              <option value="schnitt">Harter Schnitt</option>
-            </select>
-            <label class="schalter">
-              <input type="checkbox" id="angleichAn" checked />
-              Lautheitsangleich
-            </label>
-          </div>
-        </div>
-
-        <div class="spalte breit">
-          <h3>Verlauf</h3>
-          <ol class="verlauf" id="verlauf"></ol>
-        </div>
-      </section>
+        </label>
+        <span class="fussnote" id="energieQuelle"></span>
+        <label class="schalter">
+          <input type="checkbox" id="angleichAn" checked />
+          Angleich
+        </label>
+        <ol class="verlauf" id="verlauf"></ol>
+      </div>
     </main>
 
     <script type="module">
@@ -2135,6 +2156,11 @@ const welt = {
   stilleSeit: null,
 };
 
+// Zustand offenlegen. Zwei Gruende: Die Abnahme prueft damit die Engine statt
+// der Beschriftung, und wenn am Partyabend etwas klemmt, sieht man in der
+// Browserkonsole sofort nach, was die Decks wirklich tun.
+window.__dj = welt;
+
 // --- Start ----------------------------------------------------------------
 
 $('startDemo').addEventListener('click', () => starten(true));
@@ -2187,7 +2213,7 @@ async function starten(demo) {
 
     $('startschirm').hidden = true;
     $('konsole').hidden = false;
-    leinwandAnpassen();
+    bild = new Visualisierung($('visual'));
 
     const erster = await naechstenErfragen();
     const puffer = await pufferFuer(erster);
@@ -2360,26 +2386,32 @@ welt.leitung.beiZustand((zustand) => {
 
 // --- Zeichnen -------------------------------------------------------------
 
-const leinwand = $('spektrum');
-const stift = leinwand.getContext('2d');
+let bild = null;
 let spektrumDaten = null;
+let letzteZeit = 0;
 
 function leinwandAnpassen() {
-  const dichte = window.devicePixelRatio || 1;
-  leinwand.width = leinwand.clientWidth * dichte;
-  leinwand.height = leinwand.clientHeight * dichte;
-  stift.setTransform(dichte, 0, 0, dichte, 0, 0);
+  bild?.masseSetzen();
 }
 window.addEventListener('resize', leinwandAnpassen);
 
-function schleife() {
+function schleife(jetzt = 0) {
   requestAnimationFrame(schleife);
   if (!welt.mixer) return;
 
+  // Zeit zwischen zwei Bildern, gedeckelt: Nach einem Tabwechsel kaeme sonst
+  // ein Riesensprung, und alle Bewegungen wuerden auf einmal durchrauschen.
+  const sekunden = Math.min(0.05, (jetzt - letzteZeit) / 1000 || 0.016);
+  letzteZeit = jetzt;
+
   const zustand = welt.mixer.zustand();
+
+  if (!spektrumDaten) spektrumDaten = new Uint8Array(welt.mixer.messung.frequencyBinCount);
+  welt.mixer.spektrum(spektrumDaten);
+  bild?.zeichne(zustand, spektrumDaten, sekunden);
+
   zeichneDecks(zustand);
   zeichneUebergang(zustand);
-  zeichneSpektrum();
 
   $('pegelBalken').style.width = `${Math.min(100, zustand.pegel * 260)}%`;
   $('uhr').textContent = new Date().toLocaleTimeString('de-DE', {
@@ -2387,16 +2419,10 @@ function schleife() {
     minute: '2-digit',
   });
 
-  const naechster = welt.naechster;
-  $('naechster').textContent = naechster ? `${naechster.interpret} – ${naechster.titel}` : 'wird geholt …';
-  if (naechster) {
-    const g = welt.naechsterGrund;
-    $('naechsterGrund').textContent = `${g?.grund === 'wunsch' ? 'Gästewunsch' : 'Autopilot'} · ${Math.round(naechster.bpm)} BPM · Energie ${Math.round((naechster.energie ?? 0) * 100)} %`;
-  } else {
-    // Sonst bliebe die Begruendung des vorigen Tracks stehen und behauptet
-    // etwas ueber einen, der schon gar nicht mehr ansteht.
-    $('naechsterGrund').textContent = '';
-  }
+  const g = welt.naechsterGrund;
+  $('naechsterGrund').textContent = welt.naechster
+    ? `${g?.grund === 'wunsch' ? 'Gästewunsch' : 'Autopilot'} · Energie ${Math.round((welt.naechster.energie ?? 0) * 100)} %`
+    : '';
 
   nachschubPruefen();
   wachhund(zustand);
@@ -2443,26 +2469,66 @@ function wachhund(zustand) {
   }
 }
 
+// Links steht immer, was laeuft, rechts was kommt - unabhaengig davon,
+// welches Deck der Mixer gerade benutzt. Fuer den, der davorsteht, ist "Deck
+// B" bedeutungslos; "als naechstes" nicht.
 function zeichneDecks(zustand) {
-  for (const [i, daten] of zustand.decks.entries()) {
-    const knoten = $(i === 0 ? 'deckA' : 'deckB');
-    knoten.classList.toggle('aktiv', daten.laeuft);
+  const u = zustand.uebergang;
+  let laufend;
+  let anderes;
 
-    knoten.querySelector('.deck-bpm').textContent = daten.bpm
-      ? `${daten.bpm.toFixed(1)} BPM${Math.abs(daten.tempo - 1) > 0.001 ? ` · ${((daten.tempo - 1) * 100).toFixed(1)} %` : ''}`
-      : '';
-    knoten.querySelector('.deck-titel').textContent = daten.track?.titel ?? '–';
-    knoten.querySelector('.deck-interpret').textContent = daten.track?.interpret ?? '';
-
-    const anteil = daten.dauer ? Math.min(1, daten.stelle / daten.dauer) : 0;
-    knoten.querySelector('.fortschritt > i').style.width = `${anteil * 100}%`;
-    zeichneMarken(knoten.querySelector('.fortschritt > u'), daten);
-
-    knoten.querySelector('[data-regler="blende"]').style.width = `${daten.blende * 100}%`;
-    // Bass: 0 dB = voll, -32 dB = weg.
-    knoten.querySelector('[data-regler="tief"]').style.width =
-      `${Math.max(0, 1 + daten.tief / 32) * 100}%`;
+  if (u && u.fortschritt > 0) {
+    // Waehrend einer Blende richtet sich die Anzeige nach dem Uebergang, nicht
+    // nach der Deck-Zaehlung des Mixers: Der schaltet intern schon um, wenn
+    // der Neue erst anfaengt hochzukommen. Zu hoeren ist da noch der Alte -
+    // und links soll stehen, was man hoert.
+    laufend = zustand.decks.find((d) => d.track?.id === u.vonTrack?.id && d.laeuft);
+    anderes = zustand.decks.find((d) => d.track?.id === u.nachTrack?.id && d.laeuft);
   }
+
+  laufend ??= zustand.decks.find((d) => d.aktiv && d.laeuft) ?? zustand.decks[0];
+  anderes ??= zustand.decks.find((d) => d !== laufend && d.laeuft);
+
+  fuelleSeite($('deckA'), laufend, true);
+
+  if (anderes) {
+    // Waehrend eines Uebergangs laeuft der Neue schon - dann zeigt die rechte
+    // Seite ihn mitsamt seinen Reglern.
+    fuelleSeite($('deckB'), anderes, true);
+  } else if (welt.naechster) {
+    // Sonst der vorbereitete Track, noch ohne Laufwerte.
+    fuelleSeite($('deckB'), { track: welt.naechster, bpm: welt.naechster.bpm, tempo: 1,
+                              stelle: 0, dauer: 0, blende: 0, tief: 0 }, false);
+  } else {
+    fuelleSeite($('deckB'), null, false);
+  }
+}
+
+function fuelleSeite(knoten, daten, hervorheben) {
+  knoten.classList.toggle('aktiv', !!daten && hervorheben);
+
+  if (!daten?.track) {
+    knoten.querySelector('.deck-titel').textContent = '–';
+    knoten.querySelector('.deck-interpret').textContent = '';
+    knoten.querySelector('.deck-bpm').textContent = '';
+    knoten.querySelector('.fortschritt > i').style.width = '0%';
+    return;
+  }
+
+  knoten.querySelector('.deck-titel').textContent = daten.track.titel ?? '–';
+  knoten.querySelector('.deck-interpret').textContent = daten.track.interpret ?? '';
+  knoten.querySelector('.deck-bpm').textContent = daten.bpm
+    ? `${daten.bpm.toFixed(1)} BPM${Math.abs(daten.tempo - 1) > 0.001 ? ` · ${((daten.tempo - 1) * 100).toFixed(1)} %` : ''}`
+    : '';
+
+  const anteil = daten.dauer ? Math.min(1, daten.stelle / daten.dauer) : 0;
+  knoten.querySelector('.fortschritt > i').style.width = `${anteil * 100}%`;
+  zeichneMarken(knoten.querySelector('.fortschritt > u'), daten);
+
+  knoten.querySelector('[data-regler="blende"]').style.width = `${daten.blende * 100}%`;
+  // Bass: 0 dB = voll, -32 dB = weg.
+  knoten.querySelector('[data-regler="tief"]').style.width =
+    `${Math.max(0, 1 + daten.tief / 32) * 100}%`;
 }
 
 // Die Strukturmarken als feine Striche im Fortschrittsbalken - so sieht man,
@@ -2496,33 +2562,6 @@ function zeichneUebergang(zustand) {
     : (u.grund ?? u.beschreibung);
 }
 
-function zeichneSpektrum() {
-  const breite = leinwand.clientWidth;
-  const hoehe = leinwand.clientHeight;
-  if (!spektrumDaten) spektrumDaten = new Uint8Array(welt.mixer.messung.frequencyBinCount);
-  welt.mixer.spektrum(spektrumDaten);
-
-  stift.clearRect(0, 0, breite, hoehe);
-  // Nur das untere Drittel der Bins zeigen - darueber passiert bei Musik
-  // optisch nichts mehr.
-  const bins = Math.floor(spektrumDaten.length * 0.42);
-  const balken = 84;
-  const breitePro = breite / balken;
-
-  for (let i = 0; i < balken; i++) {
-    // Logarithmisch abgreifen, damit Baesse nicht die halbe Anzeige belegen.
-    const von = Math.floor((i / balken) ** 1.7 * bins);
-    const bis = Math.max(von + 1, Math.floor(((i + 1) / balken) ** 1.7 * bins));
-    let hoechster = 0;
-    for (let b = von; b < bis; b++) hoechster = Math.max(hoechster, spektrumDaten[b]);
-
-    const h = (hoechster / 255) * hoehe;
-    const farbton = 330 - (i / balken) * 90;
-    stift.fillStyle = `hsl(${farbton} 90% ${35 + (hoechster / 255) * 25}%)`;
-    stift.fillRect(i * breitePro, hoehe - h, breitePro - 1.5, h);
-  }
-}
-
 function zeichneVerlauf() {
   $('verlauf').innerHTML = '';
   for (const eintrag of welt.verlauf) {
@@ -2536,6 +2575,25 @@ function zeichneVerlauf() {
     felder[3].textContent = eintrag.hinweis;
     $('verlauf').append(zeile);
   }
+}
+
+// --- Steuerung zeigen und verstecken --------------------------------------
+//
+// Auf einem Monitor im Raum soll nichts herumstehen, was niemand bedient.
+// Jede Maus- oder Fingerbewegung holt die Leiste zurueck, danach verschwindet
+// sie wieder.
+let ruheZaehler = null;
+function steuerungZeigen() {
+  $('steuerung').classList.add('sichtbar');
+  clearTimeout(ruheZaehler);
+  ruheZaehler = setTimeout(() => {
+    // Nicht wegblenden, solange jemand tatsaechlich an einem Regler haengt.
+    if ($('steuerung').contains(document.activeElement)) return steuerungZeigen();
+    $('steuerung').classList.remove('sichtbar');
+  }, 3500);
+}
+for (const ereignis of ['mousemove', 'touchstart', 'keydown']) {
+  window.addEventListener(ereignis, steuerungZeigen, { passive: true });
 }
 
 // Die Uebergangsarten aus der Engine in die Auswahlliste, damit beides nicht

@@ -12,6 +12,8 @@ type Eintrag = {
   interpret: string;
   zustand: Zustand;
   schritt: string;
+  /** 0 bis 1 waehrend des Hochladens, sonst null. */
+  anteil?: number | null;
   befund?: Befund;
   meldung?: string;
 };
@@ -155,14 +157,13 @@ export default function DjAufnahme() {
           throw new Error("Der Server hat keine Adresse zum Hochladen geliefert.");
         }
 
-        const hochgeladen = await fetch(erlaubt.adresse, {
-          method: "PUT",
-          headers: { "Content-Type": eintrag.datei.type || "audio/mpeg" },
-          body: eintrag.datei,
-        });
-        if (!hochgeladen.ok) throw new Error(`Hochladen fehlgeschlagen (${hochgeladen.status}).`);
+        await hochladenMitFortschritt(
+          erlaubt.adresse,
+          eintrag.datei,
+          (anteil) => aendern(nummer, { anteil }),
+        );
 
-        aendern(nummer, { schritt: "Eintragen" });
+        aendern(nummer, { schritt: "Eintragen", anteil: null });
         const eingetragen = await fetch("/api/dj/track", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -178,11 +179,12 @@ export default function DjAufnahme() {
           throw new Error(hinweisZu(eingetragen.status, ergebnis.fehler ?? ergebnis.roh ?? ""));
         }
 
-        aendern(nummer, { zustand: "fertig", schritt: "" });
+        aendern(nummer, { zustand: "fertig", schritt: "", anteil: null });
       } catch (grund) {
         aendern(nummer, {
           zustand: "fehler",
           schritt: "",
+          anteil: null,
           meldung: grund instanceof Error ? grund.message : String(grund),
         });
       }
@@ -271,6 +273,14 @@ export default function DjAufnahme() {
                     {beschriftung(eintrag)}
                   </span>
                 </div>
+                {typeof eintrag.anteil === "number" && (
+                  <div className="h-1 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full bg-slate-800 transition-[width] duration-150"
+                      style={{ width: `${Math.round(eintrag.anteil * 100)}%` }}
+                    />
+                  </div>
+                )}
                 {eintrag.befund && (
                   <p className="text-xs text-muted-foreground">
                     {eintrag.befund.bpm} BPM · Raster {eintrag.befund.raster.toFixed(3)} s ·{" "}
@@ -317,6 +327,47 @@ export default function DjAufnahme() {
       </section>
     </main>
   );
+}
+
+/**
+ * Hochladen mit Fortschritt.
+ *
+ * `fetch` meldet den Sendefortschritt nicht – es gibt schlicht kein Ereignis
+ * dafür. Über Mobilfunk dauert eine Audiodatei aber lange genug, dass ein
+ * Balken den Unterschied macht zwischen "arbeitet" und "hängt". Dafür ist der
+ * alte XMLHttpRequest bis heute das einzige Mittel im Browser.
+ */
+function hochladenMitFortschritt(
+  adresse: string,
+  datei: File,
+  beiFortschritt: (anteil: number) => void,
+) {
+  return new Promise<void>((fertig, gescheitert) => {
+    const anfrage = new XMLHttpRequest();
+    anfrage.open("PUT", adresse);
+    anfrage.setRequestHeader("Content-Type", datei.type || "audio/mpeg");
+
+    anfrage.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) beiFortschritt(e.loaded / e.total);
+    });
+    anfrage.addEventListener("load", () => {
+      if (anfrage.status >= 200 && anfrage.status < 300) {
+        beiFortschritt(1);
+        fertig();
+      } else {
+        gescheitert(
+          new Error(`Hochladen fehlgeschlagen (${anfrage.status}). ${anfrage.responseText.slice(0, 200)}`),
+        );
+      }
+    });
+    anfrage.addEventListener("error", () =>
+      gescheitert(new Error("Verbindung beim Hochladen abgebrochen.")),
+    );
+    anfrage.addEventListener("abort", () => gescheitert(new Error("Hochladen abgebrochen.")));
+
+    beiFortschritt(0);
+    anfrage.send(datei);
+  });
 }
 
 function neuerKontext(rate: number) {
@@ -416,8 +467,11 @@ function beschriftung(eintrag: Eintrag) {
     case "wartet":
       return "wartet";
     case "misst":
-    case "laedt":
       return eintrag.schritt || "läuft";
+    case "laedt":
+      return typeof eintrag.anteil === "number"
+        ? `Hochladen ${Math.round(eintrag.anteil * 100)} %`
+        : eintrag.schritt || "läuft";
     case "fertig":
       return "fertig";
     case "fehler":

@@ -8,6 +8,11 @@
     <link rel="stylesheet" href="/buehne/buehne.css" />
   </head>
   <body>
+    <!-- Die Visualisierung liegt hinter allem und fuellt das ganze Bild. Auf
+         einem Monitor im Raum ist sie die Hauptsache; die Schrift darueber ist
+         fuer den, der davorsteht. Deshalb bleibt die Mitte frei. -->
+    <canvas id="visual" aria-hidden="true"></canvas>
+
     <!-- Browser lassen Ton erst nach einem Klick zu. Der Startschirm ist also
          keine Deko, sondern Pflicht - und gleich der richtige Ort, um zu
          erklaeren, was gleich passiert. -->
@@ -48,19 +53,22 @@
         </div>
       </header>
 
-      <canvas id="spektrum" aria-hidden="true"></canvas>
+      <!-- Die Mitte bleibt leer. Da laeuft das Bild. -->
 
-      <section class="decks">
-        <article class="deck" id="deckA">
-          <div class="deck-kopf"><span class="deck-name">A</span><span class="deck-bpm"></span></div>
+      <footer class="fuss">
+        <div class="jetzt" id="deckA">
+          <span class="etikett">Läuft</span>
           <h2 class="deck-titel">–</h2>
-          <p class="deck-interpret"></p>
+          <p class="zeile">
+            <span class="deck-interpret"></span>
+            <span class="deck-bpm"></span>
+          </p>
           <div class="fortschritt"><i></i><u></u></div>
           <div class="regler">
-            <label>Blende<span class="reglerbalken"><i data-regler="blende"></i></span></label>
-            <label>Bass<span class="reglerbalken"><i data-regler="tief"></i></span></label>
+            <span class="reglerbalken"><i data-regler="blende"></i></span>
+            <span class="reglerbalken bass"><i data-regler="tief"></i></span>
           </div>
-        </article>
+        </div>
 
         <div class="mitte">
           <div class="uebergang" id="uebergang" hidden>
@@ -68,57 +76,51 @@
             <div class="uebergang-balken"><i id="uebergangFortschritt"></i></div>
             <span class="uebergang-grund" id="uebergangGrund"></span>
           </div>
-          <div class="wartend" id="wartend">läuft</div>
+          <div class="wartend" id="wartend"></div>
         </div>
 
-        <article class="deck" id="deckB">
-          <div class="deck-kopf"><span class="deck-name">B</span><span class="deck-bpm"></span></div>
+        <div class="jetzt rechts" id="deckB">
+          <span class="etikett">Als nächstes</span>
           <h2 class="deck-titel">–</h2>
-          <p class="deck-interpret"></p>
+          <p class="zeile">
+            <span class="deck-interpret"></span>
+            <span class="deck-bpm"></span>
+          </p>
           <div class="fortschritt"><i></i><u></u></div>
           <div class="regler">
-            <label>Blende<span class="reglerbalken"><i data-regler="blende"></i></span></label>
-            <label>Bass<span class="reglerbalken"><i data-regler="tief"></i></span></label>
+            <span class="reglerbalken"><i data-regler="blende"></i></span>
+            <span class="reglerbalken bass"><i data-regler="tief"></i></span>
           </div>
-        </article>
-      </section>
-
-      <section class="unten">
-        <div class="spalte">
-          <h3>Als nächstes</h3>
-          <p class="naechster" id="naechster">–</p>
-          <p class="naechster-grund" id="naechsterGrund"></p>
         </div>
+      </footer>
 
-        <div class="spalte">
-          <h3>Zielenergie <span id="energieWert"></span></h3>
+      <!--
+        Die Steuerung blendet sich nach ein paar Sekunden ohne Mausbewegung
+        aus. Am Partyabend fasst sie niemand an und soll das Bild nicht
+        zerschneiden; beim Entwickeln ist sie mit einer Handbewegung wieder da.
+      -->
+      <div class="steuerung" id="steuerung">
+        <span class="naechster-grund" id="naechsterGrund"></span>
+        <span class="naechster" id="naechster" hidden></span>
+        <button id="jetztUeberblenden">Jetzt überblenden</button>
+        <select id="artWahl" title="Übergangsart erzwingen">
+          <option value="">automatisch</option>
+          <option value="blende">Lange Blende</option>
+          <option value="aufzug">Filteraufzug</option>
+          <option value="echo">Echo-Schnitt</option>
+          <option value="schnitt">Harter Schnitt</option>
+        </select>
+        <label class="schieber">
+          <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
-          <p class="fussnote" id="energieQuelle"></p>
-        </div>
-
-        <div class="spalte">
-          <h3>Steuerung</h3>
-          <div class="knoepfe">
-            <button id="jetztUeberblenden">Jetzt überblenden</button>
-            <select id="artWahl" title="Übergangsart erzwingen">
-              <option value="">Art: automatisch</option>
-              <option value="blende">Lange Blende</option>
-              <option value="aufzug">Filteraufzug</option>
-              <option value="echo">Echo-Schnitt</option>
-              <option value="schnitt">Harter Schnitt</option>
-            </select>
-            <label class="schalter">
-              <input type="checkbox" id="angleichAn" checked />
-              Lautheitsangleich
-            </label>
-          </div>
-        </div>
-
-        <div class="spalte breit">
-          <h3>Verlauf</h3>
-          <ol class="verlauf" id="verlauf"></ol>
-        </div>
-      </section>
+        </label>
+        <span class="fussnote" id="energieQuelle"></span>
+        <label class="schalter">
+          <input type="checkbox" id="angleichAn" checked />
+          Angleich
+        </label>
+        <ol class="verlauf" id="verlauf"></ol>
+      </div>
     </main>
 
     <script type="module" src="/buehne/buehne.js"></script>

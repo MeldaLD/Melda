@@ -12,6 +12,7 @@
 import { Mixer, UEBERGAENGE } from '../gemeinsam/mixer.js';
 import { demoBibliothek } from '../gemeinsam/demomusik.js';
 import { leitungSuchen } from '../gemeinsam/leitung.js';
+import { Visualisierung } from '../gemeinsam/visual.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -38,6 +39,11 @@ const welt = {
   angleichAn: true,
   stilleSeit: null,
 };
+
+// Zustand offenlegen. Zwei Gruende: Die Abnahme prueft damit die Engine statt
+// der Beschriftung, und wenn am Partyabend etwas klemmt, sieht man in der
+// Browserkonsole sofort nach, was die Decks wirklich tun.
+window.__dj = welt;
 
 // --- Start ----------------------------------------------------------------
 
@@ -91,7 +97,7 @@ async function starten(demo) {
 
     $('startschirm').hidden = true;
     $('konsole').hidden = false;
-    leinwandAnpassen();
+    bild = new Visualisierung($('visual'));
 
     const erster = await naechstenErfragen();
     const puffer = await pufferFuer(erster);
@@ -264,26 +270,32 @@ welt.leitung.beiZustand((zustand) => {
 
 // --- Zeichnen -------------------------------------------------------------
 
-const leinwand = $('spektrum');
-const stift = leinwand.getContext('2d');
+let bild = null;
 let spektrumDaten = null;
+let letzteZeit = 0;
 
 function leinwandAnpassen() {
-  const dichte = window.devicePixelRatio || 1;
-  leinwand.width = leinwand.clientWidth * dichte;
-  leinwand.height = leinwand.clientHeight * dichte;
-  stift.setTransform(dichte, 0, 0, dichte, 0, 0);
+  bild?.masseSetzen();
 }
 window.addEventListener('resize', leinwandAnpassen);
 
-function schleife() {
+function schleife(jetzt = 0) {
   requestAnimationFrame(schleife);
   if (!welt.mixer) return;
 
+  // Zeit zwischen zwei Bildern, gedeckelt: Nach einem Tabwechsel kaeme sonst
+  // ein Riesensprung, und alle Bewegungen wuerden auf einmal durchrauschen.
+  const sekunden = Math.min(0.05, (jetzt - letzteZeit) / 1000 || 0.016);
+  letzteZeit = jetzt;
+
   const zustand = welt.mixer.zustand();
+
+  if (!spektrumDaten) spektrumDaten = new Uint8Array(welt.mixer.messung.frequencyBinCount);
+  welt.mixer.spektrum(spektrumDaten);
+  bild?.zeichne(zustand, spektrumDaten, sekunden);
+
   zeichneDecks(zustand);
   zeichneUebergang(zustand);
-  zeichneSpektrum();
 
   $('pegelBalken').style.width = `${Math.min(100, zustand.pegel * 260)}%`;
   $('uhr').textContent = new Date().toLocaleTimeString('de-DE', {
@@ -291,16 +303,10 @@ function schleife() {
     minute: '2-digit',
   });
 
-  const naechster = welt.naechster;
-  $('naechster').textContent = naechster ? `${naechster.interpret} – ${naechster.titel}` : 'wird geholt …';
-  if (naechster) {
-    const g = welt.naechsterGrund;
-    $('naechsterGrund').textContent = `${g?.grund === 'wunsch' ? 'Gästewunsch' : 'Autopilot'} · ${Math.round(naechster.bpm)} BPM · Energie ${Math.round((naechster.energie ?? 0) * 100)} %`;
-  } else {
-    // Sonst bliebe die Begruendung des vorigen Tracks stehen und behauptet
-    // etwas ueber einen, der schon gar nicht mehr ansteht.
-    $('naechsterGrund').textContent = '';
-  }
+  const g = welt.naechsterGrund;
+  $('naechsterGrund').textContent = welt.naechster
+    ? `${g?.grund === 'wunsch' ? 'Gästewunsch' : 'Autopilot'} · Energie ${Math.round((welt.naechster.energie ?? 0) * 100)} %`
+    : '';
 
   nachschubPruefen();
   wachhund(zustand);
@@ -347,26 +353,66 @@ function wachhund(zustand) {
   }
 }
 
+// Links steht immer, was laeuft, rechts was kommt - unabhaengig davon,
+// welches Deck der Mixer gerade benutzt. Fuer den, der davorsteht, ist "Deck
+// B" bedeutungslos; "als naechstes" nicht.
 function zeichneDecks(zustand) {
-  for (const [i, daten] of zustand.decks.entries()) {
-    const knoten = $(i === 0 ? 'deckA' : 'deckB');
-    knoten.classList.toggle('aktiv', daten.laeuft);
+  const u = zustand.uebergang;
+  let laufend;
+  let anderes;
 
-    knoten.querySelector('.deck-bpm').textContent = daten.bpm
-      ? `${daten.bpm.toFixed(1)} BPM${Math.abs(daten.tempo - 1) > 0.001 ? ` · ${((daten.tempo - 1) * 100).toFixed(1)} %` : ''}`
-      : '';
-    knoten.querySelector('.deck-titel').textContent = daten.track?.titel ?? '–';
-    knoten.querySelector('.deck-interpret').textContent = daten.track?.interpret ?? '';
-
-    const anteil = daten.dauer ? Math.min(1, daten.stelle / daten.dauer) : 0;
-    knoten.querySelector('.fortschritt > i').style.width = `${anteil * 100}%`;
-    zeichneMarken(knoten.querySelector('.fortschritt > u'), daten);
-
-    knoten.querySelector('[data-regler="blende"]').style.width = `${daten.blende * 100}%`;
-    // Bass: 0 dB = voll, -32 dB = weg.
-    knoten.querySelector('[data-regler="tief"]').style.width =
-      `${Math.max(0, 1 + daten.tief / 32) * 100}%`;
+  if (u && u.fortschritt > 0) {
+    // Waehrend einer Blende richtet sich die Anzeige nach dem Uebergang, nicht
+    // nach der Deck-Zaehlung des Mixers: Der schaltet intern schon um, wenn
+    // der Neue erst anfaengt hochzukommen. Zu hoeren ist da noch der Alte -
+    // und links soll stehen, was man hoert.
+    laufend = zustand.decks.find((d) => d.track?.id === u.vonTrack?.id && d.laeuft);
+    anderes = zustand.decks.find((d) => d.track?.id === u.nachTrack?.id && d.laeuft);
   }
+
+  laufend ??= zustand.decks.find((d) => d.aktiv && d.laeuft) ?? zustand.decks[0];
+  anderes ??= zustand.decks.find((d) => d !== laufend && d.laeuft);
+
+  fuelleSeite($('deckA'), laufend, true);
+
+  if (anderes) {
+    // Waehrend eines Uebergangs laeuft der Neue schon - dann zeigt die rechte
+    // Seite ihn mitsamt seinen Reglern.
+    fuelleSeite($('deckB'), anderes, true);
+  } else if (welt.naechster) {
+    // Sonst der vorbereitete Track, noch ohne Laufwerte.
+    fuelleSeite($('deckB'), { track: welt.naechster, bpm: welt.naechster.bpm, tempo: 1,
+                              stelle: 0, dauer: 0, blende: 0, tief: 0 }, false);
+  } else {
+    fuelleSeite($('deckB'), null, false);
+  }
+}
+
+function fuelleSeite(knoten, daten, hervorheben) {
+  knoten.classList.toggle('aktiv', !!daten && hervorheben);
+
+  if (!daten?.track) {
+    knoten.querySelector('.deck-titel').textContent = '–';
+    knoten.querySelector('.deck-interpret').textContent = '';
+    knoten.querySelector('.deck-bpm').textContent = '';
+    knoten.querySelector('.fortschritt > i').style.width = '0%';
+    return;
+  }
+
+  knoten.querySelector('.deck-titel').textContent = daten.track.titel ?? '–';
+  knoten.querySelector('.deck-interpret').textContent = daten.track.interpret ?? '';
+  knoten.querySelector('.deck-bpm').textContent = daten.bpm
+    ? `${daten.bpm.toFixed(1)} BPM${Math.abs(daten.tempo - 1) > 0.001 ? ` · ${((daten.tempo - 1) * 100).toFixed(1)} %` : ''}`
+    : '';
+
+  const anteil = daten.dauer ? Math.min(1, daten.stelle / daten.dauer) : 0;
+  knoten.querySelector('.fortschritt > i').style.width = `${anteil * 100}%`;
+  zeichneMarken(knoten.querySelector('.fortschritt > u'), daten);
+
+  knoten.querySelector('[data-regler="blende"]').style.width = `${daten.blende * 100}%`;
+  // Bass: 0 dB = voll, -32 dB = weg.
+  knoten.querySelector('[data-regler="tief"]').style.width =
+    `${Math.max(0, 1 + daten.tief / 32) * 100}%`;
 }
 
 // Die Strukturmarken als feine Striche im Fortschrittsbalken - so sieht man,
@@ -400,33 +446,6 @@ function zeichneUebergang(zustand) {
     : (u.grund ?? u.beschreibung);
 }
 
-function zeichneSpektrum() {
-  const breite = leinwand.clientWidth;
-  const hoehe = leinwand.clientHeight;
-  if (!spektrumDaten) spektrumDaten = new Uint8Array(welt.mixer.messung.frequencyBinCount);
-  welt.mixer.spektrum(spektrumDaten);
-
-  stift.clearRect(0, 0, breite, hoehe);
-  // Nur das untere Drittel der Bins zeigen - darueber passiert bei Musik
-  // optisch nichts mehr.
-  const bins = Math.floor(spektrumDaten.length * 0.42);
-  const balken = 84;
-  const breitePro = breite / balken;
-
-  for (let i = 0; i < balken; i++) {
-    // Logarithmisch abgreifen, damit Baesse nicht die halbe Anzeige belegen.
-    const von = Math.floor((i / balken) ** 1.7 * bins);
-    const bis = Math.max(von + 1, Math.floor(((i + 1) / balken) ** 1.7 * bins));
-    let hoechster = 0;
-    for (let b = von; b < bis; b++) hoechster = Math.max(hoechster, spektrumDaten[b]);
-
-    const h = (hoechster / 255) * hoehe;
-    const farbton = 330 - (i / balken) * 90;
-    stift.fillStyle = `hsl(${farbton} 90% ${35 + (hoechster / 255) * 25}%)`;
-    stift.fillRect(i * breitePro, hoehe - h, breitePro - 1.5, h);
-  }
-}
-
 function zeichneVerlauf() {
   $('verlauf').innerHTML = '';
   for (const eintrag of welt.verlauf) {
@@ -440,6 +459,25 @@ function zeichneVerlauf() {
     felder[3].textContent = eintrag.hinweis;
     $('verlauf').append(zeile);
   }
+}
+
+// --- Steuerung zeigen und verstecken --------------------------------------
+//
+// Auf einem Monitor im Raum soll nichts herumstehen, was niemand bedient.
+// Jede Maus- oder Fingerbewegung holt die Leiste zurueck, danach verschwindet
+// sie wieder.
+let ruheZaehler = null;
+function steuerungZeigen() {
+  $('steuerung').classList.add('sichtbar');
+  clearTimeout(ruheZaehler);
+  ruheZaehler = setTimeout(() => {
+    // Nicht wegblenden, solange jemand tatsaechlich an einem Regler haengt.
+    if ($('steuerung').contains(document.activeElement)) return steuerungZeigen();
+    $('steuerung').classList.remove('sichtbar');
+  }, 3500);
+}
+for (const ereignis of ['mousemove', 'touchstart', 'keydown']) {
+  window.addEventListener(ereignis, steuerungZeigen, { passive: true });
 }
 
 // Die Uebergangsarten aus der Engine in die Auswahlliste, damit beides nicht

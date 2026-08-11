@@ -38,6 +38,14 @@ try {
   await seite.waitForSelector('#konsole:not([hidden])', { timeout: 120000 });
   await seite.waitForTimeout(3000);
 
+  // Die Steuerleiste blendet sich nach ein paar Sekunden Ruhe aus. Fuer die
+  // Pruefung muss sie da sein - also regelmaessig die Maus bewegen.
+  const leisteWecken = async () => {
+    await seite.mouse.move(Math.random() * 200 + 10, Math.random() * 200 + 10);
+    await seite.waitForSelector('.steuerung.sichtbar', { timeout: 5000 });
+  };
+  await leisteWecken();
+
   console.log('\nDer Ausgang fuehrt Signal:');
   const pegel = await seite.evaluate(() => parseFloat(document.getElementById('pegelBalken').style.width) || 0);
   console.log(`    Pegelanzeige ${pegel.toFixed(1)} %`);
@@ -53,21 +61,29 @@ try {
   for (const art of ['blende', 'aufzug', 'echo', 'schnitt']) {
     console.log(`\n${art}:`);
     await ruheAbwarten(seite);
+    await leisteWecken();
 
     const verlauf = await seite.evaluate(async (art) => {
-      const lies = () => ({
-        aBlende: parseFloat(document.querySelector('#deckA [data-regler="blende"]').style.width) || 0,
-        aBass: parseFloat(document.querySelector('#deckA [data-regler="tief"]').style.width) || 0,
-        bBlende: parseFloat(document.querySelector('#deckB [data-regler="blende"]').style.width) || 0,
-        bBass: parseFloat(document.querySelector('#deckB [data-regler="tief"]').style.width) || 0,
-        laeuft: !document.getElementById('uebergang').hidden,
-        fortschritt: parseFloat(document.getElementById('uebergangFortschritt').style.width) || 0,
-      });
+      // Direkt am Mixer messen, nicht an der Anzeige: Die Anzeige blendet
+      // Beendetes aus und waere fuer diese Frage die falsche Quelle.
+      const lies = () => {
+        const z = window.__dj.mixer.zustand();
+        const j = (deck) => ({
+          blende: (deck?.blende ?? 0) * 100,
+          // Bass: 0 dB = voll, -32 dB = weg.
+          bass: Math.max(0, 1 + (deck?.tief ?? 0) / 32) * 100,
+        });
+        return {
+          A: j(z.decks[0]),
+          B: j(z.decks[1]),
+          fortschritt: (z.uebergang?.fortschritt ?? 0) * 100,
+        };
+      };
 
       // Wer spielt gerade? Das ist das alte Deck - eindeutig, weil vor dem
       // Uebergang nur eines offen steht.
       const vorher = lies();
-      const altIstA = vorher.aBlende > vorher.bBlende;
+      const altIstA = vorher.A.blende > vorher.B.blende;
 
       document.getElementById('artWahl').value = art;
       document.getElementById('jetztUeberblenden').click();
@@ -78,7 +94,12 @@ try {
       while (performance.now() - start < 40000) {
         await new Promise((f) => requestAnimationFrame(f));
         const p = lies();
-        proben.push({ t: (performance.now() - start) / 1000, ...p });
+        proben.push({
+          t: (performance.now() - start) / 1000,
+          aBlende: p.A.blende, aBass: p.A.bass,
+          bBlende: p.B.blende, bBass: p.B.bass,
+          fortschritt: p.fortschritt,
+        });
         if (p.fortschritt > 0) begonnen = true;
         if (begonnen && p.fortschritt >= 99.5) break;
       }
