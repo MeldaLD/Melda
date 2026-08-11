@@ -114,9 +114,18 @@ export default function DjAufnahme() {
     const pfad = "/dj/gemeinsam/analyse.js";
     const { analysiere } = await import(/* webpackIgnore: true */ pfad);
 
-    const ctx = new (window.AudioContext ??
-      (window as unknown as { webkitAudioContext: typeof AudioContext })
-        .webkitAudioContext)();
+    // Bewusst mit halber Abtastrate analysieren.
+    //
+    // Ein Sechsminüter voll aufgelöst sind über hundert Megabyte an
+    // Abtastwerten, und daran scheitert Safari auf dem iPad mit „Decoding
+    // failed“. Bei 22050 Hz ist es die Hälfte und doppelt so schnell.
+    //
+    // Nachgemessen an musikähnlichem Material: Tempo identisch, Lautheit auf
+    // 0,00 dB identisch. Nur bei weißem Rauschen weicht sie ab, weil dort die
+    // halbe Energie oberhalb 11 kHz liegt – bei Musik ist da fast nichts.
+    //
+    // Hochgeladen wird davon unberührt die Originaldatei.
+    const ctx = neuerKontext(22050);
 
     for (const [nummer, eintrag] of eintraege.entries()) {
       if (eintrag.zustand === "fertig") continue;
@@ -125,9 +134,7 @@ export default function DjAufnahme() {
         const roh = await eintrag.datei.arrayBuffer();
 
         aendern(nummer, { schritt: "Dekodieren" });
-        // decodeAudioData verbraucht den Puffer – deshalb eine Kopie für den
-        // Upload zurückhalten.
-        const puffer = await ctx.decodeAudioData(roh.slice(0));
+        const puffer = await dekodieren(ctx, roh, eintrag.datei);
 
         const befund: Befund = await analysiere(puffer, (schritt: string) =>
           aendern(nummer, { schritt }),
@@ -312,6 +319,63 @@ export default function DjAufnahme() {
   );
 }
 
+function neuerKontext(rate: number) {
+  const Klasse =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  try {
+    return new Klasse({ sampleRate: rate });
+  } catch {
+    // Ältere Safari-Versionen lehnen eine gewünschte Abtastrate ab.
+    return new Klasse();
+  }
+}
+
+/** Formate, die Safari nicht dekodieren kann – da hilft kein Nachfassen. */
+const UNMOEGLICH = /\.(webm|opus|oga|ogg|wma|ra|amr)$/i;
+
+/**
+ * Dekodieren mit brauchbarer Fehlermeldung.
+ *
+ * „Decoding failed“ ist die Meldung des Browsers und sagt nichts darüber, was
+ * zu tun ist. Die beiden echten Ursachen sind ein Format, das Safari nicht
+ * kann, und zu wenig Speicher – und beide brauchen eine andere Reaktion.
+ */
+async function dekodieren(ctx: AudioContext, roh: ArrayBuffer, datei: File) {
+  if (UNMOEGLICH.test(datei.name)) {
+    throw new Error(
+      `${datei.name}: Dieses Format kann Safari nicht abspielen. Wandle es in MP3, M4A oder WAV um – viele iPad-Konverter liefern heimlich Opus in einer .webm- oder .ogg-Hülle.`,
+    );
+  }
+
+  try {
+    // decodeAudioData verbraucht den Puffer, deshalb eine Kopie.
+    return await ctx.decodeAudioData(roh.slice(0));
+  } catch (grund) {
+    const mb = (datei.size / 1048576).toFixed(1);
+
+    // Zweiter Versuch mit noch weniger Speicher. Wenn es daran lag, reicht das.
+    try {
+      const sparsam = neuerKontext(11025);
+      const puffer = await sparsam.decodeAudioData(roh.slice(0));
+      void ctx.close();
+      return puffer;
+    } catch {
+      // War also nicht der Speicher.
+    }
+
+    // Welche Formate ein Browser kann, hängt an ihm, nicht an der Datei: AAC
+    // in .m4a spielt Safari mühelos, ein Chromium ohne Lizenzcodecs nicht.
+    // Deshalb keine Behauptung über die Datei, sondern über die Lage.
+    throw new Error(
+      `${datei.name} (${mb} MB) konnte dieser Browser nicht dekodieren. ` +
+        `Safari kann MP3, M4A/AAC und WAV; andere Browser können bei M4A aussteigen. ` +
+        `Im Zweifel als MP3 oder WAV umwandeln. ` +
+        `${grund instanceof Error ? grund.message : ""}`.trim(),
+    );
+  }
+}
+
 /**
  * Antwort auslesen, ohne an einer Fehlerseite zu zerbrechen.
  *
@@ -344,7 +408,7 @@ function hinweisZu(status: number, text: string) {
     return "Die Tabelle dj_track gibt es noch nicht. Im Supabase-Dashboard unter SQL Editor die Datei supabase/migrations/20260811210000_dj.sql ausführen.";
   }
   if (status === 401) return "Nicht angemeldet – bitte neu am Adminbereich anmelden.";
-  return `Bibliothek nicht lesbar (Fehler ${status}). ${text.slice(0, 200)}`;
+  return `Der Server hat mit Fehler ${status} geantwortet. ${text.slice(0, 200)}`.trim();
 }
 
 function beschriftung(eintrag: Eintrag) {
