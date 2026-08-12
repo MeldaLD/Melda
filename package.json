@@ -19,7 +19,9 @@
     "typen:datenbank": "supabase gen types typescript --linked > src/lib/supabase/datenbank.types.ts",
     "dj:mischpruefen": "node dj/pruefungen/uebergaenge.mjs",
     "dj:bildpruefen": "node dj/pruefungen/gebaut.mjs",
-    "dj:analysepruefen": "node dj/pruefungen/analyse.mjs"
+    "dj:analysepruefen": "node dj/pruefungen/analyse.mjs",
+    "dj:remixpruefen": "node dj/pruefungen/remix.mjs",
+    "dj:modibilder": "node dj/werkzeuge/modibilder.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

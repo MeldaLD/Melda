@@ -13,6 +13,7 @@ import { Mixer, UEBERGAENGE } from '../gemeinsam/mixer.js';
 import { demoBibliothek } from '../gemeinsam/demomusik.js';
 import { leitungSuchen } from '../gemeinsam/leitung.js';
 import { Visualisierung } from '../gemeinsam/visual.js';
+import { loopRoll, rollLohntSich, regieFuer } from '../gemeinsam/remix.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -38,6 +39,13 @@ const welt = {
   verlauf: [],
   angleichAn: true,
   stilleSeit: null,
+  zielenergie: 0.5,
+  // Wie viele Drops seit dem letzten Roll vergangen sind. Ohne diesen Zaehler
+  // wuerde vor jedem Drop gerollt, und aus einem Kniff wuerde eine Masche.
+  seitLetztemRoll: 99,
+  // Schon eingeplante Drops, damit derselbe nicht mehrfach bedient wird.
+  bedienteDrops: new Set(),
+  remixAn: true,
 };
 
 // Zustand offenlegen. Zwei Gruende: Die Abnahme prueft damit die Engine statt
@@ -98,6 +106,9 @@ async function starten(demo) {
     $('startschirm').hidden = true;
     $('konsole').hidden = false;
     bild = new Visualisierung($('visual'));
+    // Auch das Bild offenlegen: Am Abend laesst sich damit in der Konsole der
+    // Modus umstellen, wenn einer gerade nicht zum Raum passt.
+    welt.bild = bild;
 
     const erster = await naechstenErfragen();
     const puffer = await pufferFuer(erster);
@@ -183,7 +194,9 @@ async function ueberblenden(artWunsch = null) {
   try {
     const puffer = welt.puffer.get(track.id) ?? (await pufferFuer(track));
     const angepasst = welt.angleichAn ? track : { ...track, angleichDb: 0 };
-    const plan = welt.mixer.uebergang(angepasst, puffer, artWunsch || null);
+    const plan = welt.mixer.uebergang(angepasst, puffer, artWunsch || null, welt.zielenergie);
+    // Ein neuer Track bringt eigene Drops mit.
+    welt.bedienteDrops.clear();
 
     verlaufEintragen(plan);
     await laufendMelden(track);
@@ -256,6 +269,10 @@ document.addEventListener('visibilitychange', () => {
 
 $('jetztUeberblenden').addEventListener('click', () => ueberblenden($('artWahl').value));
 
+$('remixAn').addEventListener('change', (e) => {
+  welt.remixAn = e.target.checked;
+});
+
 $('angleichAn').addEventListener('change', (e) => {
   welt.angleichAn = e.target.checked;
 });
@@ -279,8 +296,11 @@ document.addEventListener('keydown', (e) => {
 
 welt.leitung.beiZustand((zustand) => {
   $('anlass').textContent = zustand.anlass ?? 'resident-dj';
-  const prozent = Math.round((zustand.zielenergie ?? 0) * 100);
+  welt.zielenergie = zustand.zielenergie ?? 0.5;
+  const prozent = Math.round(welt.zielenergie * 100);
+  const regie = regieFuer(welt.zielenergie);
   $('energieWert').textContent = `${prozent} %`;
+  $('stil').textContent = regie.name;
   if (document.activeElement !== $('energieRegler')) {
     $('energieRegler').value = prozent;
   }
@@ -308,6 +328,7 @@ welt.leitung.beiZustand((zustand) => {
 
 let bild = null;
 let spektrumDaten = null;
+let wellenDaten = null;
 let letzteZeit = 0;
 
 function leinwandAnpassen() {
@@ -327,8 +348,13 @@ function schleife(jetzt = 0) {
   const zustand = welt.mixer.zustand();
 
   if (!spektrumDaten) spektrumDaten = new Uint8Array(welt.mixer.messung.frequencyBinCount);
+  // Die Wellenform ist doppelt so lang wie das Spektrum: fftSize Abtastwerte
+  // im Zeitbereich gegen fftSize/2 Frequenzbaender. Der Modus "Wellen"
+  // zeichnet sie unmittelbar, alle anderen ruehren sie nicht an.
+  if (!wellenDaten) wellenDaten = new Float32Array(welt.mixer.messung.fftSize);
   welt.mixer.spektrum(spektrumDaten);
-  bild?.zeichne(zustand, spektrumDaten, sekunden);
+  welt.mixer.wellenform(wellenDaten);
+  bild?.zeichne(zustand, spektrumDaten, sekunden, wellenDaten);
 
   zeichneDecks(zustand);
   zeichneUebergang(zustand);
@@ -345,8 +371,63 @@ function schleife(jetzt = 0) {
     : '';
 
   tonZustandZeigen();
+  remixPruefen(zustand);
   nachschubPruefen();
   wachhund(zustand);
+}
+
+// --- Remix ----------------------------------------------------------------
+//
+// Vor jedem Drop wird geprueft, ob ein Loop-Roll hineinpasst und ob die Regie
+// ihn gerade will. Die Regie haengt an der Zielenergie: frueh am Abend gar
+// nicht, spaeter oft und schaerfer.
+
+function remixPruefen(zustand) {
+  if (!welt.remixAn || welt.wechselLaeuft) return;
+
+  const deck = welt.mixer.laufendesDeck;
+  const drops = deck?.track?.marken?.filter((m) => m.name === 'drop') ?? [];
+  if (drops.length === 0 || !deck.laeuft) return;
+
+  const beatLaenge = 60 / deck.track.bpm;
+  const jetztBeat = (deck.stelle() - (deck.track.raster ?? 0)) / beatLaenge;
+
+  for (const drop of drops) {
+    const schluessel = `${deck.track.id}:${drop.beat}`;
+    if (welt.bedienteDrops.has(schluessel)) continue;
+
+    const beatsBisZiel = drop.beat - jetztBeat;
+    if (beatsBisZiel <= 0) {
+      // Vorbei, ohne dass gerollt wurde - zaehlt trotzdem als Drop.
+      welt.bedienteDrops.add(schluessel);
+      welt.seitLetztemRoll++;
+      continue;
+    }
+
+    if (!rollLohntSich({
+      zielenergie: welt.zielenergie,
+      seitLetztemRoll: welt.seitLetztemRoll,
+      imUebergang: welt.wechselLaeuft,
+      beatsBisZiel,
+    })) continue;
+
+    const regie = regieFuer(welt.zielenergie);
+    const plan = loopRoll(deck, drop.beat, regie.rollLaengen);
+    welt.bedienteDrops.add(schluessel);
+
+    if (plan) {
+      welt.seitLetztemRoll = 0;
+      welt.verlauf.unshift({
+        zeit: new Date(),
+        art: `Roll (${regie.name})`,
+        nach: deck.track.titel,
+        hinweis: `${plan.laengen.length} Stufen auf ${plan.beats} Beats`,
+      });
+      welt.verlauf = welt.verlauf.slice(0, 30);
+      zeichneVerlauf();
+    }
+    return;
+  }
 }
 
 function nachschubPruefen() {

@@ -58,7 +58,7 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
 
   beiSchritt('Energie');
   const hoehen = await bandRendern(puffer, 'highpass', 3000);
-  const energie = energieSchaetzen(puffer, bass, hoehen, bpm);
+  const energie = energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops);
 
   return {
     dauer,
@@ -641,23 +641,80 @@ function einstiegFinden(takte) {
 // Wie treibend ist der Track? Drei Anteile, die zusammen gut mit dem
 // uebereinstimmen, was man auf der Tanzflaeche als "geht ab" empfindet:
 // Wucht im Bass, Anteil der Hoehen (Hihats, Percussion) und das Tempo.
-function energieSchaetzen(puffer, bass, hoehen, bpm) {
-  const effektiv = (daten) => {
-    let summe = 0;
-    // Jeden zwanzigsten Wert nehmen; genauer muss es dafuer nicht sein.
-    for (let i = 0; i < daten.length; i += 20) summe += daten[i] * daten[i];
-    return Math.sqrt(summe / (daten.length / 20));
+// Wie treibend ist der Track?
+//
+// Vier Anteile, die zusammen gut mit dem uebereinstimmen, was auf der
+// Tanzflaeche als "geht ab" ankommt. Wichtig ist, dass der Wert **fuer sich
+// allein** aussagekraeftig ist: Frueher wurde er hinterher durch den Rang in
+// der Bibliothek ersetzt, und bei zwei Tracks kamen dabei zwangslaeufig 0 und
+// 100 Prozent heraus. Der Rang darf nachjustieren, nicht bestimmen.
+function energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops) {
+  const daten = puffer.getChannelData(0);
+
+  let summe = 0;
+  let spitze = 0;
+  for (let i = 0; i < daten.length; i += 7) {
+    const wert = daten[i];
+    summe += wert * wert;
+    const betrag = Math.abs(wert);
+    if (betrag > spitze) spitze = betrag;
+  }
+  const gesamt = Math.sqrt(summe / (daten.length / 7));
+
+  const effektiv = (band) => {
+    let s = 0;
+    for (let i = 0; i < band.length; i += 7) s += band[i] * band[i];
+    return Math.sqrt(s / (band.length / 7));
   };
 
-  const gesamt = effektiv(puffer.getChannelData(0));
-  const tief = effektiv(bass);
-  const hoch = effektiv(hoehen);
+  // 1. Tempo. Techno lebt zwischen 125 und 150.
+  const tempo = spanne(bpm, 118, 150);
 
-  const anteilHoch = gesamt > 0 ? Math.min(1, hoch / gesamt / 0.5) : 0;
-  const anteilTief = gesamt > 0 ? Math.min(1, tief / gesamt / 0.9) : 0;
-  const tempoAnteil = Math.min(1, Math.max(0, (bpm - 110) / 40));
+  // 2. Dichte: Wie viele Anschlaege kommen auf einen Beat? Ein Track mit
+  //    durchlaufenden Sechzehnteln wirkt treibender als einer mit nacktem
+  //    Viervierteltakt, auch bei gleichem Tempo.
+  let anschlagZahl = 0;
+  for (const wert of anschlaege) if (wert > 0.12) anschlagZahl++;
+  const proBeat = anschlagZahl / Math.max(1, (anschlaege.length / hops) * (bpm / 60));
+  const dichte = spanne(proBeat, 0.8, 3.5);
 
-  return Math.min(1, Math.max(0, 0.4 * anteilHoch + 0.35 * anteilTief + 0.25 * tempoAnteil));
+  // 3. Helligkeit: Hihats, Percussion, verzerrte Synths.
+  const hoehenAnteil = gesamt > 0 ? effektiv(hoehen) / gesamt : 0;
+  const helligkeit = spanne(hoehenAnteil, 0.05, 0.45);
+
+  // 4. Druck ueber den Scheitelfaktor. Ein totkomprimiertes Master hat wenig
+  //    Abstand zwischen Spitze und Effektivwert - das ist genau der Klang, der
+  //    als "hart" empfunden wird. Zwoelf Dezibel sind luftig, fuenf sind Brett.
+  const scheitelDb = gesamt > 0 ? 20 * Math.log10(spitze / gesamt) : 14;
+  const druck = 1 - spanne(scheitelDb, 5, 14);
+
+  // Der Bass traegt, ist aber kein Unterscheidungsmerkmal - fast jeder
+  // Clubtrack hat viel davon. Deshalb nur als leichter Zuschlag.
+  const bassAnteil = gesamt > 0 ? effektiv(bass) / gesamt : 0;
+  const fundament = spanne(bassAnteil, 0.3, 0.9);
+
+  const roh =
+    0.3 * tempo + 0.25 * dichte + 0.2 * helligkeit + 0.15 * druck + 0.1 * fundament;
+
+  // Kontrast nachziehen. Fuenf gemittelte Anteile landen fast immer in der
+  // Mitte - selbst zwischen einem ruhigen und einem harten Track lagen nur
+  // dreizehn Prozentpunkte. Damit koennte die Energiekurve nicht mehr
+  // auswaehlen, und genau das war der sichtbare Fehler: alles bei knapp
+  // ueber vierzig Prozent.
+  //
+  // Der realistische Bereich des Mittelwerts ist 0,28 bis 0,68; der wird auf
+  // die volle Skala gezogen. Aussen wird nicht abgeschnitten, sondern flacher
+  // weitergefuehrt, damit ein Ausreisser nicht einfach am Anschlag klebt.
+  const gedehnt = (roh - 0.28) / 0.4;
+  const mitRand = gedehnt < 0 ? gedehnt * 0.25 : gedehnt > 1 ? 1 + (gedehnt - 1) * 0.25 : gedehnt;
+
+  return Math.min(1, Math.max(0, mitRand));
+}
+
+// Einen Messwert auf 0 bis 1 abbilden, mit Deckel an beiden Enden.
+function spanne(wert, unten, oben) {
+  if (!Number.isFinite(wert)) return 0.5;
+  return Math.min(1, Math.max(0, (wert - unten) / (oben - unten)));
 }
 
 function mittelwert(werte) {
@@ -674,8 +731,21 @@ function mittelwert(werte) {
 
 export function energienNormieren(tracks) {
   if (tracks.length < 2) return tracks;
+
   const sortiert = [...tracks].sort((a, b) => (a.energie ?? 0) - (b.energie ?? 0));
   const rang = new Map();
   sortiert.forEach((track, i) => rang.set(track.id, i / (sortiert.length - 1)));
-  return tracks.map((track) => ({ ...track, energie: Number((rang.get(track.id) ?? 0.5).toFixed(3)) }));
+
+  // Wie stark der Rang mitredet, haengt an der Groesse der Sammlung. Bei drei
+  // Tracks sagt eine Rangfolge nichts - da waere der Letzte zwangslaeufig bei
+  // null Prozent, obwohl er ein Brett sein kann. Erst ab etwa einem Dutzend
+  // wird die Verteilung aussagekraeftig, und selbst dann bleibt die Haelfte
+  // beim gemessenen Wert.
+  const gewicht = Math.min(0.5, Math.max(0, (tracks.length - 4) / 16));
+
+  return tracks.map((track) => {
+    const absolut = track.energie ?? 0.5;
+    const gemischt = absolut * (1 - gewicht) + (rang.get(track.id) ?? 0.5) * gewicht;
+    return { ...track, energie: Number(gemischt.toFixed(3)) };
+  });
 }

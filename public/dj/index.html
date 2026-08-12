@@ -514,6 +514,17 @@ header {
   min-width: 2.4rem;
 }
 
+/* Wie der DJ gerade spielt - Aufwaermen, Fahrt, Druck, Vollgas. */
+.stil {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 61, 127, 0.16);
+  color: var(--akzent);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
 </style>
   </head>
   <body>
@@ -634,6 +645,11 @@ header {
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
         </label>
+        <span class="stil" id="stil" title="Wie der DJ gerade spielt – haengt an der Zielenergie">–</span>
+        <label class="schalter">
+          <input type="checkbox" id="remixAn" checked />
+          Remix
+        </label>
         <span class="fussnote" id="energieQuelle"></span>
         <label class="schalter">
           <input type="checkbox" id="angleichAn" checked />
@@ -752,6 +768,249 @@ function kontextZeitVonBeat(deck, beatNr) {
 // Umgekehrt: Wo steht ein laufendes Deck jetzt in seiner Datei?
 function stelleInDatei(deck, kontextZeit) {
   return deck.startInDatei + (kontextZeit - deck.startZeit) * deck.tempo;
+}
+
+
+// ===== public/gemeinsam/remix.js =====
+// Remixen: den Track umbauen, statt ihn nur abzuspielen.
+//
+// Der wichtigste Handgriff aus der DJ-Praxis ist der **Loop-Roll**: Kurz vor
+// dem Drop wird eine Schleife fortlaufend halbiert - vier Beats, zwei, einer,
+// ein halber. Das zieht die Spannung an wie eine Feder, und der Drop trifft
+// danach haerter. Es funktioniert, weil das Ohr die Beschleunigung als
+// Steigerung liest, obwohl nichts lauter wird.
+//
+// Umgesetzt ist das nicht ueber `loop` am AudioBufferSourceNode. Dessen
+// Schleifenpunkte waehrend der Wiedergabe zu verkuerzen ist heikel: Steht der
+// Abspielkopf schon hinter dem neuen Ende, laeuft die Quelle einfach weiter.
+// Stattdessen wird jede Wiederholung als eigene, sample-genau geplante Quelle
+// gestartet. Web Audio kann das auf die Abtastrate genau, und mit ein paar
+// Millisekunden Ein- und Ausblendung knackt nichts.
+//
+// Der heikle Punkt ist danach: Ein Roll wiederholt Material, also laufen
+// Musikzeit und Dateizeit auseinander. Deshalb wird das Deck danach
+// ausdruecklich neu verankert - sonst stimmt jede spaetere Beatrechnung nicht
+// mehr, und der naechste Uebergang sitzt daneben.
+
+
+// Kurze Rampe an den Naht­stellen. Drei Millisekunden hoert niemand, ein
+// harter Schnitt im Wellenverlauf dagegen knackt deutlich.
+const NAHT = 0.003;
+
+/**
+ * Plant einen Loop-Roll, der auf einem bestimmten Beat endet.
+ *
+ * @param deck        das laufende Deck
+ * @param zielBeat    Beat, auf dem der Track normal weiterlaufen soll (der Drop)
+ * @param laengen     Schleifenlaengen in Beats, in der Reihenfolge des Ablaufs
+ * @returns Beschreibung des Rolls oder null, wenn er nicht mehr passt
+ */
+// Summiert sich auf genau 16 Beats - vier Takte, eine halbe Phrase. Ein Roll
+// muss ein musikalisches Mass ersetzen, sonst verschiebt er alles Folgende.
+const ROLL_STANDARD = [4, 4, 2, 2, 1, 1, 0.5, 0.5, 0.5, 0.5];
+
+function loopRoll(deck, zielBeat, laengen = ROLL_STANDARD) {
+  if (!deck?.laeuft || !deck.track?.bpm || !deck.quelle?.buffer) return null;
+
+  const ctx = deck.ctx;
+  const gesamtBeats = laengen.reduce((a, b) => a + b, 0);
+  const startBeat = zielBeat - gesamtBeats;
+
+  const beatKontext = beatDauer(deck.track.bpm) / deck.tempo;
+  const startZeit = kontextZeitVonBeat(deck, startBeat);
+
+  // Es muss noch Zeit zum Einplanen bleiben. Ein Roll, der vor einer
+  // Zehntelsekunde haette anfangen sollen, wird nicht nachgeholt.
+  if (startZeit < ctx.currentTime + 0.1) return null;
+
+  // Wiederholt wird das, was *vor* dem Ziel liegt - beim Drop also die letzten
+  // Takte des Aufbaus. Der Ausschnitt beginnt eine Schleifenlaenge vor dem
+  // jeweiligen Zeitpunkt und ist damit musikalisch an der richtigen Stelle.
+  const puffer = deck.quelle.buffer;
+  const abschnitte = [];
+  let beat = startBeat;
+
+  for (const laenge of laengen) {
+    const inDatei = beatZeit(deck.track, startBeat);
+    const dauerDatei = laenge * beatDauer(deck.track.bpm);
+    if (inDatei < 0 || inDatei + dauerDatei > puffer.duration) return null;
+
+    abschnitte.push({
+      zeit: kontextZeitVonBeat(deck, beat),
+      inDatei,
+      dauer: dauerDatei,
+      laenge,
+    });
+    beat += laenge;
+  }
+
+  // Die laufende Quelle endet dort, wo der Roll beginnt.
+  deck.quelle.stop(startZeit);
+
+  for (const abschnitt of abschnitte) {
+    const quelle = ctx.createBufferSource();
+    quelle.buffer = puffer;
+    quelle.playbackRate.value = deck.tempo;
+
+    // Eigener Regler je Wiederholung, nur fuer die Naht. Die Lautstaerke des
+    // Decks bleibt davon unberuehrt.
+    const naht = ctx.createGain();
+    naht.gain.setValueAtTime(0, abschnitt.zeit);
+    naht.gain.linearRampToValueAtTime(1, abschnitt.zeit + NAHT);
+    const endeKontext = abschnitt.zeit + abschnitt.dauer / deck.tempo;
+    naht.gain.setValueAtTime(1, endeKontext - NAHT);
+    naht.gain.linearRampToValueAtTime(0, endeKontext);
+
+    quelle.connect(naht).connect(deck.angleich);
+    quelle.start(abschnitt.zeit, abschnitt.inDatei, abschnitt.dauer);
+    quelle.stop(endeKontext + 0.01);
+  }
+
+  // Nach dem Roll geht es beim Ziel weiter. Das Deck wird dabei neu verankert,
+  // damit `stelle()` und alle Beatrechnungen wieder stimmen.
+  const zielZeit = kontextZeitVonBeat(deck, zielBeat);
+  const zielInDatei = beatZeit(deck.track, zielBeat);
+
+  const weiter = ctx.createBufferSource();
+  weiter.buffer = puffer;
+  weiter.playbackRate.value = deck.tempo;
+  weiter.connect(deck.angleich);
+  weiter.start(zielZeit, Math.max(0, zielInDatei));
+
+  deck.quelle = weiter;
+  // Erst ab dem Zielzeitpunkt umhaengen. Wuerde der Anker sofort gesetzt,
+  // rechnete das Deck waehrend des Rolls mit einem Start in der Zukunft -
+  // Fortschrittsbalken und Visualisierung liefen rueckwaerts.
+  deck.verankernAb(zielZeit, zielZeit, zielInDatei);
+
+  return {
+    art: 'roll',
+    startZeit,
+    endeZeit: zielZeit,
+    startBeat,
+    zielBeat,
+    laengen,
+    beats: gesamtBeats,
+    sekunden: gesamtBeats * beatKontext,
+  };
+}
+
+/**
+ * Verlängert eine Stelle, indem sie mehrfach wiederholt wird.
+ *
+ * Damit trägt ein Outro eine lange Blende, statt sie zu hetzen. Dieselbe
+ * Mechanik wie der Roll, nur mit gleichbleibender Länge.
+ */
+function verlaengern(deck, abBeat, laenge = 16, wiederholungen = 1) {
+  return loopRoll(deck, abBeat + laenge * wiederholungen, Array(wiederholungen).fill(laenge));
+}
+
+// --- Die Regie -------------------------------------------------------------
+//
+// Was einen DJ von einer Abspielliste unterscheidet, ist nicht ein einzelner
+// Kniff, sondern dass er **den ganzen Abend anders spielt**. Um zehn legt
+// niemand Loop-Rolls; um zwei erwartet es jeder. Deshalb haengt hier alles an
+// einem einzigen Wert: der Zielenergie.
+//
+// Rollsaetze summieren sich immer auf 16 Beats - vier Takte. Ein Roll ersetzt
+// ein musikalisches Mass, sonst verschiebt er alles Folgende.
+
+const ROLL_SANFT = [8, 4, 2, 1, 0.5, 0.5];
+const ROLL_HART = [
+  2, 2, 2, 2, 1, 1, 1, 1, 0.5, 0.5, 0.5, 0.5,
+  0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+];
+
+const STUFEN = [
+  {
+    bis: 0.35,
+    name: 'Aufwärmen',
+    // Frueh am Abend soll nichts drängen. Lange Blenden, keine Kniffe.
+    rollJederNte: Infinity,
+    rollLaengen: ROLL_SANFT,
+    uebergaenge: { blende: 5, aufzug: 1, echo: 1, schnitt: 0 },
+    outroVerlaengern: true,
+    einstiegVorziehen: false,
+  },
+  {
+    bis: 0.6,
+    name: 'Fahrt',
+    rollJederNte: 4,
+    rollLaengen: ROLL_SANFT,
+    uebergaenge: { blende: 4, aufzug: 3, echo: 1, schnitt: 0 },
+    outroVerlaengern: true,
+    einstiegVorziehen: false,
+  },
+  {
+    bis: 0.8,
+    name: 'Druck',
+    rollJederNte: 3,
+    rollLaengen: ROLL_STANDARD,
+    uebergaenge: { blende: 3, aufzug: 3, echo: 2, schnitt: 0 },
+    outroVerlaengern: false,
+    // Spaeter will niemand mehr ein Intro abwarten.
+    einstiegVorziehen: true,
+  },
+  {
+    bis: 1.01,
+    name: 'Vollgas',
+    rollJederNte: 2,
+    rollLaengen: ROLL_HART,
+    uebergaenge: { blende: 2, aufzug: 2, echo: 3, schnitt: 1 },
+    outroVerlaengern: false,
+    einstiegVorziehen: true,
+  },
+];
+
+// Sicherheitsnetz: Ein Rollsatz, der sich nicht auf ein volles Mass summiert,
+// wuerde den Track gegen das Raster verschieben. Das faellt hier auf und nicht
+// erst mitten in der Nacht.
+for (const satz of [ROLL_SANFT, ROLL_STANDARD, ROLL_HART]) {
+  const summe = satz.reduce((a, b) => a + b, 0);
+  if (Math.abs(summe - 16) > 1e-9) {
+    throw new Error(`Rollsatz summiert sich auf ${summe} statt auf 16 Beats`);
+  }
+}
+
+function regieFuer(zielenergie) {
+  return STUFEN.find((s) => zielenergie < s.bis) ?? STUFEN[STUFEN.length - 1];
+}
+
+/**
+ * Lohnt sich hier ein Roll?
+ *
+ * Nicht vor jedem Drop - sonst wird aus einem Kniff eine Masche, und nach dem
+ * dritten Mal hoert niemand mehr hin. Wie oft, entscheidet die Regie.
+ */
+function rollLohntSich({ zielenergie, seitLetztemRoll, imUebergang, beatsBisZiel }) {
+  const regie = regieFuer(zielenergie);
+  if (imUebergang) return false;
+  // Der Roll muss noch vollstaendig hineinpassen und planbar sein.
+  if (beatsBisZiel < 17 || beatsBisZiel > 64) return false;
+  return seitLetztemRoll >= regie.rollJederNte;
+}
+
+/**
+ * Welche Uebergangsart passt gerade?
+ *
+ * Gewuerfelt aus den Gewichten der Regie, aber mit Vorfahrt fuer die Faelle,
+ * in denen nur eine Art funktioniert. So klingt der Abend nicht nach Schema
+ * und trotzdem nie falsch.
+ */
+function uebergangWaehlen({ zielenergie, tempoPasst, energiesprung, wuerfel = Math.random }) {
+  // Passt das Tempo nicht oder springt die Energie stark, hilft nur ein
+  // Schnitt - eine Blende haenge sonst zwoelf Beats in der Luft.
+  if (!tempoPasst) return 'echo';
+  if (Math.abs(energiesprung) > 0.25) return 'echo';
+
+  const gewichte = regieFuer(zielenergie).uebergaenge;
+  const gesamt = Object.values(gewichte).reduce((a, b) => a + b, 0);
+  let punkt = wuerfel() * gesamt;
+  for (const [art, gewicht] of Object.entries(gewichte)) {
+    punkt -= gewicht;
+    if (punkt <= 0) return art;
+  }
+  return 'blende';
 }
 
 
@@ -877,15 +1136,10 @@ const UEBERGAENGE = {
   },
 };
 
-// Welcher Uebergang passt gerade? Reihenfolge ist Absicht: erst die Faelle, in
-// denen nur eine Art funktioniert, dann Abwechslung.
-function waehleUebergang({ tempoPasst, energiesprung, zaehler = 0 }) {
-  if (!tempoPasst) return 'echo';
-  // Ein grosser Energiesprung will einen Schnitt, keine Verschmelzung -
-  // sonst haengt zwoelf Beats lang eine halbe Nummer in der Luft.
-  if (Math.abs(energiesprung) > 0.25) return 'echo';
-  // Sonst ueberwiegend die lange Blende, alle paar Wechsel ein Aufzug.
-  return zaehler % 4 === 3 ? 'aufzug' : 'blende';
+// Welcher Uebergang passt gerade? Das entscheidet die Regie in remix.js
+// anhand der Zielenergie - frueh am Abend lange Blenden, spaeter Schnitte.
+function waehleUebergang({ tempoPasst, energiesprung, zielenergie = 0.5 }) {
+  return uebergangWaehlen({ zielenergie, tempoPasst, energiesprung });
 }
 
 // --- Ein Deck -------------------------------------------------------------
@@ -1116,7 +1370,7 @@ class Mixer {
 
   // Uebergang planen und einplanen. Gibt zurueck, was passieren wird - die
   // Buehne zeigt das an, bevor man es hoert.
-  uebergang(neuTrack, puffer, artWunsch = null) {
+  uebergang(neuTrack, puffer, artWunsch = null, zielenergie = 0.5) {
     const alt = this.laufendesDeck;
     const neu = this.freiesDeck;
     if (!alt.laeuft) return this.ersterTrack(neuTrack, puffer);
@@ -1128,11 +1382,7 @@ class Mixer {
     const energiesprung = (neuTrack.energie ?? 0.5) - (alt.track.energie ?? 0.5);
     const art =
       artWunsch ??
-      waehleUebergang({
-        tempoPasst: tempo.passt,
-        energiesprung,
-        zaehler: this.wechselZaehler,
-      });
+      waehleUebergang({ tempoPasst: tempo.passt, energiesprung, zielenergie });
     const plan = UEBERGAENGE[art];
 
     // Der Uebergang beginnt auf einer Phrasengrenze des laufenden Decks. Das
@@ -1268,6 +1518,18 @@ class Mixer {
   // Spektrum fuer die Buehne.
   spektrum(ziel) {
     this.messung.getByteFrequencyData(ziel);
+    return ziel;
+  }
+
+  // Die Wellenform im Zeitbereich - der Modus "Wellen" zeichnet sie direkt.
+  //
+  // Bewusst die Float-Fassung und nicht getByteTimeDomainData: Der Pegel am
+  // Ausgang liegt nach Angleich und Begrenzer bei wenigen Prozent der
+  // Vollaussteuerung. Die Bytefassung hat dort nur noch eine Handvoll Stufen
+  // uebrig, und die Zeichnung wird zur Treppe, sobald man sie hochskaliert.
+  // @param {Float32Array} ziel  Laenge messung.fftSize
+  wellenform(ziel) {
+    this.messung.getFloatTimeDomainData(ziel);
     return ziel;
   }
 }
@@ -2197,6 +2459,380 @@ async function leitungSuchen() {
 }
 
 
+// ===== public/gemeinsam/visualmodi.js =====
+// Vier eigenstaendige Visualisierungs-Modi.
+//
+// Bisher liefen Lava, Iris, Puls und Ausbruch gleichzeitig uebereinander
+// (siehe visual.js). Kuenftig laeuft pro Song genau ein Modus - dafuer ist
+// diese Datei da. Beat-Ringe, Drop-Ausbruch und Funken bleiben Sache der
+// aufrufenden Stelle; jeder Modus hier zeichnet ausschliesslich seinen
+// eigenen Effekt.
+//
+// Die eiserne Regel fuer alle vier: nichts dreht sich, und dieselbe Tonhoehe
+// liegt immer an derselben Stelle im Bild. Ein Visualizer, der rotiert,
+// verspricht dem Auge ein wiedererkennbares Muster und bricht das Versprechen
+// jede Sekunde neu. Darum bildet tonLage() Frequenzen fest und logarithmisch
+// auf Positionen ab - Oktaven liegen dadurch immer gleich weit auseinander,
+// egal welcher Track laeuft.
+
+const TAU = Math.PI * 2;
+
+// Nur die unteren 45 Prozent der Bins zaehlen: darueber ist bei Musik so gut
+// wie nie etwas los, und wer sie trotzdem einbezieht, verschenkt Aufloesung
+// im Bereich, der tatsaechlich Bewegung zeigt.
+const NUTZBARER_ANTEIL = 0.45;
+
+function nutzbareBins(anzahl) {
+  return Math.max(2, Math.floor(anzahl * NUTZBARER_ANTEIL));
+}
+
+// Bin-Index zu Position 0..1, logarithmisch. Feste Zuordnung: Dieselbe
+// Tonhoehe liegt immer an derselben Stelle, sonst wandert das Bild und man
+// kann nichts wiedererkennen.
+function tonLage(bin, anzahl) {
+  const nutzbar = nutzbareBins(anzahl);
+  const b = Math.min(Math.max(bin, 0), nutzbar - 1);
+  return Math.log(b + 1) / Math.log(nutzbar);
+}
+
+// Kehrwert von tonLage: aus einer Position 0..1 den Bin-Index, der dort
+// liegen wuerde. Gebraucht, wenn ein Modus eine feste Anzahl Elemente
+// (Strahlen, Ringpunkte) gleichmaessig ueber die Tonlage verteilt, statt
+// selbst Bin fuer Bin durchzugehen - dieselbe feste Abbildung, nur von der
+// anderen Seite her aufgerollt.
+function binFuerLage(position, anzahl) {
+  const nutzbar = nutzbareBins(anzahl);
+  const bin = Math.round(Math.pow(nutzbar, position)) - 1;
+  return Math.min(Math.max(bin, 0), nutzbar - 1);
+}
+
+// --- Modus: Iris ------------------------------------------------------------
+//
+// Ein Ring in der Mitte, dessen Rand vom Frequenzband verformt wird. Drei
+// ineinanderliegende Ringe mit leicht versetzten Frequenzbereichen geben dem
+// Bild Tiefe, ohne dass irgendetwas rotiert.
+
+const irisRinge = [
+  { skala: 1, versatz: 0 },
+  { skala: 0.78, versatz: 6 },
+  { skala: 0.58, versatz: -5 },
+];
+const IRIS_PUNKTE = 128;
+
+function irisZeichnen(stift, lage) {
+  const { breite, hoehe, spektrum, takt, wucht, palette: paletteA, paletteB, anteilB } = lage;
+  if (!spektrum) return;
+
+  const mx = breite / 2;
+  const my = hoehe / 2;
+  const grund = Math.min(breite, hoehe) * 0.23;
+
+  // Auf jedem Schlag ein kurzer Stoss nach aussen, der schnell abklingt.
+  const schlag = takt ? Math.exp(-takt.imBeat * 7) : 0;
+  const radius = grund * (1 + schlag * 0.13 + wucht * 0.1);
+
+  stift.globalCompositeOperation = 'lighter';
+
+  const zeichneRing = (pal, skala, versatz, deckkraft) => {
+    stift.beginPath();
+    for (let i = 0; i <= IRIS_PUNKTE; i++) {
+      const winkel = (i / IRIS_PUNKTE) * TAU;
+      // (1 - sin) ist an jedem Punkt gleich fuer winkel und PI - winkel, also
+      // spiegelt sich links und rechts von selbst. Unten (winkel = PI/2) wird
+      // 0 (Bass), oben (winkel = -PI/2) wird 1 (Hoehen).
+      const hoehenAnteil = (1 - Math.sin(winkel)) / 2;
+      let bin = binFuerLage(hoehenAnteil, spektrum.length) + versatz;
+      bin = Math.min(Math.max(bin, 0), spektrum.length - 1);
+      const wert = spektrum[bin] / 255;
+      const r = radius * skala * (1 + wert * 0.55);
+      const x = mx + Math.cos(winkel) * r;
+      const y = my + Math.sin(winkel) * r;
+      if (i === 0) stift.moveTo(x, y);
+      else stift.lineTo(x, y);
+    }
+    stift.closePath();
+    stift.strokeStyle = pal.hell;
+    stift.globalAlpha = deckkraft;
+    stift.lineWidth = 2 + wucht * 3;
+    stift.stroke();
+
+    // Ein weicher Kern dahinter gibt dem Ring Koerper.
+    const verlauf = stift.createRadialGradient(mx, my, 0, mx, my, radius * skala * 1.5);
+    verlauf.addColorStop(0, pal.toene[0]);
+    verlauf.addColorStop(1, 'transparent');
+    stift.globalAlpha = deckkraft * (0.25 + wucht * 0.25);
+    stift.fillStyle = verlauf;
+    stift.fill();
+  };
+
+  for (const ring of irisRinge) {
+    if (paletteB && anteilB > 0) {
+      // Waehrend eines Uebergangs zwei Ringe an derselben Stelle: die alte
+      // Palette verblasst, die neue wird sichtbarer. So liegen beide Tracks
+      // erkennbar uebereinander statt hart zu wechseln.
+      zeichneRing(paletteA, ring.skala, ring.versatz, 1 - anteilB);
+      zeichneRing(paletteB, ring.skala, ring.versatz, anteilB);
+    } else {
+      zeichneRing(paletteA, ring.skala, ring.versatz, 1);
+    }
+  }
+
+  stift.globalAlpha = 1;
+  stift.globalCompositeOperation = 'source-over';
+}
+
+// --- Modus: Tunnel -----------------------------------------------------------
+//
+// Perspektivische Ringe, die auf den Betrachter zufliegen. Jeder Ring wird
+// beim Entstehen einmal vom Spektrum geformt und behaelt diese Form dann bei
+// - so fliegt ein Abbild des Klangs auf einen zu, statt sich staendig neu zu
+// verformen.
+
+let tunnelRinge = [];
+let tunnelLetzterWurf = -1;
+const TUNNEL_ECKEN = 48;
+
+function tunnelZeichnen(stift, lage) {
+  const { breite, hoehe, sekunden, takt, spannung, wucht, spektrum, palette: paletteA, paletteB, anteilB } = lage;
+
+  // Ein Ring auf jedem Schlag, und ab mittlerer Spannung auch dazwischen.
+  // Nur einer pro Takt war zu wenig: Bei 126 BPM lebt ein Ring rund drei
+  // Sekunden, also waren nie mehr als zwei gleichzeitig zu sehen - und zwei
+  // Ringe sind kein Tunnel, sondern zwei Ringe.
+  if (spektrum && takt) {
+    const teilung = spannung > 0.4 ? 2 : 1;
+    const wurf = Math.floor(takt.beat * teilung);
+    if (wurf !== tunnelLetzterWurf) {
+      tunnelLetzterWurf = wurf;
+      const form = new Array(TUNNEL_ECKEN);
+      for (let i = 0; i < TUNNEL_ECKEN; i++) {
+        const bin = binFuerLage(i / TUNNEL_ECKEN, spektrum.length);
+        form[i] = (spektrum[bin] ?? 0) / 255;
+      }
+      tunnelRinge.push({ tiefe: 0, form });
+      if (tunnelRinge.length > 40) tunnelRinge.shift();
+    }
+  }
+
+  const mx = breite / 2;
+  const my = hoehe / 2;
+  const maxRadius = Math.hypot(breite, hoehe) * 0.72;
+  // Bei hoher Spannung ziehen die Ringe schneller heran - der Sog vor dem
+  // Drop soll man auch hier spueren, nicht nur im Bass.
+  const zuwachs = 0.32 + spannung * 1.1;
+
+  for (const ring of tunnelRinge) ring.tiefe += sekunden * zuwachs;
+  tunnelRinge = tunnelRinge.filter((r) => r.tiefe < 1);
+
+  stift.globalCompositeOperation = 'lighter';
+
+  const zeichneForm = (ring, pal, alphaMult) => {
+    // Ease-in: fern waechst der Ring langsam, nah rast er - wie im echten
+    // Tunnelflug, wo Naehe die gefuehlte Geschwindigkeit vervielfacht.
+    const fortschritt = ring.tiefe * ring.tiefe;
+    const radius = maxRadius * fortschritt;
+    // Kommt leise, ist kurz voll da, verschwindet wieder - kein hartes Ein-
+    // oder Ausblenden.
+    const deckkraft = Math.sin(Math.min(ring.tiefe, 1) * Math.PI);
+    if (deckkraft <= 0.001) return;
+
+    stift.beginPath();
+    for (let i = 0; i <= ring.form.length; i++) {
+      const idx = i % ring.form.length;
+      const winkel = (idx / ring.form.length) * TAU;
+      const r = radius * (1 + ring.form[idx] * 0.35);
+      const x = mx + Math.cos(winkel) * r;
+      const y = my + Math.sin(winkel) * r;
+      if (i === 0) stift.moveTo(x, y);
+      else stift.lineTo(x, y);
+    }
+    stift.closePath();
+    stift.strokeStyle = pal.hell;
+    stift.globalAlpha = deckkraft * alphaMult * (0.25 + wucht * 0.4);
+    stift.lineWidth = 1.5 + deckkraft * 3;
+    stift.stroke();
+  };
+
+  for (const ring of tunnelRinge) {
+    if (paletteB && anteilB > 0) {
+      // Jeder gerade sichtbare Ring wird von beiden Paletten getragen - so
+      // sieht man den Uebergang auf der ganzen Tiefe des Tunnels, nicht nur
+      // an einer Stelle.
+      zeichneForm(ring, paletteA, 1 - anteilB);
+      zeichneForm(ring, paletteB, anteilB);
+    } else {
+      zeichneForm(ring, paletteA, 1);
+    }
+  }
+
+  stift.globalAlpha = 1;
+  stift.globalCompositeOperation = 'source-over';
+}
+
+// --- Modus: Strahlen ---------------------------------------------------------
+//
+// Strahlen vom Mittelpunkt nach aussen, einer je Frequenzbereich, die Laenge
+// ist der Pegel. Nachleuchten haelt den Umriss stehen, statt bei jedem Bild
+// neu zu flackern.
+
+const STRAHLEN_ANZAHL = 96;
+const STRAHLEN_ABKLINGEN = 1.0; // pro Sekunde
+let strahlenSpitzen = new Float32Array(STRAHLEN_ANZAHL);
+
+function strahlenZeichnen(stift, lage) {
+  const { breite, hoehe, spektrum, sekunden, wucht, palette: paletteA, paletteB, anteilB } = lage;
+  if (!spektrum) return;
+
+  const mx = breite / 2;
+  const my = hoehe / 2;
+  const innen = Math.min(breite, hoehe) * 0.05;
+  const aussen = Math.min(breite, hoehe) * 0.47;
+
+  stift.globalCompositeOperation = 'lighter';
+
+  const ziehe = (x0, y0, x1, y1, pal, farbIndex, alpha, linienbreite) => {
+    stift.beginPath();
+    stift.moveTo(x0, y0);
+    stift.lineTo(x1, y1);
+    stift.strokeStyle = pal.toene[farbIndex];
+    stift.globalAlpha = alpha;
+    stift.lineWidth = linienbreite;
+    stift.stroke();
+  };
+
+  for (let i = 0; i < STRAHLEN_ANZAHL; i++) {
+    // Feste Richtung je Frequenzbereich: der Bass zeigt immer zum selben
+    // Winkel, egal welcher Track laeuft.
+    const bin = binFuerLage(i / (STRAHLEN_ANZAHL - 1), spektrum.length);
+    const wert = (spektrum[bin] ?? 0) / 255;
+    strahlenSpitzen[i] = Math.max(wert, strahlenSpitzen[i] - sekunden * STRAHLEN_ABKLINGEN);
+    const spitze = strahlenSpitzen[i];
+
+    const winkel = (i / STRAHLEN_ANZAHL) * TAU;
+    const laenge = innen + (aussen - innen) * spitze;
+    const x0 = mx + Math.cos(winkel) * innen;
+    const y0 = my + Math.sin(winkel) * innen;
+    const x1 = mx + Math.cos(winkel) * laenge;
+    const y1 = my + Math.sin(winkel) * laenge;
+    const gruppe = Math.floor((i / STRAHLEN_ANZAHL) * 4) % 4;
+    const linienbreite = 1.5 + wucht * 1.5;
+    const grundAlpha = 0.35 + spitze * 0.65;
+
+    if (paletteB && anteilB > 0) {
+      ziehe(x0, y0, x1, y1, paletteA, gruppe, grundAlpha * (1 - anteilB), linienbreite);
+      ziehe(x0, y0, x1, y1, paletteB, gruppe, grundAlpha * anteilB, linienbreite);
+    } else {
+      ziehe(x0, y0, x1, y1, paletteA, gruppe, grundAlpha, linienbreite);
+    }
+  }
+
+  stift.globalAlpha = 1;
+  stift.globalCompositeOperation = 'source-over';
+}
+
+// --- Modus: Wellen ------------------------------------------------------------
+//
+// Die Wellenform als Linie, mehrfach uebereinander gestapelt, jede leicht
+// zeitversetzt und in einem anderen Ton der Palette. Kein Bezug zu
+// Frequenzen hier - die Wellenform liegt im Zeitbereich, also braucht dieser
+// Modus tonLage() nicht: die x-Achse ist schon fest (Zeit laeuft immer
+// gleich von links nach rechts, egal welcher Track spielt).
+
+const WELLEN_KOPIEN = 5;
+const WELLEN_PUNKTE = 360;
+
+// Der Pegel am Ausgang liegt nach Angleich und Begrenzer bei wenigen Prozent
+// der Vollaussteuerung. Zeichnet man den Rohwert, ist die Welle ein Strich.
+// Darum wird sie auf ihre eigene Spitze bezogen: schnell hoch, langsam
+// zurueck - so bleibt eine laute Stelle laut und eine leise Stelle wird
+// trotzdem sichtbar, ohne dass das Bild bei jedem Schlag die Groesse wechselt.
+let wellenSpitze = 0.1;
+const WELLEN_MINDESTSPITZE = 0.02;
+const WELLEN_RUECKGANG = 0.6; // Anteil pro Sekunde
+
+function wellenZeichnen(stift, lage) {
+  const { breite, hoehe, welle, sekunden, wucht, spannung, zeit, palette: paletteA, paletteB, anteilB } = lage;
+  // Ohne Zeitbereichsdaten hat dieser Modus nichts zu zeichnen. Lieber leer
+  // als eine Kurve aus NaN, die stumm gar nichts malt und wie ein Ausfall
+  // aussieht.
+  if (!welle || welle.length < 8) return;
+
+  const n = welle.length;
+  const mitteY = hoehe / 2;
+  const punkte = Math.min(WELLEN_PUNKTE, breite);
+
+  // Statt jeden x-ten Abtastwert herauszupicken - was aus einem Schlag eine
+  // Treppe macht - bekommt jede Spalte den staerksten Ausschlag ihres
+  // Abschnitts. Das ist dieselbe Kurve, nur ohne die Spitzen zu verlieren.
+  const eimer = Math.max(1, Math.floor(n / punkte));
+  const spitzen = new Float32Array(punkte + 1);
+  let hoechste = 0;
+  for (let i = 0; i <= punkte; i++) {
+    const von = Math.min(n - 1, i * eimer);
+    let beste = 0;
+    for (let j = von; j < Math.min(n, von + eimer); j++) {
+      const v = welle[j];
+      if (Math.abs(v) > Math.abs(beste)) beste = v;
+    }
+    spitzen[i] = beste;
+    if (Math.abs(beste) > hoechste) hoechste = Math.abs(beste);
+  }
+
+  wellenSpitze =
+    hoechste > wellenSpitze
+      ? hoechste
+      : wellenSpitze + (hoechste - wellenSpitze) * Math.min(1, (sekunden ?? 0.016) * WELLEN_RUECKGANG);
+  const skala = 1 / Math.max(WELLEN_MINDESTSPITZE, wellenSpitze);
+
+  const amplitude = hoehe * 0.11 * (0.6 + wucht);
+  // Bei hoher Spannung ruecken die Kopien zusammen - das Bild zieht sich
+  // zusammen, bevor der Drop es auseinanderreisst.
+  const abstand = hoehe * 0.075 * (1 - spannung * 0.7);
+
+  stift.globalCompositeOperation = 'lighter';
+
+  for (let k = 0; k < WELLEN_KOPIEN; k++) {
+    const y0 = mitteY + (k - (WELLEN_KOPIEN - 1) / 2) * abstand;
+    // Leichter Versatz je Kopie, damit sie nicht wie eine einzige dicke Linie
+    // wirken, sondern wie mehrere, die sich gerade so verfehlen.
+    const versatz = Math.floor(k * (punkte / 11) + zeit * 9);
+    // Die aeusseren Kopien schwingen weiter aus als die inneren - das gibt dem
+    // Stapel eine Form, statt fuenf gleicher Linien uebereinander.
+    const weite = amplitude * (1 + Math.abs(k - (WELLEN_KOPIEN - 1) / 2) * 0.45);
+
+    const nimmB = paletteB && anteilB > 0 && (k % 2 === 0 ? anteilB > 0.35 : anteilB > 0.65);
+    const pal = nimmB ? paletteB : paletteA;
+
+    stift.beginPath();
+    for (let i = 0; i <= punkte; i++) {
+      const x = (i / punkte) * breite;
+      const idx = (((i + versatz) % (punkte + 1)) + punkte + 1) % (punkte + 1);
+      // Gedeckelt, damit ein einzelner Ausreisser nicht aus dem Bild laeuft.
+      const wert = Math.max(-1.4, Math.min(1.4, spitzen[idx] * skala));
+      const y = y0 + wert * weite;
+      if (i === 0) stift.moveTo(x, y);
+      else stift.lineTo(x, y);
+    }
+    stift.strokeStyle = pal.toene[k % 4];
+    stift.globalAlpha = 0.5 + wucht * 0.4;
+    stift.lineWidth = 2;
+    stift.stroke();
+  }
+
+  stift.globalAlpha = 1;
+  stift.globalCompositeOperation = 'source-over';
+}
+
+// --- Der Vertrag --------------------------------------------------------------
+
+const MODI = {
+  iris: { name: 'Iris', zeichne: irisZeichnen },
+  tunnel: { name: 'Tunnel', zeichne: tunnelZeichnen },
+  strahlen: { name: 'Strahlen', zeichne: strahlenZeichnen },
+  wellen: { name: 'Wellen', zeichne: wellenZeichnen },
+};
+
+
 // ===== public/gemeinsam/visual.js =====
 // Die Visualisierung.
 //
@@ -2220,7 +2856,11 @@ async function leitungSuchen() {
 // aus seiner Kennung, und die Bewegung laeuft ueber langsames Rauschen, das nie
 // denselben Weg nimmt.
 
-const TAU = Math.PI * 2;
+
+// Die Reihenfolge, in der die Modi durchgewechselt werden. Nicht zufaellig
+// gezogen, sondern reihum: So sieht man zwei gleiche nie hintereinander, und
+// ueber einen Abend kommt jeder gleich oft dran.
+const MODUSFOLGE = ['iris', 'tunnel', 'strahlen', 'wellen'];
 
 // --- Zufall, der sich wiederholen laesst ----------------------------------
 
@@ -2303,6 +2943,12 @@ class Visualisierung {
     this.stossHalt = 0;
     this.letzterDrop = -1;
 
+    // Ein Modus je Track. Vorher liefen alle Effekte gleichzeitig - das war
+    // viel und trotzdem immer dasselbe. Einer nach dem anderen gibt jedem
+    // Effekt Raum und dem Abend Abwechslung.
+    this.modusFuerTrack = new Map();
+    this.naechsterModus = 0;
+
     // Drei Rauschquellen, damit sich die Bewegungen nicht synchronisieren.
     this.n1 = rauschen(7919);
     this.n2 = rauschen(104729);
@@ -2323,6 +2969,15 @@ class Visualisierung {
     this.lavaLeinwand.height = Math.max(1, Math.round(this.hoehe / 3));
   }
 
+  modusFuer(track) {
+    const schluessel = track?.id ?? track?.titel ?? 'leer';
+    if (!this.modusFuerTrack.has(schluessel)) {
+      this.modusFuerTrack.set(schluessel, MODUSFOLGE[this.naechsterModus % MODUSFOLGE.length]);
+      this.naechsterModus++;
+    }
+    return this.modusFuerTrack.get(schluessel);
+  }
+
   paletteFuer(track) {
     if (!track) return palette('leer', 0.3);
     const schluessel = track.id ?? track.titel ?? 'leer';
@@ -2337,8 +2992,9 @@ class Visualisierung {
    * @param {object} zustand   Momentaufnahme des Mixers
    * @param {Uint8Array} spektrum
    * @param {number} sekunden  Zeit seit dem letzten Bild
+   * @param {Float32Array|null} welle  Zeitbereich, nur vom Modus "Wellen" genutzt
    */
-  zeichne(zustand, spektrum, sekunden) {
+  zeichne(zustand, spektrum, sekunden, welle = null) {
     this.zeit += sekunden;
     const { stift, breite, hoehe } = this;
 
@@ -2356,8 +3012,27 @@ class Visualisierung {
 
     stift.clearRect(0, 0, breite, hoehe);
 
+    // Die Lava bleibt immer im Hintergrund - sie ist die Stimmung im Raum,
+    // kein Effekt. Davor laeuft genau ein Modus, und der wechselt je Track.
     this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
-    this.irisZeichnen(aktiv, zweit, uebergang, spektrum, takt, spannung, wucht);
+
+    const modus = MODI[this.modusFuer(aktiv?.track)] ?? MODI.iris;
+    this.letzterModusName = modus.name;
+    modus.zeichne(stift, {
+      breite,
+      hoehe,
+      zeit: this.zeit,
+      sekunden,
+      spektrum,
+      welle: welle ?? new Float32Array(0),
+      takt,
+      spannung,
+      wucht,
+      palette: this.paletteFuer(aktiv?.track),
+      paletteB: zweit ? this.paletteFuer(zweit.track) : null,
+      anteilB: uebergang ? uebergang.fortschritt : 0,
+    });
+
     this.ringeZeichnen(sekunden);
     this.funkenZeichnen(sekunden);
     this.spannungZeigen(spannung, aktiv);
@@ -2514,71 +3189,6 @@ class Visualisierung {
     this.stift.drawImage(ll, 0, 0, this.breite, this.hoehe);
   }
 
-  // --- Schicht 2: Iris ----------------------------------------------------
-
-  irisZeichnen(aktiv, zweit, uebergang, spektrum, takt, spannung, wucht) {
-    const { stift, breite, hoehe } = this;
-    if (!spektrum) return;
-
-    const mx = breite / 2;
-    const my = hoehe / 2;
-    const grund = Math.min(breite, hoehe) * (0.17 + spannung * 0.04);
-
-    // Auf jedem Schlag ein kurzer Stoss nach aussen, der schnell abklingt.
-    const schlag = takt ? Math.exp(-takt.imBeat * 7) : 0;
-    const radius = grund * (1 + schlag * 0.13 + wucht * 0.1);
-
-    const paletteA = this.paletteFuer(aktiv?.track);
-    const paletteB = zweit ? this.paletteFuer(zweit.track) : null;
-    const anteilB = uebergang ? uebergang.fortschritt : 0;
-
-    stift.globalCompositeOperation = 'lighter';
-
-    // Der Rand wird vom Frequenzband verformt: tiefe Toene unten, hohe oben.
-    const punkte = 128;
-    const zeichneRing = (pal, skala, deckkraft, drehung) => {
-      stift.beginPath();
-      for (let i = 0; i <= punkte; i++) {
-        const winkel = (i / punkte) * TAU + drehung;
-        // Symmetrisch spiegeln, damit es wie ein Objekt aussieht und nicht
-        // wie ein aufgerolltes Diagramm.
-        const anteil = Math.abs(((i / punkte) * 2) % 2 - 1);
-        const bin = Math.floor(anteil ** 1.6 * (spektrum.length * 0.4));
-        const wert = (spektrum[bin] ?? 0) / 255;
-        const r = radius * skala * (1 + wert * 0.55);
-        const x = mx + Math.cos(winkel) * r;
-        const y = my + Math.sin(winkel) * r;
-        if (i === 0) stift.moveTo(x, y);
-        else stift.lineTo(x, y);
-      }
-      stift.closePath();
-      stift.strokeStyle = pal.hell;
-      stift.globalAlpha = deckkraft;
-      stift.lineWidth = 2 + wucht * 3;
-      stift.stroke();
-
-      // Ein weicher Kern dahinter gibt dem Ring Koerper.
-      const verlauf = stift.createRadialGradient(mx, my, 0, mx, my, radius * skala * 1.5);
-      verlauf.addColorStop(0, pal.toene[0]);
-      verlauf.addColorStop(1, 'transparent');
-      stift.globalAlpha = deckkraft * (0.25 + wucht * 0.25);
-      stift.fillStyle = verlauf;
-      stift.fill();
-    };
-
-    // Waehrend des Uebergangs zwei Iriden: die alte weicht nach aussen, die
-    // neue waechst aus der Mitte. Genau das passiert klanglich auch.
-    if (paletteB && anteilB > 0) {
-      zeichneRing(paletteA, 1 + anteilB * 0.5, 1 - anteilB, this.zeit * 0.15);
-      zeichneRing(paletteB, 0.5 + anteilB * 0.5, anteilB, -this.zeit * 0.12);
-    } else {
-      zeichneRing(paletteA, 1, 1, this.zeit * 0.15);
-    }
-
-    stift.globalAlpha = 1;
-    stift.globalCompositeOperation = 'source-over';
-  }
-
   // --- Schicht 3: Puls ----------------------------------------------------
 
   ringeZeichnen(sekunden) {
@@ -2688,6 +3298,13 @@ const welt = {
   verlauf: [],
   angleichAn: true,
   stilleSeit: null,
+  zielenergie: 0.5,
+  // Wie viele Drops seit dem letzten Roll vergangen sind. Ohne diesen Zaehler
+  // wuerde vor jedem Drop gerollt, und aus einem Kniff wuerde eine Masche.
+  seitLetztemRoll: 99,
+  // Schon eingeplante Drops, damit derselbe nicht mehrfach bedient wird.
+  bedienteDrops: new Set(),
+  remixAn: true,
 };
 
 // Zustand offenlegen. Zwei Gruende: Die Abnahme prueft damit die Engine statt
@@ -2748,6 +3365,9 @@ async function starten(demo) {
     $('startschirm').hidden = true;
     $('konsole').hidden = false;
     bild = new Visualisierung($('visual'));
+    // Auch das Bild offenlegen: Am Abend laesst sich damit in der Konsole der
+    // Modus umstellen, wenn einer gerade nicht zum Raum passt.
+    welt.bild = bild;
 
     const erster = await naechstenErfragen();
     const puffer = await pufferFuer(erster);
@@ -2833,7 +3453,9 @@ async function ueberblenden(artWunsch = null) {
   try {
     const puffer = welt.puffer.get(track.id) ?? (await pufferFuer(track));
     const angepasst = welt.angleichAn ? track : { ...track, angleichDb: 0 };
-    const plan = welt.mixer.uebergang(angepasst, puffer, artWunsch || null);
+    const plan = welt.mixer.uebergang(angepasst, puffer, artWunsch || null, welt.zielenergie);
+    // Ein neuer Track bringt eigene Drops mit.
+    welt.bedienteDrops.clear();
 
     verlaufEintragen(plan);
     await laufendMelden(track);
@@ -2906,6 +3528,10 @@ document.addEventListener('visibilitychange', () => {
 
 $('jetztUeberblenden').addEventListener('click', () => ueberblenden($('artWahl').value));
 
+$('remixAn').addEventListener('change', (e) => {
+  welt.remixAn = e.target.checked;
+});
+
 $('angleichAn').addEventListener('change', (e) => {
   welt.angleichAn = e.target.checked;
 });
@@ -2929,8 +3555,11 @@ document.addEventListener('keydown', (e) => {
 
 welt.leitung.beiZustand((zustand) => {
   $('anlass').textContent = zustand.anlass ?? 'resident-dj';
-  const prozent = Math.round((zustand.zielenergie ?? 0) * 100);
+  welt.zielenergie = zustand.zielenergie ?? 0.5;
+  const prozent = Math.round(welt.zielenergie * 100);
+  const regie = regieFuer(welt.zielenergie);
   $('energieWert').textContent = `${prozent} %`;
+  $('stil').textContent = regie.name;
   if (document.activeElement !== $('energieRegler')) {
     $('energieRegler').value = prozent;
   }
@@ -2958,6 +3587,7 @@ welt.leitung.beiZustand((zustand) => {
 
 let bild = null;
 let spektrumDaten = null;
+let wellenDaten = null;
 let letzteZeit = 0;
 
 function leinwandAnpassen() {
@@ -2977,8 +3607,13 @@ function schleife(jetzt = 0) {
   const zustand = welt.mixer.zustand();
 
   if (!spektrumDaten) spektrumDaten = new Uint8Array(welt.mixer.messung.frequencyBinCount);
+  // Die Wellenform ist doppelt so lang wie das Spektrum: fftSize Abtastwerte
+  // im Zeitbereich gegen fftSize/2 Frequenzbaender. Der Modus "Wellen"
+  // zeichnet sie unmittelbar, alle anderen ruehren sie nicht an.
+  if (!wellenDaten) wellenDaten = new Float32Array(welt.mixer.messung.fftSize);
   welt.mixer.spektrum(spektrumDaten);
-  bild?.zeichne(zustand, spektrumDaten, sekunden);
+  welt.mixer.wellenform(wellenDaten);
+  bild?.zeichne(zustand, spektrumDaten, sekunden, wellenDaten);
 
   zeichneDecks(zustand);
   zeichneUebergang(zustand);
@@ -2995,8 +3630,63 @@ function schleife(jetzt = 0) {
     : '';
 
   tonZustandZeigen();
+  remixPruefen(zustand);
   nachschubPruefen();
   wachhund(zustand);
+}
+
+// --- Remix ----------------------------------------------------------------
+//
+// Vor jedem Drop wird geprueft, ob ein Loop-Roll hineinpasst und ob die Regie
+// ihn gerade will. Die Regie haengt an der Zielenergie: frueh am Abend gar
+// nicht, spaeter oft und schaerfer.
+
+function remixPruefen(zustand) {
+  if (!welt.remixAn || welt.wechselLaeuft) return;
+
+  const deck = welt.mixer.laufendesDeck;
+  const drops = deck?.track?.marken?.filter((m) => m.name === 'drop') ?? [];
+  if (drops.length === 0 || !deck.laeuft) return;
+
+  const beatLaenge = 60 / deck.track.bpm;
+  const jetztBeat = (deck.stelle() - (deck.track.raster ?? 0)) / beatLaenge;
+
+  for (const drop of drops) {
+    const schluessel = `${deck.track.id}:${drop.beat}`;
+    if (welt.bedienteDrops.has(schluessel)) continue;
+
+    const beatsBisZiel = drop.beat - jetztBeat;
+    if (beatsBisZiel <= 0) {
+      // Vorbei, ohne dass gerollt wurde - zaehlt trotzdem als Drop.
+      welt.bedienteDrops.add(schluessel);
+      welt.seitLetztemRoll++;
+      continue;
+    }
+
+    if (!rollLohntSich({
+      zielenergie: welt.zielenergie,
+      seitLetztemRoll: welt.seitLetztemRoll,
+      imUebergang: welt.wechselLaeuft,
+      beatsBisZiel,
+    })) continue;
+
+    const regie = regieFuer(welt.zielenergie);
+    const plan = loopRoll(deck, drop.beat, regie.rollLaengen);
+    welt.bedienteDrops.add(schluessel);
+
+    if (plan) {
+      welt.seitLetztemRoll = 0;
+      welt.verlauf.unshift({
+        zeit: new Date(),
+        art: `Roll (${regie.name})`,
+        nach: deck.track.titel,
+        hinweis: `${plan.laengen.length} Stufen auf ${plan.beats} Beats`,
+      });
+      welt.verlauf = welt.verlauf.slice(0, 30);
+      zeichneVerlauf();
+    }
+    return;
+  }
 }
 
 function nachschubPruefen() {

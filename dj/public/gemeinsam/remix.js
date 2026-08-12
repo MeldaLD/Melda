@@ -132,20 +132,110 @@ export function verlaengern(deck, abBeat, laenge = 16, wiederholungen = 1) {
   return loopRoll(deck, abBeat + laenge * wiederholungen, Array(wiederholungen).fill(laenge));
 }
 
+// --- Die Regie -------------------------------------------------------------
+//
+// Was einen DJ von einer Abspielliste unterscheidet, ist nicht ein einzelner
+// Kniff, sondern dass er **den ganzen Abend anders spielt**. Um zehn legt
+// niemand Loop-Rolls; um zwei erwartet es jeder. Deshalb haengt hier alles an
+// einem einzigen Wert: der Zielenergie.
+//
+// Rollsaetze summieren sich immer auf 16 Beats - vier Takte. Ein Roll ersetzt
+// ein musikalisches Mass, sonst verschiebt er alles Folgende.
+
+const ROLL_SANFT = [8, 4, 2, 1, 0.5, 0.5];
+const ROLL_HART = [
+  2, 2, 2, 2, 1, 1, 1, 1, 0.5, 0.5, 0.5, 0.5,
+  0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.25,
+];
+
+const STUFEN = [
+  {
+    bis: 0.35,
+    name: 'Aufwärmen',
+    // Frueh am Abend soll nichts drängen. Lange Blenden, keine Kniffe.
+    rollJederNte: Infinity,
+    rollLaengen: ROLL_SANFT,
+    uebergaenge: { blende: 5, aufzug: 1, echo: 1, schnitt: 0 },
+    outroVerlaengern: true,
+    einstiegVorziehen: false,
+  },
+  {
+    bis: 0.6,
+    name: 'Fahrt',
+    rollJederNte: 4,
+    rollLaengen: ROLL_SANFT,
+    uebergaenge: { blende: 4, aufzug: 3, echo: 1, schnitt: 0 },
+    outroVerlaengern: true,
+    einstiegVorziehen: false,
+  },
+  {
+    bis: 0.8,
+    name: 'Druck',
+    rollJederNte: 3,
+    rollLaengen: ROLL_STANDARD,
+    uebergaenge: { blende: 3, aufzug: 3, echo: 2, schnitt: 0 },
+    outroVerlaengern: false,
+    // Spaeter will niemand mehr ein Intro abwarten.
+    einstiegVorziehen: true,
+  },
+  {
+    bis: 1.01,
+    name: 'Vollgas',
+    rollJederNte: 2,
+    rollLaengen: ROLL_HART,
+    uebergaenge: { blende: 2, aufzug: 2, echo: 3, schnitt: 1 },
+    outroVerlaengern: false,
+    einstiegVorziehen: true,
+  },
+];
+
+// Sicherheitsnetz: Ein Rollsatz, der sich nicht auf ein volles Mass summiert,
+// wuerde den Track gegen das Raster verschieben. Das faellt hier auf und nicht
+// erst mitten in der Nacht.
+for (const satz of [ROLL_SANFT, ROLL_STANDARD, ROLL_HART]) {
+  const summe = satz.reduce((a, b) => a + b, 0);
+  if (Math.abs(summe - 16) > 1e-9) {
+    throw new Error(`Rollsatz summiert sich auf ${summe} statt auf 16 Beats`);
+  }
+}
+
+export function regieFuer(zielenergie) {
+  return STUFEN.find((s) => zielenergie < s.bis) ?? STUFEN[STUFEN.length - 1];
+}
+
 /**
  * Lohnt sich hier ein Roll?
  *
  * Nicht vor jedem Drop - sonst wird aus einem Kniff eine Masche, und nach dem
- * dritten Mal hört niemand mehr hin. Ausserdem braucht ein Roll Anlauf: Vor
- * dem ersten Drop eines Tracks, kurz nach einem Uebergang oder wenn der Raum
- * noch leer ist, ist er fehl am Platz.
+ * dritten Mal hoert niemand mehr hin. Wie oft, entscheidet die Regie.
  */
 export function rollLohntSich({ zielenergie, seitLetztemRoll, imUebergang, beatsBisZiel }) {
+  const regie = regieFuer(zielenergie);
   if (imUebergang) return false;
-  // Der Roll muss vollstaendig hineinpassen und noch planbar sein.
-  if (beatsBisZiel < 16 || beatsBisZiel > 64) return false;
-  // Im leisen Teil des Abends wirkt die Steigerung aufdringlich.
-  if (zielenergie < 0.45) return false;
-  // Höchstens jeder dritte Drop.
-  return seitLetztemRoll >= 3;
+  // Der Roll muss noch vollstaendig hineinpassen und planbar sein.
+  if (beatsBisZiel < 17 || beatsBisZiel > 64) return false;
+  return seitLetztemRoll >= regie.rollJederNte;
+}
+
+/**
+ * Welche Uebergangsart passt gerade?
+ *
+ * Gewuerfelt aus den Gewichten der Regie, aber mit Vorfahrt fuer die Faelle,
+ * in denen nur eine Art funktioniert. So klingt der Abend nicht nach Schema
+ * und trotzdem nie falsch.
+ */
+export function uebergangWaehlen({ zielenergie, tempoPasst, energiesprung, wuerfel = Math.random }) {
+  // Passt das Tempo nicht oder springt die Energie stark, hilft nur ein
+  // Schnitt - eine Blende haenge sonst zwoelf Beats in der Luft.
+  if (!tempoPasst) return 'echo';
+  if (Math.abs(energiesprung) > 0.25) return 'echo';
+
+  const gewichte = regieFuer(zielenergie).uebergaenge;
+  const gesamt = Object.values(gewichte).reduce((a, b) => a + b, 0);
+  let punkt = wuerfel() * gesamt;
+  for (const [art, gewicht] of Object.entries(gewichte)) {
+    punkt -= gewicht;
+    if (punkt <= 0) return art;
+  }
+  return 'blende';
 }

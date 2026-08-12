@@ -14,6 +14,7 @@
 // zusammen lauter als einer - ohne Kopfraum verzerrt genau der Moment, auf den
 // alle warten.
 
+import { uebergangWaehlen } from './remix.js';
 import {
   beatDauer,
   beatZeit,
@@ -128,15 +129,10 @@ export const UEBERGAENGE = {
   },
 };
 
-// Welcher Uebergang passt gerade? Reihenfolge ist Absicht: erst die Faelle, in
-// denen nur eine Art funktioniert, dann Abwechslung.
-export function waehleUebergang({ tempoPasst, energiesprung, zaehler = 0 }) {
-  if (!tempoPasst) return 'echo';
-  // Ein grosser Energiesprung will einen Schnitt, keine Verschmelzung -
-  // sonst haengt zwoelf Beats lang eine halbe Nummer in der Luft.
-  if (Math.abs(energiesprung) > 0.25) return 'echo';
-  // Sonst ueberwiegend die lange Blende, alle paar Wechsel ein Aufzug.
-  return zaehler % 4 === 3 ? 'aufzug' : 'blende';
+// Welcher Uebergang passt gerade? Das entscheidet die Regie in remix.js
+// anhand der Zielenergie - frueh am Abend lange Blenden, spaeter Schnitte.
+export function waehleUebergang({ tempoPasst, energiesprung, zielenergie = 0.5 }) {
+  return uebergangWaehlen({ zielenergie, tempoPasst, energiesprung });
 }
 
 // --- Ein Deck -------------------------------------------------------------
@@ -367,7 +363,7 @@ export class Mixer {
 
   // Uebergang planen und einplanen. Gibt zurueck, was passieren wird - die
   // Buehne zeigt das an, bevor man es hoert.
-  uebergang(neuTrack, puffer, artWunsch = null) {
+  uebergang(neuTrack, puffer, artWunsch = null, zielenergie = 0.5) {
     const alt = this.laufendesDeck;
     const neu = this.freiesDeck;
     if (!alt.laeuft) return this.ersterTrack(neuTrack, puffer);
@@ -379,11 +375,7 @@ export class Mixer {
     const energiesprung = (neuTrack.energie ?? 0.5) - (alt.track.energie ?? 0.5);
     const art =
       artWunsch ??
-      waehleUebergang({
-        tempoPasst: tempo.passt,
-        energiesprung,
-        zaehler: this.wechselZaehler,
-      });
+      waehleUebergang({ tempoPasst: tempo.passt, energiesprung, zielenergie });
     const plan = UEBERGAENGE[art];
 
     // Der Uebergang beginnt auf einer Phrasengrenze des laufenden Decks. Das
@@ -519,6 +511,18 @@ export class Mixer {
   // Spektrum fuer die Buehne.
   spektrum(ziel) {
     this.messung.getByteFrequencyData(ziel);
+    return ziel;
+  }
+
+  // Die Wellenform im Zeitbereich - der Modus "Wellen" zeichnet sie direkt.
+  //
+  // Bewusst die Float-Fassung und nicht getByteTimeDomainData: Der Pegel am
+  // Ausgang liegt nach Angleich und Begrenzer bei wenigen Prozent der
+  // Vollaussteuerung. Die Bytefassung hat dort nur noch eine Handvoll Stufen
+  // uebrig, und die Zeichnung wird zur Treppe, sobald man sie hochskaliert.
+  // @param {Float32Array} ziel  Laenge messung.fftSize
+  wellenform(ziel) {
+    this.messung.getFloatTimeDomainData(ziel);
     return ziel;
   }
 }

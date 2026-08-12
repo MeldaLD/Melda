@@ -126,10 +126,26 @@ try {
     pruefe(`${m.titel}: Einstieg liegt nach dem Intro`, m.einstiegBeat >= 8 && m.einstiegBeat <= 64);
   }
 
-  console.log('\nEnergie, gegen die Bibliothek normiert:');
-  console.log(`    roh      ${gemessen.map((m) => m.energie.toFixed(2)).join(', ')}`);
-  console.log(`    normiert ${normiert.map((n) => n.energie.toFixed(2)).join(', ')}`);
-  pruefe('die Normierung spannt von 0 bis 1 auf', Math.min(...normiert.map((n) => n.energie)) === 0 && Math.max(...normiert.map((n) => n.energie)) === 1);
+  console.log('\nEnergie:');
+  console.log(`    gemessen  ${gemessen.map((m) => m.energie.toFixed(2)).join(', ')}`);
+  console.log(`    justiert  ${normiert.map((n) => n.energie.toFixed(2)).join(', ')}`);
+
+  const spanneRoh = Math.max(...gemessen.map((m) => m.energie)) - Math.min(...gemessen.map((m) => m.energie));
+  console.log(`    Spanne der Messung: ${spanneRoh.toFixed(2)}`);
+
+  // Die Messung muss fuer sich allein unterscheiden koennen. Liegt alles
+  // beieinander, kann die Energiekurve nicht mehr auswaehlen - und genau das
+  // war einmal der Fehler.
+  pruefe('die Messung unterscheidet die Tracks', spanneRoh > 0.25);
+  pruefe('nichts klebt am Anschlag', gemessen.every((m) => m.energie > 0 && m.energie < 1));
+
+  // Die Justierung darf nachhelfen, nicht bestimmen. Bei fuenf Tracks sagt
+  // eine Rangfolge fast nichts, also darf sie kaum verschieben.
+  const groessteVerschiebung = Math.max(
+    ...gemessen.map((m, i) => Math.abs(m.energie - normiert[i].energie)),
+  );
+  console.log(`    groesste Verschiebung durch den Rang: ${groessteVerschiebung.toFixed(2)}`);
+  pruefe('bei kleiner Sammlung bleibt der Messwert massgeblich', groessteVerschiebung < 0.15);
 } finally {
   await browser.close();
 }

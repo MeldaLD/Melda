@@ -505,3 +505,14 @@ header {
 #wiedergabe {
   min-width: 2.4rem;
 }
+
+/* Wie der DJ gerade spielt - Aufwaermen, Fahrt, Druck, Vollgas. */
+.stil {
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 61, 127, 0.16);
+  color: var(--akzent);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}

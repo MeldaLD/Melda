@@ -190,9 +190,6 @@ export default function DjAufnahme() {
       }
     }
 
-    // Energie ist ein Rang innerhalb der Sammlung, kein absoluter Wert. Kommen
-    // Tracks dazu, verschiebt sich der Rang aller anderen.
-    await fetch("/api/dj/track", { method: "PATCH" });
     await bibliothekLaden();
     void ctx.close();
     setLaeuft(false);

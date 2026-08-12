@@ -18,6 +18,24 @@ export async function GET() {
   }
 
   const basis = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/storage/v1/object/public/dj-musik/`;
+
+  /*
+   * Die Energie wird hier beim Lesen nachjustiert, nicht beim Schreiben.
+   *
+   * Vorher ersetzte ein eigener Durchlauf den gemessenen Wert durch den Rang
+   * in der Bibliothek. Bei zwei Tracks kamen dabei zwangsläufig 0 % und 100 %
+   * heraus, und ein hinzugekommener Track verschob alle anderen dauerhaft.
+   *
+   * Jetzt bleibt in der Datenbank der gemessene Wert stehen, und der Rang
+   * redet nur mit – gewichtet danach, wie viele Tracks es überhaupt gibt.
+   * Bei einer kleinen Sammlung sagt eine Rangfolge nichts.
+   */
+  const sortiert = [...(data ?? [])].sort((a, b) => (a.energie ?? 0) - (b.energie ?? 0));
+  const rang = new Map(
+    sortiert.map((zeile, i) => [zeile.id, sortiert.length > 1 ? i / (sortiert.length - 1) : 0.5]),
+  );
+  const rangGewicht = Math.min(0.5, Math.max(0, ((data?.length ?? 0) - 4) / 16));
+
   const tracks = (data ?? []).map((zeile) => ({
     id: zeile.id,
     titel: zeile.titel,
@@ -29,7 +47,9 @@ export async function GET() {
     bpm: zeile.bpm,
     raster: zeile.raster,
     einstiegBeat: zeile.einstieg_beat,
-    energie: zeile.energie,
+    energie: Number(
+      ((zeile.energie ?? 0.5) * (1 - rangGewicht) + (rang.get(zeile.id) ?? 0.5) * rangGewicht).toFixed(3),
+    ),
     lufs: zeile.lufs,
     angleichDb: zeile.angleich_db,
     note: zeile.note,
@@ -97,47 +117,6 @@ export async function POST(anfrage: Request) {
   }
 
   return NextResponse.json({ id: zeile.id });
-}
-
-/**
- * Die Energie neu über die Bibliothek verteilen.
- *
- * Ein absoluter Energiewert sagt wenig: Eine Sammlung aus reinem Ambient hätte
- * sonst nirgends "hohe Energie". Zählen soll der Rang innerhalb der eigenen
- * Sammlung – und der verschiebt sich, sobald neue Tracks dazukommen.
- */
-export async function PATCH() {
-  const speicher = await cookies();
-  if (!sitzungGueltig(speicher.get(cookieName())?.value)) {
-    return NextResponse.json({ fehler: "Nicht angemeldet." }, { status: 401 });
-  }
-
-  const db = supabaseAdmin();
-  const { data, error } = await db.from("dj_track").select("id, energie");
-  if (error) {
-    return NextResponse.json({ fehler: error.message }, { status: 500 });
-  }
-  if (!data || data.length < 2) {
-    return NextResponse.json({ angepasst: 0 });
-  }
-
-  const sortiert = [...data].sort((a, b) => (a.energie ?? 0) - (b.energie ?? 0));
-  const neu = sortiert.map((zeile, i) => ({
-    id: zeile.id,
-    energie: Number((i / (sortiert.length - 1)).toFixed(3)),
-  }));
-
-  for (const eintrag of neu) {
-    const { error: fehler } = await db
-      .from("dj_track")
-      .update({ energie: eintrag.energie })
-      .eq("id", eintrag.id);
-    if (fehler) {
-      return NextResponse.json({ fehler: fehler.message }, { status: 500 });
-    }
-  }
-
-  return NextResponse.json({ angepasst: neu.length });
 }
 
 function kennung(interpret: string, titel: string) {

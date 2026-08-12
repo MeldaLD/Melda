@@ -20,7 +20,12 @@
 // aus seiner Kennung, und die Bewegung laeuft ueber langsames Rauschen, das nie
 // denselben Weg nimmt.
 
-const TAU = Math.PI * 2;
+import { MODI, TAU } from './visualmodi.js';
+
+// Die Reihenfolge, in der die Modi durchgewechselt werden. Nicht zufaellig
+// gezogen, sondern reihum: So sieht man zwei gleiche nie hintereinander, und
+// ueber einen Abend kommt jeder gleich oft dran.
+const MODUSFOLGE = ['iris', 'tunnel', 'strahlen', 'wellen'];
 
 // --- Zufall, der sich wiederholen laesst ----------------------------------
 
@@ -103,6 +108,12 @@ export class Visualisierung {
     this.stossHalt = 0;
     this.letzterDrop = -1;
 
+    // Ein Modus je Track. Vorher liefen alle Effekte gleichzeitig - das war
+    // viel und trotzdem immer dasselbe. Einer nach dem anderen gibt jedem
+    // Effekt Raum und dem Abend Abwechslung.
+    this.modusFuerTrack = new Map();
+    this.naechsterModus = 0;
+
     // Drei Rauschquellen, damit sich die Bewegungen nicht synchronisieren.
     this.n1 = rauschen(7919);
     this.n2 = rauschen(104729);
@@ -123,6 +134,15 @@ export class Visualisierung {
     this.lavaLeinwand.height = Math.max(1, Math.round(this.hoehe / 3));
   }
 
+  modusFuer(track) {
+    const schluessel = track?.id ?? track?.titel ?? 'leer';
+    if (!this.modusFuerTrack.has(schluessel)) {
+      this.modusFuerTrack.set(schluessel, MODUSFOLGE[this.naechsterModus % MODUSFOLGE.length]);
+      this.naechsterModus++;
+    }
+    return this.modusFuerTrack.get(schluessel);
+  }
+
   paletteFuer(track) {
     if (!track) return palette('leer', 0.3);
     const schluessel = track.id ?? track.titel ?? 'leer';
@@ -137,8 +157,9 @@ export class Visualisierung {
    * @param {object} zustand   Momentaufnahme des Mixers
    * @param {Uint8Array} spektrum
    * @param {number} sekunden  Zeit seit dem letzten Bild
+   * @param {Float32Array|null} welle  Zeitbereich, nur vom Modus "Wellen" genutzt
    */
-  zeichne(zustand, spektrum, sekunden) {
+  zeichne(zustand, spektrum, sekunden, welle = null) {
     this.zeit += sekunden;
     const { stift, breite, hoehe } = this;
 
@@ -156,8 +177,27 @@ export class Visualisierung {
 
     stift.clearRect(0, 0, breite, hoehe);
 
+    // Die Lava bleibt immer im Hintergrund - sie ist die Stimmung im Raum,
+    // kein Effekt. Davor laeuft genau ein Modus, und der wechselt je Track.
     this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
-    this.irisZeichnen(aktiv, zweit, uebergang, spektrum, takt, spannung, wucht);
+
+    const modus = MODI[this.modusFuer(aktiv?.track)] ?? MODI.iris;
+    this.letzterModusName = modus.name;
+    modus.zeichne(stift, {
+      breite,
+      hoehe,
+      zeit: this.zeit,
+      sekunden,
+      spektrum,
+      welle: welle ?? new Float32Array(0),
+      takt,
+      spannung,
+      wucht,
+      palette: this.paletteFuer(aktiv?.track),
+      paletteB: zweit ? this.paletteFuer(zweit.track) : null,
+      anteilB: uebergang ? uebergang.fortschritt : 0,
+    });
+
     this.ringeZeichnen(sekunden);
     this.funkenZeichnen(sekunden);
     this.spannungZeigen(spannung, aktiv);
@@ -312,71 +352,6 @@ export class Visualisierung {
     this.stift.imageSmoothingEnabled = true;
     this.stift.globalCompositeOperation = 'source-over';
     this.stift.drawImage(ll, 0, 0, this.breite, this.hoehe);
-  }
-
-  // --- Schicht 2: Iris ----------------------------------------------------
-
-  irisZeichnen(aktiv, zweit, uebergang, spektrum, takt, spannung, wucht) {
-    const { stift, breite, hoehe } = this;
-    if (!spektrum) return;
-
-    const mx = breite / 2;
-    const my = hoehe / 2;
-    const grund = Math.min(breite, hoehe) * (0.17 + spannung * 0.04);
-
-    // Auf jedem Schlag ein kurzer Stoss nach aussen, der schnell abklingt.
-    const schlag = takt ? Math.exp(-takt.imBeat * 7) : 0;
-    const radius = grund * (1 + schlag * 0.13 + wucht * 0.1);
-
-    const paletteA = this.paletteFuer(aktiv?.track);
-    const paletteB = zweit ? this.paletteFuer(zweit.track) : null;
-    const anteilB = uebergang ? uebergang.fortschritt : 0;
-
-    stift.globalCompositeOperation = 'lighter';
-
-    // Der Rand wird vom Frequenzband verformt: tiefe Toene unten, hohe oben.
-    const punkte = 128;
-    const zeichneRing = (pal, skala, deckkraft, drehung) => {
-      stift.beginPath();
-      for (let i = 0; i <= punkte; i++) {
-        const winkel = (i / punkte) * TAU + drehung;
-        // Symmetrisch spiegeln, damit es wie ein Objekt aussieht und nicht
-        // wie ein aufgerolltes Diagramm.
-        const anteil = Math.abs(((i / punkte) * 2) % 2 - 1);
-        const bin = Math.floor(anteil ** 1.6 * (spektrum.length * 0.4));
-        const wert = (spektrum[bin] ?? 0) / 255;
-        const r = radius * skala * (1 + wert * 0.55);
-        const x = mx + Math.cos(winkel) * r;
-        const y = my + Math.sin(winkel) * r;
-        if (i === 0) stift.moveTo(x, y);
-        else stift.lineTo(x, y);
-      }
-      stift.closePath();
-      stift.strokeStyle = pal.hell;
-      stift.globalAlpha = deckkraft;
-      stift.lineWidth = 2 + wucht * 3;
-      stift.stroke();
-
-      // Ein weicher Kern dahinter gibt dem Ring Koerper.
-      const verlauf = stift.createRadialGradient(mx, my, 0, mx, my, radius * skala * 1.5);
-      verlauf.addColorStop(0, pal.toene[0]);
-      verlauf.addColorStop(1, 'transparent');
-      stift.globalAlpha = deckkraft * (0.25 + wucht * 0.25);
-      stift.fillStyle = verlauf;
-      stift.fill();
-    };
-
-    // Waehrend des Uebergangs zwei Iriden: die alte weicht nach aussen, die
-    // neue waechst aus der Mitte. Genau das passiert klanglich auch.
-    if (paletteB && anteilB > 0) {
-      zeichneRing(paletteA, 1 + anteilB * 0.5, 1 - anteilB, this.zeit * 0.15);
-      zeichneRing(paletteB, 0.5 + anteilB * 0.5, anteilB, -this.zeit * 0.12);
-    } else {
-      zeichneRing(paletteA, 1, 1, this.zeit * 0.15);
-    }
-
-    stift.globalAlpha = 1;
-    stift.globalCompositeOperation = 'source-over';
   }
 
   // --- Schicht 3: Puls ----------------------------------------------------
