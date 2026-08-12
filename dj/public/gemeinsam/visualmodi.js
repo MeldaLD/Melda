@@ -13,6 +13,8 @@
 // auf Positionen ab - Oktaven liegen dadurch immer gleich weit auseinander,
 // egal welcher Track laeuft.
 
+import { gpuBereit, gpuFarben, gpuZeichnen } from './mandelgpu.js';
+
 export const TAU = Math.PI * 2;
 
 // Nur die unteren 45 Prozent der Bins zaehlen: darueber ist bei Musik so gut
@@ -315,28 +317,39 @@ function strahlenZeichnen(stift, lage) {
 //
 // Fuer einen tiefen Zoom braucht es einen Punkt, der *auf dem Rand* liegt,
 // und zwar auf so vielen Stellen, wie man hineinfahren will.
-const MANDEL_ZIELE = [
+/*
+ * Die Zielpunkte, als Text statt als Zahl.
+ *
+ * Eine gewoehnliche Gleitkommazahl in JavaScript traegt siebzehn Stellen. Fuer
+ * die Fahrt in die Tiefe braucht die Bezugsbahn mehr - deshalb stehen die
+ * Ziele als Zeichenkette da und werden erst in der Festkommarechnung zu
+ * Zahlen. Fuer die Notfassung auf dem Hauptprozessor, die ohnehin nur bis
+ * Tiefe 9 traegt, reichen die siebzehn Stellen.
+ *
+ * Alle drei liegen auf dem Rand der Menge (Misiurewicz-Punkte). Das ist keine
+ * Geschmacksfrage: Nur dort bleibt die Fahrt beliebig tief interessant. Ein
+ * Punkt im Inneren endet in einer schwarzen Flaeche, einer weit draussen in
+ * einer einfarbigen.
+ */
+const MANDEL_ZIELE0 = [
   {
-    x: -0.743643887037158704752191506114774,
-    y: 0.131825904205311970493132056385139,
+    x: '-0.743643887037158704752191506114774',
+    y: '0.131825904205311970493132056385139',
     name: 'Seepferdchental',
   },
   {
-    x: 0.360240443437614363236125244449545,
-    y: -0.641313061064803174860375015179302,
+    x: '0.360240443437614363236125244449545',
+    y: '-0.641313061064803174860375015179302',
     name: 'Spiralarme',
   },
   {
-    x: -1.768610930672608212890774771462666,
-    y: 0.001645580646883195878428974839603,
+    x: '-1.768610930672608212890774771462666',
+    y: '0.001645580646883195878428974839603',
     name: 'Miniatur',
   },
-  {
-    x: -0.235125000000000000000000000000000,
-    y: 0.827215000000000000000000000000000,
-    name: 'Doppelspirale',
-  },
 ];
+const MANDEL_ZIELE = MANDEL_ZIELE0.map((z) => ({ ...z, zx: Number(z.x), zy: Number(z.y) }));
+
 
 // Bis hierher traegt doppelte Genauigkeit. Darueber zerfaellt das Bild in
 // Bloecke - vorher wird an einer neuen Stelle weitergemacht.
@@ -345,10 +358,22 @@ const MANDEL_ZIELE = [
 // waren da, nur alle in derselben Farbe. Mit Abstand zur Grenze bleibt die
 // Zeichnung erhalten.
 const MANDEL_MAX_TIEFE = 9.3;
+/*
+ * Auf der Grafikkarte gilt die Grenze der doppelten Genauigkeit nicht mehr -
+ * dort rechnet die Stoerungsrechnung. Was bleibt, sind zwei andere Grenzen:
+ * Die Zielpunkte sind auf 33 Stellen genau angegeben, und der Abstand zur
+ * Bezugsbahn wird in einfacher Genauigkeit gefuehrt, deren Zahlenbereich bei
+ * rund 10^-38 endet. Mit Abstand zu beidem sind 26 Zehnerpotenzen sicher - das
+ * Dreifache der bisherigen Tiefe, und bei ruhigem Zoom eine gute Viertelstunde
+ * ohne jeden Wechsel.
+ */
+const MANDEL_MAX_TIEFE_GPU = 26;
 // Ab hier darf ein Drop den Wechsel uebernehmen, damit er auf einen
 // musikalischen Moment faellt statt auf eine Zahl.
 const MANDEL_WECHSEL_BEREIT = 7.2;
-const MANDEL_GRUNDZOOM = 0.115; // Zehnerpotenzen je Sekunde
+// Langsamer als vorher. Der Zoom soll ziehen, nicht rasen - und je langsamer
+// er laeuft, desto seltener ist die Tiefe am Ende.
+const MANDEL_GRUNDZOOM = 0.055; // Zehnerpotenzen je Sekunde
 // Zeitbudget je Bild. Bei 60 Bildern je Sekunde bleiben 16 ms fuer alles;
 // 12 davon darf das Fraktal kosten, der Rest ist Lava, Ringe und Schrift.
 const MANDEL_BUDGET_MS = 12;
@@ -405,12 +430,30 @@ let mandelFrischePunkte = 0;
 // gefuellt. Das geschieht unter dem Blitz, man sieht es nicht.
 let mandelGrundierenNoetig = true;
 let mandelTiefeGezeichnet = 0.6;
+// Die Drehung. Zoom allein ist ein Sog, Zoom mit Drehung ist ein Strudel - und
+// erst der haelt den Blick laenger als ein paar Sekunden fest.
+let mandelDrehung = 0;
+let mandelDrehTempo = 0;
+// Ueberblendung statt Blitz beim Stellenwechsel.
+let mandelSchnappschuss = null;
+let mandelSchnappStift = null;
+let mandelUeberblendung = 0;
+let mandelSchnappschussNehmen = false;
+// So lange dauert die Ueberblendung in Sekunden.
+const MANDEL_UEBERBLEND = 1.5;
+// Der Regler fuer die Grafikkarte: Anteil der vollen Aufloesung.
+let mandelGuete = 1;
+let mandelAufGpu = null;
+// Zaehlt aufeinanderfolgende zu langsame Bilder auf der Grafikkarte.
+let mandelGpuZaeh = 0;
+let mandelPunkte = 0;
 let mandelTiefe = 0.6;
 let mandelSchwung = 0;
 let mandelZiel = 0;
 let mandelNeuangesetzt = 0;
 let mandelFarbe = 0;
-let mandelBlitz = 0;
+let mandelFarbSprung = 0;
+
 let mandelLetzterBeat = -1;
 let mandelDauer = 8;
 let mandelLeerlauf = 0;
@@ -508,19 +551,47 @@ const MANDEL_KANTEN_MIN = 3;
 
 // Eine Farbtabelle aus dem Grundton der Palette. Nicht pro Bild neu - das
 // waere die teuerste Zeile im ganzen Modus.
-function mandelTabelleBauen(grundton) {
+/*
+ * Die Farbtabelle - und damit die Stelle, an der die Musik ins Bild kommt.
+ *
+ * Ein Mandelbrot faerbt sich nach der Ausstiegszeit. Punkte mit gleicher
+ * Ausstiegszeit liegen auf geschlossenen Kurven um den Rand der Menge herum -
+ * das sind die Baender, die man als Ringe sieht. Die Tabelle sagt, welche
+ * Farbe das wievielte Band bekommt.
+ *
+ * Daraus folgt der Trick: Legt man das Frequenzspektrum auf die Tabelle, wird
+ * aus den Baendern ein Spektrumanzeiger, der sich um das Fraktal herumlegt.
+ * Der Bass sitzt in den inneren Baendern dicht am Rand, die Hoehen in den
+ * aeusseren. Es ist nicht "das Bild wird heller, wenn es laut ist", sondern
+ * jede Frequenz hat ihren eigenen Ort im Bild - wie bei einem Oszilloskop,
+ * nur dass nicht die Schwingung selbst, sondern ihr Inhalt dasteht.
+ *
+ * Die Frequenzachse ist logarithmisch geteilt. Linear waere sie fuer Musik
+ * falsch: Die untere Oktave belegt dann ein Prozent der Tabelle, obwohl im
+ * Techno dort das halbe Stueck stattfindet.
+ */
+function mandelTabelleBauen(grundton, spektrum, glanz) {
   const n = 512;
   const tabelle = new Uint8Array(n * 3);
+  const baender = spektrum ? spektrum.length : 0;
   for (let i = 0; i < n; i++) {
     const t = i / n;
     // Eng um den Grundton herum. Ein weiter Bereich wird bunt statt stimmig -
     // mit +-55 Grad standen Orange und Gruen nebeneinander im selben Bild.
     const ton = (grundton + Math.sin(t * Math.PI * 6) * 26 + t * 18) % 360;
-    // Helligkeit schwingt, damit Baender aus Licht und Dunkel entstehen. Der
-    // Deckel liegt bewusst tief: Das Bild ist Hintergrund, und darueber steht
-    // Schrift.
-    const helligkeit = 4 + 34 * (0.5 - 0.5 * Math.cos(t * Math.PI * 6)) + t * 12;
-    const [r, g, b] = hslZuRgb(ton, 64, Math.min(52, helligkeit));
+    // Helligkeit schwingt, damit Baender aus Licht und Dunkel entstehen.
+    let helligkeit = 4 + 34 * (0.5 - 0.5 * Math.cos(t * Math.PI * 6)) + t * 12;
+
+    if (baender) {
+      // Logarithmisch: die unteren Oktaven bekommen den Platz, den sie im
+      // Stueck auch haben.
+      const stelle = Math.min(baender - 1, Math.round((Math.pow(baender, t) - 1) * (baender / (baender - 1))));
+      const pegel = spektrum[stelle] / 255;
+      helligkeit += pegel * pegel * 34 * glanz;
+    }
+
+    // Der Deckel bleibt: Das Bild ist Hintergrund, und darueber steht Schrift.
+    const [r, g, b] = hslZuRgb(ton, 64, Math.min(64, helligkeit));
     tabelle[i * 3] = r;
     tabelle[i * 3 + 1] = g;
     tabelle[i * 3 + 2] = b;
@@ -552,7 +623,19 @@ function mandelNeuAnsetzen() {
   mandelZiel = (mandelZiel + 1) % MANDEL_ZIELE.length;
   mandelTiefe = 0.6;
   mandelNeuangesetzt++;
-  mandelBlitz = 1;
+  /*
+   * Frueher blitzte hier das Bild weiss auf, um den Sprung zu decken. Das war
+   * die falsche Loesung fuer das richtige Problem: Ein Blitz *betont* den
+   * Sprung, statt ihn zu verbergen - man sieht nicht mehr, was springt, aber
+   * man sieht sehr genau, *dass* etwas springt.
+   *
+   * Jetzt wird ueberblendet: Das letzte Bild der alten Stelle bleibt stehen
+   * und wird ueber anderthalb Sekunden durchsichtig. Beide Bilder sind
+   * Zoomfahrten in dieselbe Richtung, also passt die Bewegung zusammen, und es
+   * gibt keinen Moment, in dem etwas anderes im Bild steht als ein Fraktal.
+   */
+  mandelUeberblendung = 1;
+  mandelSchnappschussNehmen = true;
   // An der neuen Stelle gilt der alte Wertebereich nicht mehr. Nachgefuehrt
   // wuerde er sich zwar einpendeln, aber die ersten Bilder waeren daneben -
   // und die stehen direkt hinter dem Blitz, wo man wieder hinsieht.
@@ -776,51 +859,227 @@ function mandelGrundieren(linksC, obenC, schrittX, schrittY, schritte) {
   }
 }
 
+/*
+ * Wie aus Musik ein Bild wird.
+ *
+ * Der Anspruch ist nicht "es zuckt, wenn es laut ist". Das kann jeder
+ * Pegelbalken, und nach zwei Minuten sieht man weg. Was hier gebaut ist, folgt
+ * dem Grundsatz, nach dem Klang-Bild-Zuordnungen ueberhaupt funktionieren:
+ * Voneinander unabhaengige Groessen der Musik muessen auf voneinander
+ * unabhaengige Groessen des Bildes gehen. Sonst laufen alle Anzeigen im
+ * Gleichtakt, und aus fuenf Aussagen wird eine.
+ *
+ * Fuenf Groessen, fuenf Wege:
+ *
+ *   Takt          -> Farbwanderung.  Genau ein Durchlauf der Farbtabelle je
+ *                    Takt, nicht ungefaehr: Die Phase kommt aus dem Raster der
+ *                    Analyse, nicht aus einem erkannten Anschlag. Damit
+ *                    marschieren die Farbbaender exakt im Tempo des Stuecks.
+ *   Kick / Bass   -> Vorstoss des Zooms. Ein Stoss je Schlag, gewichtet nach
+ *                    dem Pegel im untersten Band.
+ *   Spektrum      -> Helligkeit der einzelnen Baender (siehe Farbtabelle).
+ *   Spannung      -> Drehung *und* Banddichte. Je naeher der Drop, desto
+ *                    schneller der Strudel und desto enger die Ringe. Beides
+ *                    zieht sich sichtbar zusammen - das ist die Vorbereitung,
+ *                    die ein Zuschauer spuert, bevor er sie benennen kann.
+ *   Drop          -> Ein Ruck in Drehung, Zoom und Farbe zugleich.
+ *
+ * Der Takt ist dabei der wichtigste Kanal, und zwar wegen der Genauigkeit:
+ * Was auf wenige Hundertstelsekunden mit der Musik zusammenfaellt, liest das
+ * Auge als "dazu gehoerig". Was um eine Zehntelsekunde daneben liegt, liest es
+ * als zwei Dinge, die zufaellig gleichzeitig passieren. Deshalb kommt die
+ * Phase aus dem Raster und nicht aus einer Erkennung im Signal.
+ */
+// Fuer die Abnahme: den Stellenwechsel von aussen ausloesen. Er kommt im
+// Betrieb nur alle paar Minuten vor, und eine Pruefung, die darauf wartet,
+// prueft ihn nie.
+if (typeof window !== 'undefined') window.__mandelNeuAnsetzen = () => mandelNeuAnsetzen();
+
 function mandelbrotZeichnen(stift, lage) {
-  const { breite, hoehe, sekunden, takt, spannung, wucht, drop, palette: paletteA, paletteB, anteilB } = lage;
+  const {
+    breite, hoehe, sekunden, takt, spektrum, spannung, wucht, drop,
+    palette: paletteA, paletteB, anteilB,
+  } = lage;
 
   // --- Die Fahrt ---------------------------------------------------------
 
-  // Auf jedem Schlag ein Stoss nach vorn. Das ist der ganze Trick: Der Zoom
-  // laeuft gleichmaessig, aber er *atmet* im Takt, und das Auge liest das als
-  // Bewegung zur Musik statt als Bildschirmschoner.
   if (takt && takt.nummer !== mandelLetzterBeat) {
     mandelLetzterBeat = takt.nummer;
     mandelSchwung += 0.3 + wucht * 0.6 + (takt.aufEins ? 0.4 : 0);
-    // Auch die Farben zucken mit - ein Puls, der durch das ganze Bild geht.
-    mandelFarbe += 0.012 + wucht * 0.02;
   }
   mandelSchwung *= Math.pow(0.08, sekunden);
-  mandelBlitz *= Math.pow(0.055, sekunden); // haelt rund eine halbe Sekunde
 
-  /*
-   * Der Drop.
-   *
-   * Vorher kehrte er nur die Fahrt um, und das war zugleich zu wenig und das
-   * Falsche. Jetzt passiert alles auf einmal, was das Bild hergibt: ein
-   * Blitz, ein Schub, der das Fraktal sekundenlang nach vorn reisst, und ein
-   * Sprung in der Farbe. Wir wissen aus der Analyse auf den Beat genau, wann
-   * er kommt - dann darf man ihn auch sehen.
-   */
   if (drop) {
-    mandelBlitz = 0.9;
-    mandelSchwung += 9;
-    mandelFarbe += 0.3;
-    // Ist die Genauigkeit ohnehin bald am Ende, ist das hier der schoenste
-    // Moment zum Wechseln: Der Blitz deckt den Sprung vollstaendig.
-    if (mandelTiefe > MANDEL_WECHSEL_BEREIT) mandelNeuAnsetzen();
+    mandelSchwung += 12;
+    mandelDrehTempo += 1.6;
+    mandelFarbSprung += 0.3;
   }
 
-  // Vor dem Drop zieht es an. Die Spannung kommt aus der Analyse und steigt,
-  // je naeher der Drop rueckt.
-  const tempo = MANDEL_GRUNDZOOM * (1 + spannung * 2.2) + mandelSchwung * 0.55;
+  /*
+   * Vor dem Drop zieht es an. Die Spannung kommt aus der Analyse und steigt,
+   * je naeher der Drop rueckt.
+   *
+   * Der Schlagstoss geht bewusst nur mit einem kleinen Faktor ein. Mit 0,55
+   * bestimmte er die Fahrt: nachgemessen 0,33 Zehnerpotenzen je Sekunde statt
+   * der vorgesehenen 0,055 - der Grundzoom war nur noch Beiwerk, und die Tiefe
+   * war nach anderthalb Minuten am Ende. Ein Puls soll das Tempo *atmen*
+   * lassen, nicht setzen. Mit 0,07 hebt ein Schlag das Tempo kurz um gut die
+   * Haelfte an, im Mittel aber nur um ein Drittel des Grundwerts.
+   */
+  const tempo = MANDEL_GRUNDZOOM * (1 + spannung * 2.2) + mandelSchwung * 0.07;
   mandelTiefe += tempo * sekunden;
 
-  // Die Genauigkeit ist am Ende - jetzt hilft kein Warten mehr auf einen
-  // Drop. Der Blitz deckt es trotzdem.
-  if (mandelTiefe > MANDEL_MAX_TIEFE) mandelNeuAnsetzen();
+  // Die Drehung: eine ruhige Grundbewegung, die mit der Spannung anzieht, plus
+  // der Ruck vom Drop, der wieder ausklingt.
+  mandelDrehTempo *= Math.pow(0.25, sekunden);
+  mandelDrehung += (0.035 + spannung * 0.22 + mandelDrehTempo) * sekunden;
 
-  mandelFarbe += sekunden * (0.05 + wucht * 0.35 + spannung * 0.3);
+  /*
+   * Die Farbwanderung haengt am Raster, nicht an der Uhr.
+   *
+   * takt.beat ist die fortlaufende Schlagnummer mit Nachkommastelle. Durch
+   * acht geteilt ergibt das genau einen Durchlauf der Farbtabelle je zwei
+   * Takte - eine Bewegung, die nicht nur ungefaehr zum Tempo passt, sondern
+   * mit ihm identisch ist, und die sich an jeder Taktgrenze im selben Zustand
+   * wiederfindet. Ohne Raster laeuft eine ruhige Grundbewegung weiter, damit
+   * im Leerlauf nicht das Bild einfriert.
+   *
+   * Ein Durchlauf je *Takt* war der erste Versuch und zu schnell: Bei 126
+   * Schlaegen wanderte die ganze Tabelle in unter zwei Sekunden durch, das
+   * Bild flirrte dauernd, und der Drop ging darin unter - nachgemessen
+   * aenderte sich das Bild im Leerlauf schon um 33 Helligkeitsstufen je
+   * Messschritt, beim Drop um 37. Wer immer schreit, kann nicht lauter
+   * werden.
+   */
+  if (takt) {
+    mandelFarbe = mandelFarbSprung - takt.beat / 8;
+  } else {
+    mandelFarbe -= sekunden * 0.12;
+  }
+
+  // Die Genauigkeit ist am Ende. Auf der Grafikkarte passiert das selten
+  // genug, dass eine ruhige Ueberblendung reicht; ohne sie waere hier ein
+  // Sprung.
+  if (mandelTiefe > (mandelAufGpu ? MANDEL_MAX_TIEFE_GPU : MANDEL_MAX_TIEFE)) {
+    mandelNeuAnsetzen();
+  }
+
+  // --- Die Farbtabelle, fuer beide Wege dieselbe --------------------------
+
+  const grundton = paletteB && anteilB > 0.5 ? paletteB.grundton : paletteA.grundton;
+  // Jedes Bild neu: Sie traegt jetzt das Spektrum, und das aendert sich mit
+  // jedem Bild. 512 Stufen kosten weniger als ein Zehntel einer Millisekunde.
+  mandelFarbtabelle = mandelTabelleBauen(grundton, spektrum, 0.6 + wucht * 0.6);
+  mandelFarbtonZuletzt = grundton;
+
+  const versatzJetzt = mandelFarbe - Math.floor(mandelFarbe);
+  // Enger werdende Ringe, je naeher der Drop. Das ist die zweite Haelfte der
+  // Vorbereitung - die erste ist die Drehung.
+  const dichte = 0.85 + spannung * 0.85;
+
+  // --- Der schnelle Weg: Grafikkarte --------------------------------------
+
+  if (mandelAufGpu === null) mandelAufGpu = gpuBereit();
+  if (mandelAufGpu) {
+    const begonnenGpu = performance.now();
+    const zielGpu = MANDEL_ZIELE[mandelZiel];
+    /*
+     * Die Schrittzahl waechst mit der Tiefe. Anders als beim Hauptprozessor
+     * gibt es hier keine Obergrenze aus Genauigkeitsgruenden - nur eine aus
+     * Zeitgruenden, und die regelt der Guetefaktor mit.
+     */
+    const schritteGpu = Math.round(Math.min(4600, 420 + mandelTiefe * 150 + spannung * 220));
+    gpuFarben(mandelFarbtabelle);
+    const bild = gpuZeichnen({
+      breite, hoehe,
+      ziel: zielGpu,
+      tiefe: mandelTiefe,
+      dreh: mandelDrehung,
+      schritte: schritteGpu,
+      versatz: versatzJetzt,
+      dichte,
+      innenHell: 0.4 + wucht * 0.35,
+      guete: mandelGuete,
+    });
+    mandelPunkte = bild.breite * bild.hoehe;
+
+    if (typeof window !== 'undefined') {
+      window.__mandel = {
+        tiefe: mandelTiefe,
+        ziel: zielGpu.name,
+        zielNummer: mandelZiel,
+        neuangesetzt: mandelNeuangesetzt,
+        blitz: mandelUeberblendung,
+        ueberblendung: mandelUeberblendung,
+        schritte: schritteGpu,
+        breite: bild.breite,
+        guete: mandelGuete,
+        dreh: mandelDrehung,
+        dichte,
+        versatz: versatzJetzt,
+        aufGpu: true,
+        dauerMs: mandelDauer,
+        schwung: mandelSchwung,
+      };
+    }
+
+    mandelAufsBild(stift, bild.leinwand, bild.breite, bild.hoehe, breite, hoehe, wucht, sekunden);
+
+    const gebrauchtGpu = Math.max(0.2, performance.now() - begonnenGpu);
+    mandelDauer =
+      gebrauchtGpu > mandelDauer
+        ? mandelDauer * 0.4 + gebrauchtGpu * 0.6
+        : mandelDauer * 0.88 + gebrauchtGpu * 0.12;
+    // Derselbe Regler wie beim Hauptprozessor, nur an einem anderen Knopf: Hier
+    // ist es die Aufloesung, mit der gerechnet wird. Auf einer richtigen
+    // Grafikkarte steht er bei 1 und ruehrt sich nicht; auf einer Notloesung
+    // in Software faellt er, und das Bild wird weicher statt ruckelig.
+    /*
+     * Nach unten darf der Regler viel weiter greifen als nach oben.
+     *
+     * Mit einer Schranke von 0,86 nach unten brauchte er bei einem Bild von
+     * einer Sekunde rund zwanzig Bilder, bis er unten ankam - zwanzig Bilder,
+     * die alle eine Sekunde dauerten. Nach oben bleibt er vorsichtig, damit er
+     * nicht ueberschwingt; nach unten muss er springen koennen.
+     */
+    const regelGpu = Math.min(1.06, Math.max(0.5, Math.sqrt(MANDEL_BUDGET_MS / Math.max(1, mandelDauer))));
+    /*
+     * Die Obergrenze liegt bei 2, nicht bei 1.
+     *
+     * Ueber der Bildschirmaufloesung zu rechnen und beim Zeichnen zu
+     * verkleinern ist Ueberabtastung: vier gerechnete Punkte je gezeigtem.
+     * Genau das braucht ein Fraktal, dessen Baender in der Tiefe feiner werden
+     * als ein Bildpunkt. Auf einer richtigen Grafikkarte steht der Regler
+     * deshalb oben und rechnet vierfach; wo die Kraft fehlt, faellt er unter 1
+     * und das Bild wird weicher statt ruckelig.
+     */
+    mandelGuete = Math.min(2, Math.max(0.28, mandelGuete * regelGpu));
+
+    /*
+     * Der Notausgang.
+     *
+     * Steht der Regler unten und das Bild braucht trotzdem noch ein
+     * Vielfaches seines Budgets, dann ist da keine Grafikkarte, sondern ein
+     * Nachbau in Software - so laeuft es zum Beispiel in der Abnahme, wo
+     * gemessene 900 ms je Bild herauskamen. In dem Fall ist die Fassung auf
+     * dem Hauptprozessor die bessere: weniger Tiefe, aber fluessig. Nach
+     * zwanzig aufeinanderfolgenden zu langsamen Bildern wird umgeschaltet und
+     * nicht mehr zurueck - ein Hin und Her waere schlimmer als beide Fassungen
+     * einzeln.
+     */
+    if (mandelDauer > 45 && mandelGuete <= 0.31) mandelGpuZaeh++;
+    else mandelGpuZaeh = 0;
+    if (mandelGpuZaeh > 3) {
+      mandelAufGpu = false;
+      mandelTiefe = Math.min(mandelTiefe, MANDEL_MAX_TIEFE - 0.5);
+      mandelGrundierenNoetig = true;
+      mandelDauer = 8;
+      if (typeof console !== 'undefined') {
+        console.warn('Mandelbrot: Grafikkarte zu langsam, zurueck auf den Hauptprozessor.');
+      }
+    }
+    return;
+  }
 
   // --- Speicher und Regler -----------------------------------------------
   //
@@ -873,11 +1132,6 @@ function mandelbrotZeichnen(stift, lage) {
   const nachregeln = Math.min(1.12, Math.max(0.78, Math.sqrt(MANDEL_BUDGET_MS / Math.max(1, mandelDauer))));
   mandelPhasenProBild = Math.min(16, Math.max(0.6, mandelPhasenProBild * nachregeln));
 
-  const grundton = paletteB && anteilB > 0.5 ? paletteB.grundton : paletteA.grundton;
-  if (grundton !== mandelFarbtonZuletzt || !mandelFarbtabelle) {
-    mandelFarbtabelle = mandelTabelleBauen(grundton);
-    mandelFarbtonZuletzt = grundton;
-  }
 
   // --- Die Rechnung ------------------------------------------------------
 
@@ -887,8 +1141,8 @@ function mandelbrotZeichnen(stift, lage) {
   const seitenverhaeltnis = MANDEL_HOEHE / MANDEL_BREITE;
   const schrittX = (2 * spanne) / MANDEL_BREITE;
   const schrittY = (2 * spanne * seitenverhaeltnis) / MANDEL_HOEHE;
-  const linksC = zielPunkt.x - spanne + schrittX * 0.5;
-  const obenC = zielPunkt.y - spanne * seitenverhaeltnis + schrittY * 0.5;
+  const linksC = zielPunkt.zx - spanne + schrittX * 0.5;
+  const obenC = zielPunkt.zy - spanne * seitenverhaeltnis + schrittY * 0.5;
 
   if (mandelGrundierenNoetig) {
     mandelGrundieren(linksC, obenC, schrittX, schrittY, schritte);
@@ -1060,12 +1314,18 @@ function mandelbrotZeichnen(stift, lage) {
       ziel: zielPunkt.name,
       zielNummer: mandelZiel,
       neuangesetzt: mandelNeuangesetzt,
-      blitz: mandelBlitz,
+      blitz: mandelUeberblendung,
+      ueberblendung: mandelUeberblendung,
       schritte,
       breite: MANDEL_BREITE,
       frischePunkte: mandelFrischePunkte,
       phasenProBild: mandelPhasenProBild,
       innenAnteil,
+      // Auf dem Hauptprozessor wird nicht gedreht - die Streckung des
+      // Wertespeichers setzt einen reinen Zoom voraus. Hier steht deshalb
+      // nichts und nicht etwa eine Null, die eine Drehung vortaeuschte.
+      dreh: null,
+      versatz: mandelFarbe - Math.floor(mandelFarbe),
       muSpanne: mandelMuSpanne,
       vielfalt: mandelVielfalt,
       kanten: mandelKanten,
@@ -1088,27 +1348,50 @@ function mandelbrotZeichnen(stift, lage) {
 
   // --- Aufs Bild --------------------------------------------------------
 
+  mandelAufsBild(stift, mandelLeinwand, MANDEL_BREITE, MANDEL_HOEHE, breite, hoehe, wucht, sekunden);
+}
+
+/*
+ * Das fertige Fraktal auf den Bildschirm bringen - fuer beide Wege dieselbe
+ * Stelle, damit Ueberblendung und Schleier nicht zweimal dastehen und
+ * auseinanderlaufen.
+ */
+function mandelAufsBild(stift, quelle, qb, qh, breite, hoehe, wucht, sekunden) {
   stift.save();
   stift.imageSmoothingEnabled = true;
   stift.imageSmoothingQuality = 'high';
-  stift.globalAlpha = 0.92 + wucht * 0.08;
-  stift.drawImage(mandelLeinwand, 0, 0, MANDEL_BREITE, MANDEL_HOEHE, 0, 0, breite, hoehe);
+  const deckung = 0.92 + wucht * 0.08;
+  stift.globalAlpha = deckung;
+  stift.drawImage(quelle, 0, 0, qb, qh, 0, 0, breite, hoehe);
 
-  // Der Blitz. Er hat zwei Aufgaben: Beim Drop ist er der Knall, und beim
-  // Stellenwechsel deckt er den Sprung. Von der Mitte nach aussen, damit er
-  // wie ein Aufreissen wirkt und nicht wie ein Weissbild.
-  if (mandelBlitz > 0.01) {
-    const mx = breite / 2;
-    const my = hoehe / 2;
-    const strahl = stift.createRadialGradient(mx, my, 0, mx, my, Math.hypot(breite, hoehe) * 0.6);
-    strahl.addColorStop(0, `rgba(255,255,255,${(mandelBlitz * 0.95).toFixed(3)})`);
-    strahl.addColorStop(0.45, `rgba(255,255,255,${(mandelBlitz * 0.55).toFixed(3)})`);
-    strahl.addColorStop(1, `rgba(255,255,255,0)`);
-    stift.globalCompositeOperation = 'lighter';
-    stift.globalAlpha = 1;
-    stift.fillStyle = strahl;
-    stift.fillRect(0, 0, breite, hoehe);
-    stift.globalCompositeOperation = 'source-over';
+  /*
+   * Die Ueberblendung beim Stellenwechsel.
+   *
+   * Das alte Bild liegt noch im Schnappschuss und wird darueber gelegt, mit
+   * abnehmender Deckung. Beide Bilder sind Zoomfahrten in dieselbe Richtung,
+   * also passt die Bewegung zusammen; was man sieht, ist ein Durchgleiten,
+   * kein Schnitt. Der Schnappschuss ist absichtlich klein - waehrend der
+   * Ueberblendung verschwindet er ohnehin, da faellt keine Schaerfe auf, und
+   * so kostet er in jedem Bild nur eine winzige Kopie.
+   */
+  if (mandelUeberblendung > 0 && mandelSchnappschuss) {
+    stift.globalAlpha = mandelUeberblendung * deckung;
+    stift.drawImage(
+      mandelSchnappschuss, 0, 0, mandelSchnappschuss.width, mandelSchnappschuss.height,
+      0, 0, breite, hoehe,
+    );
+    mandelUeberblendung = Math.max(0, mandelUeberblendung - sekunden / MANDEL_UEBERBLEND);
+  } else {
+    // Auffrischen, solange nicht ueberblendet wird - dann liegt beim naechsten
+    // Wechsel immer das unmittelbar vorige Bild bereit.
+    if (!mandelSchnappschuss) {
+      mandelSchnappschuss = document.createElement('canvas');
+      mandelSchnappschuss.width = 480;
+      mandelSchnappschuss.height = 300;
+      mandelSchnappStift = mandelSchnappschuss.getContext('2d');
+    }
+    mandelSchnappStift.drawImage(quelle, 0, 0, qb, qh, 0, 0, 480, 300);
+    mandelSchnappschussNehmen = false;
   }
 
   // Oben und unten abdunkeln. Dort stehen Titel, Uhr und Pegel, und ein
@@ -1127,8 +1410,17 @@ function mandelbrotZeichnen(stift, lage) {
 // --- Der Vertrag --------------------------------------------------------------
 
 export const MODI = {
-  iris: { name: 'Iris', zeichne: irisZeichnen },
-  tunnel: { name: 'Tunnel', zeichne: tunnelZeichnen },
-  strahlen: { name: 'Strahlen', zeichne: strahlenZeichnen },
-  mandelbrot: { name: 'Mandelbrot', zeichne: mandelbrotZeichnen },
+  iris: { name: 'Iris', zeichne: irisZeichnen, schmuck: true },
+  tunnel: { name: 'Tunnel', zeichne: tunnelZeichnen, schmuck: true },
+  strahlen: { name: 'Strahlen', zeichne: strahlenZeichnen, schmuck: true },
+  /*
+   * Das Mandelbrot bekommt keinen Schmuck.
+   *
+   * Ringe auf jedem Schlag, Funken beim Drop und der Spannungsbogen in der
+   * Mitte sind fuer die drei anderen Modi gebaut, die von Bewegung leben. Ueber
+   * einer Zoomfahrt sind sie Stoerung: Das Auge folgt dem Sog nach innen, und
+   * jeder Ring, der von der Mitte nach aussen laeuft, zieht es wieder heraus.
+   * Genau die hypnotische Wirkung, um die es hier geht, wird davon zerstoert.
+   */
+  mandelbrot: { name: 'Mandelbrot', zeichne: mandelbrotZeichnen, schmuck: false },
 };

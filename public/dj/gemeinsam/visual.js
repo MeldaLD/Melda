@@ -267,18 +267,28 @@ export class Visualisierung {
       anteilB: uebergang ? uebergang.fortschritt : 0,
     });
 
-    this.ringeZeichnen(sekunden);
-    this.funkenZeichnen(sekunden);
-    this.spannungZeigen(spannung, aktiv);
+    // Ringe, Funken, Spannungsbogen und das Aufblitzen nach dem Drop gehoeren
+    // zu den Modi, die von Bewegung im Bild leben. Ein Modus darf sie abwaehlen
+    // - siehe die Begruendung beim Mandelbrot in visualmodi.js.
+    if (modus.schmuck !== false) {
+      this.ringeZeichnen(sekunden);
+      this.funkenZeichnen(sekunden);
+      this.spannungZeigen(spannung, aktiv);
 
-    if (this.stossHalt > 0) {
-      // Kurzes Aufblitzen nach dem Drop.
-      stift.globalCompositeOperation = 'lighter';
-      stift.fillStyle = `rgba(255,255,255,${this.stossHalt * 0.5})`;
-      stift.fillRect(0, 0, breite, hoehe);
-      stift.globalCompositeOperation = 'source-over';
-      this.stossHalt = Math.max(0, this.stossHalt - sekunden * 3.5);
+      if (this.stossHalt > 0) {
+        // Kurzes Aufblitzen nach dem Drop.
+        stift.globalCompositeOperation = 'lighter';
+        stift.fillStyle = `rgba(255,255,255,${this.stossHalt * 0.5})`;
+        stift.fillRect(0, 0, breite, hoehe);
+        stift.globalCompositeOperation = 'source-over';
+      }
+    } else {
+      // Aufgeraeumt wird trotzdem, sonst stauen sich Ringe und Funken an und
+      // stehen beim naechsten Moduswechsel alle auf einmal im Bild.
+      this.ringe.length = 0;
+      this.funken.length = 0;
     }
+    if (this.stossHalt > 0) this.stossHalt = Math.max(0, this.stossHalt - sekunden * 3.5);
   }
 
   // --- Wo stehen wir im Takt? ---------------------------------------------

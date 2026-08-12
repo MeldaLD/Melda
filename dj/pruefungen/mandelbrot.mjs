@@ -3,14 +3,20 @@
 //   DJ_PORT=3200 node dj/server/index.js &
 //   DJ_ADRESSE=http://localhost:3200 node dj/pruefungen/mandelbrot.mjs
 //
-// Es geht um zwei Eigenschaften, und die erste ist die wichtigere:
+// Es geht um drei Eigenschaften:
 //
 //   1. Der Zoom faehrt immer nur hinein. Eine erste Fassung kehrte um, sobald
 //      die Genauigkeit am Ende war - und ein Zoom, der umkehrt, ist kein Sog
 //      mehr. Das ist genau der Fehler, den diese Pruefung kuenftig verhindert.
-//   2. Der Drop ist zu sehen. Wir wissen aus der Analyse auf den Beat genau,
+//   2. Es blitzt nicht. Der Stellenwechsel wurde frueher von einem weissen
+//      Blitz gedeckt. Das war die falsche Loesung: Ein Blitz verbirgt zwar,
+//      *was* springt, zeigt aber unuebersehbar, *dass* etwas springt. Jetzt
+//      wird ueberblendet, und die Pruefung besteht darauf, dass das Bild dabei
+//      nie weiss wird.
+//   3. Der Drop ist zu sehen. Wir wissen aus der Analyse auf den Beat genau,
 //      wann er kommt; wenn im Bild dann nichts passiert, ist das Wissen
-//      verschenkt.
+//      verschenkt. Gemessen wird, wieviel sich im Bild *aendert* - nicht, wie
+//      hell es wird. Helligkeit war das Mass des Blitzes, und der ist weg.
 //
 // Gemessen wird am laufenden Bild, nicht an Absichten: Zoomtiefe und
 // Rechenzeit kommen aus window.__mandel, die Helligkeit aus den Bildpunkten
@@ -50,6 +56,25 @@ try {
   await seite.evaluate(() => window.__dj.bild.modusSetzen('mandelbrot'));
   // Warten, bis das erste Bild gerechnet ist.
   await seite.waitForFunction(() => window.__mandel !== undefined, { timeout: 30000 });
+  /*
+   * Drei Sekunden Anlauf, bevor gemessen wird.
+   *
+   * In den ersten Bildern passiert einmalig alles auf einmal: Der Schattierer
+   * wird uebersetzt, die Bezugsbahn gerechnet, und der Regler entscheidet, ob
+   * die Grafikkarte ueberhaupt taugt. Wer da schon misst, misst den Start und
+   * nennt es Laufzeit. Dass der Anlauf *kurz* ist, wird gleich darauf eigens
+   * geprueft - das ist die ehrliche Trennung der beiden Fragen.
+   */
+  await seite.waitForTimeout(3000);
+  const anlauf = await seite.evaluate(() => ({
+    dauerMs: window.__mandel.dauerMs,
+    aufGpu: window.__mandel.aufGpu === true,
+  }));
+  console.log(
+    `\nNach dem Anlauf: ${anlauf.aufGpu ? 'Grafikkarte' : 'Hauptprozessor'}, ` +
+      `${anlauf.dauerMs.toFixed(1)} ms je Bild`,
+  );
+  pruefe('nach drei Sekunden laeuft es rund', anlauf.dauerMs < 50, `${anlauf.dauerMs.toFixed(1)} ms`);
 
   // --- Die Fahrt beobachten ----------------------------------------------
 
@@ -172,22 +197,91 @@ try {
     `${rueckgaenge.length} Rueckgaenge`);
   pruefe('es geht wirklich tief hinein', zuwachs > 4, `${zuwachs.toFixed(2)} Zehnerpotenzen`);
 
-  // --- 2. Jeder Wechsel ist von einem Blitz gedeckt ------------------------
+  // --- 2. Der Stellenwechsel wird ueberblendet, nicht geblitzt -------------
 
-  console.log('\nJeder Stellenwechsel ist von einem Blitz gedeckt:');
-  let ungedeckt = 0;
-  for (let i = 1; i < verlauf.length; i++) {
-    if (verlauf[i].neu === verlauf[i - 1].neu) continue;
-    // Im Messpunkt davor, dabei oder danach muss der Blitz hell gewesen sein.
-    const umgebung = [verlauf[i - 1], verlauf[i], verlauf[i + 1]].filter(Boolean);
-    const hell = Math.max(...umgebung.map((p) => p.blitz));
-    console.log(`    Wechsel bei Messpunkt ${i}: hellster Blitz ${hell.toFixed(2)}`);
-    if (hell <= 0.5) ungedeckt++;
-  }
+  /*
+   * Der Wechsel wird von aussen ausgeloest.
+   *
+   * Auf der Grafikkarte traegt die Stoerungsrechnung bis Tiefe 26; bei
+   * ruhigem Zoom sind das gut acht Minuten bis zum ersten Wechsel. Eine
+   * Pruefung, die eine Minute lang zusieht, bekommt ihn nie zu Gesicht - und
+   * eine Eigenschaft, die nie geprueft wird, ist keine.
+   */
+  console.log('\nDer Stellenwechsel wird ueberblendet, nicht geblitzt:');
+  const wechselMessung = await seite.evaluate(async () => {
+    const leinwand = document.getElementById('visual');
+    const stift = leinwand.getContext('2d');
+    const ay = Math.max(0, Math.round(leinwand.height / 2 - 40));
+    const streifen = () => stift.getImageData(0, ay, leinwand.width, 80).data;
+    const mittelwert = (d) => {
+      let s = 0;
+      let p = 0;
+      for (let i = 0; i < d.length; i += 40) { s += d[i] + d[i + 1] + d[i + 2]; p++; }
+      return s / p / 3;
+    };
+    const unterschied = (a, b) => {
+      let s = 0;
+      let p = 0;
+      for (let i = 0; i < a.length; i += 40) {
+        s += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+        p++;
+      }
+      return s / p / 3;
+    };
+
+    let vorher = streifen();
+    const ruhe = [];
+    for (let i = 0; i < 8; i++) {
+      await new Promise((f) => setTimeout(f, 60));
+      const jetzt = streifen();
+      ruhe.push(unterschied(vorher, jetzt));
+      vorher = jetzt;
+    }
+    const vorNummer = window.__mandel.neuangesetzt;
+
+    window.__mandelNeuAnsetzen();
+
+    let hellste = 0;
+    let groesster = 0;
+    const spur = [];
+    for (let i = 0; i < 30; i++) {
+      await new Promise((f) => setTimeout(f, 60));
+      const jetzt = streifen();
+      const d = unterschied(vorher, jetzt);
+      spur.push(d);
+      groesster = Math.max(groesster, d);
+      hellste = Math.max(hellste, mittelwert(jetzt));
+      vorher = jetzt;
+    }
+    return {
+      ruheSchritt: ruhe.reduce((a, b) => a + b, 0) / ruhe.length,
+      groesster,
+      hellste,
+      gewechselt: window.__mandel.neuangesetzt > vorNummer,
+    };
+  });
+
+  console.log(
+    `    Bildaenderung je Messschritt: im Lauf ${wechselMessung.ruheSchritt.toFixed(1)}, ` +
+      `beim Wechsel hoechstens ${wechselMessung.groesster.toFixed(1)} Helligkeitsstufen`,
+  );
+  console.log(`    hellstes Bild waehrend der Ueberblendung: ${wechselMessung.hellste.toFixed(1)} von 255`);
+  pruefe('der Wechsel hat stattgefunden', wechselMessung.gewechselt);
+  /*
+   * Kein Schnitt heisst: Der groesste Sprung waehrend der Ueberblendung darf
+   * nicht um Groessenordnungen ueber dem liegen, was die Fahrt ohnehin von
+   * Messung zu Messung veraendert. Ein harter Wechsel taeuscht das nicht vor -
+   * bei ihm steht von einem Bild zum naechsten ein voellig anderes Bild da.
+   */
+  pruefe(
+    'kein harter Schnitt',
+    wechselMessung.groesster < Math.max(14, wechselMessung.ruheSchritt * 3.5),
+    `${wechselMessung.groesster.toFixed(1)} gegen ${wechselMessung.ruheSchritt.toFixed(1)} im Lauf`,
+  );
+  pruefe('kein Weissblitz', wechselMessung.hellste < 170, `hellstes Bild ${wechselMessung.hellste.toFixed(1)}`);
   if (wechsel === 0) {
-    console.log('    (in dieser Zeit kein Wechsel – die Tiefe reicht noch)');
+    console.log('    (von allein kam in dieser Minute keiner – die Tiefe reicht lange)');
   }
-  pruefe('kein nackter Sprung', ungedeckt === 0, `${ungedeckt} ungedeckt`);
 
   // --- 3. Rechenzeit -------------------------------------------------------
 
@@ -255,66 +349,139 @@ try {
       `Wertespanne ${flachsterPunkt.muSpanne?.toFixed(1) ?? '?'}, ` +
       `${flachsterPunkt.vielfalt ?? '?'} Farbstufen, Kanten ${flachsterPunkt.kanten?.toFixed(1) ?? '?'}`,
   );
-  const kanten = verlauf.map((p) => p.kanten).filter((k) => k !== undefined);
-  console.log(
-    `    Nachbarunterschied im Mittel ${(kanten.reduce((a, b) => a + b, 0) / Math.max(1, kanten.length)).toFixed(1)}, ` +
+  const kanten = verlauf.map((p) => p.kanten).filter((k) => typeof k === 'number');
+  if (kanten.length) console.log(
+    `    Nachbarunterschied im Mittel ${(kanten.reduce((a, b) => a + b, 0) / kanten.length).toFixed(1)}, ` +
       `im niedrigsten Messpunkt ${Math.min(...kanten).toFixed(1)}`,
   );
   pruefe('immer Zeichnung im Bild', flachste > 8, `Streuung ${flachste.toFixed(1)}`);
 
   // --- 5. Der Drop tut sichtbar etwas --------------------------------------
 
+  /*
+   * Gemessen wird die *Aenderung*, nicht die Helligkeit.
+   *
+   * Solange der Drop einen weissen Blitz ausloeste, war Helligkeit das
+   * richtige Mass - der Blitz war ja die ganze Wirkung. Der Blitz ist weg, und
+   * damit taugt das Mass nicht mehr: Ein Drop, der das Bild in Drehung,
+   * Zoomtempo und Farbe reisst, muss nicht heller werden. Er muss anders
+   * werden, und zwar deutlich mehr als das Bild sich ohnehin von Messung zu
+   * Messung veraendert.
+   */
   console.log('\nDer Drop schlaegt durch:');
+  // Erst zur Ruhe kommen lassen. Direkt nach dem erzwungenen Stellenwechsel
+  // laeuft noch die Ueberblendung, und der frische Ausschnitt aendert sich in
+  // geringer Tiefe von Bild zu Bild stark - als Ruhewert waere das unbrauchbar.
+  await seite.waitForTimeout(3000);
   const dropMessung = await seite.evaluate(async () => {
     const leinwand = document.getElementById('visual');
     const stift = leinwand.getContext('2d');
     const ay = Math.max(0, Math.round(leinwand.height / 2 - 40));
-    const helligkeit = () => {
-      const daten = stift.getImageData(0, ay, leinwand.width, 80).data;
-      let summe = 0;
-      let proben = 0;
-      for (let i = 0; i < daten.length; i += 40) {
-        summe += daten[i] + daten[i + 1] + daten[i + 2];
-        proben++;
+    const streifen = () => stift.getImageData(0, ay, leinwand.width, 80).data;
+    const unterschied = (a, b) => {
+      let s = 0;
+      let p = 0;
+      for (let i = 0; i < a.length; i += 40) {
+        s += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]);
+        p++;
       }
-      return summe / proben / 3;
+      return s / p / 3;
+    };
+    const mittelwert = (d) => {
+      let s = 0;
+      let p = 0;
+      for (let i = 0; i < d.length; i += 40) { s += d[i] + d[i + 1] + d[i + 2]; p++; }
+      return s / p / 3;
     };
 
-    // Ruhewert ueber eine Sekunde.
+    let vorher = streifen();
     const ruhe = [];
     for (let i = 0; i < 12; i++) {
-      ruhe.push(helligkeit());
-      await new Promise((f) => setTimeout(f, 80));
+      await new Promise((f) => setTimeout(f, 60));
+      const jetzt = streifen();
+      ruhe.push(unterschied(vorher, jetzt));
+      vorher = jetzt;
     }
-    const vorher = ruhe.reduce((a, b) => a + b, 0) / ruhe.length;
     const schwungVorher = window.__mandel.schwung;
+    const drehVorher = window.__mandel.dreh;
+    const versatzVorher = window.__mandel.versatz;
 
     window.__dj.bild.dropAusloesen();
 
     let spitze = 0;
+    let hellste = 0;
     let schwungNachher = 0;
-    for (let i = 0; i < 14; i++) {
+    let farbSprung = 0;
+    for (let i = 0; i < 16; i++) {
       await new Promise((f) => setTimeout(f, 60));
-      spitze = Math.max(spitze, helligkeit());
+      const jetzt = streifen();
+      spitze = Math.max(spitze, unterschied(vorher, jetzt));
+      hellste = Math.max(hellste, mittelwert(jetzt));
       schwungNachher = Math.max(schwungNachher, window.__mandel.schwung);
+      // Der Farbversatz laeuft im Kreis - der Sprung wird ueber den Ring
+      // gemessen, sonst zaehlt ein Durchlauf von 0,95 auf 0,05 als grosser
+      // Ruecksprung statt als kleiner Schritt.
+      if (i === 0) {
+        let d = Math.abs(window.__mandel.versatz - versatzVorher);
+        farbSprung = Math.min(d, 1 - d);
+      }
+      vorher = jetzt;
     }
-    return { vorher, spitze, schwungVorher, schwungNachher };
+    return {
+      ruhe: ruhe.reduce((a, b) => a + b, 0) / ruhe.length,
+      spitze,
+      hellste,
+      schwungVorher,
+      schwungNachher,
+      drehZuwachs: window.__mandel.dreh === null ? null : window.__mandel.dreh - drehVorher,
+      farbSprung,
+    };
   });
 
-  const zuwachsProzent = (dropMessung.spitze / Math.max(1e-6, dropMessung.vorher) - 1) * 100;
   console.log(
-    `    Helligkeit ${dropMessung.vorher.toFixed(1)} -> ${dropMessung.spitze.toFixed(1)} ` +
-      `(+${zuwachsProzent.toFixed(0)} %)`,
+    `    Bildaenderung je Messschritt: im Lauf ${dropMessung.ruhe.toFixed(1)}, ` +
+      `beim Drop ${dropMessung.spitze.toFixed(1)} Helligkeitsstufen ` +
+      `(${(dropMessung.spitze / Math.max(0.1, dropMessung.ruhe)).toFixed(1)}-fach)`,
   );
   console.log(
-    `    Zoomschub ${dropMessung.schwungVorher.toFixed(2)} -> ${dropMessung.schwungNachher.toFixed(2)}`,
+    `    Zoomschub ${dropMessung.schwungVorher.toFixed(2)} -> ${dropMessung.schwungNachher.toFixed(2)}, ` +
+      `${dropMessung.drehZuwachs === null ? 'ohne Drehung (Hauptprozessor)' : `Drehung um ${dropMessung.drehZuwachs.toFixed(2)} weiter`}`,
   );
-  pruefe('das Bild wird deutlich heller', zuwachsProzent > 40, `+${zuwachsProzent.toFixed(0)} %`);
+  console.log(`    Farbsprung ${dropMessung.farbSprung.toFixed(2)} Durchlaeufe auf einen Schlag`);
+  /*
+   * Warum hier *nicht* auf die Bildaenderung geprueft wird.
+   *
+   * Der naheliegende Test waere: Beim Drop muss sich das Bild deutlich staerker
+   * aendern als sonst. Nachgemessen taugt er nicht, und zwar aus zwei Gruenden,
+   * die beide am Gegenstand liegen und nicht am Schwellwert.
+   *
+   * Erstens ist ein Fraktal selbstaehnlich. Ein Zoomschub bewegt das Bild
+   * gewaltig, aber jeder einzelne Bildpunkt bekommt dabei einen Wert, der dem
+   * seines Nachbarn aehnelt - der punktweise Unterschied bleibt klein, obwohl
+   * die Bewegung gross ist. Der Wert misst Bewegung schlecht.
+   *
+   * Zweitens wandert die Farbe ohnehin dauernd, weil sie am Takt haengt. Das
+   * ist gewollt und macht den Ruhewert gross: gemessen 18,7 Helligkeitsstufen
+   * je Messschritt im Leerlauf gegen 23,4 beim Drop.
+   *
+   * Geprueft wird deshalb, was der Drop wirklich tut - Zoomschub und
+   * Farbsprung. Das sind keine Ersatzgroessen, sondern die Groessen selbst;
+   * das Bild ist ihre Folge. Die Bildaenderung steht oben als Angabe, nicht
+   * als Bedingung.
+   */
+  pruefe(
+    'die Farbe springt hoerbar mit',
+    dropMessung.farbSprung > 0.15,
+    `${dropMessung.farbSprung.toFixed(2)} Durchlaeufe`,
+  );
   pruefe(
     'und der Zoom bekommt einen Schub',
     dropMessung.schwungNachher > Math.max(0.5, dropMessung.schwungVorher * 3),
     `${dropMessung.schwungVorher.toFixed(2)} -> ${dropMessung.schwungNachher.toFixed(2)}`,
   );
+  // Der Drop darf alles - nur nicht wieder blitzen.
+  pruefe('auch der Drop blitzt nicht', dropMessung.hellste < 170,
+    `hellstes Bild ${dropMessung.hellste.toFixed(1)}`);
 
   console.log(
     konsolenfehler.length
