@@ -44,6 +44,8 @@ type Vorhanden = {
   bpm: number | null;
   /** Fehlt bei Einträgen aus der Zeit vor der Vertrauensmessung. */
   ohneRaster?: boolean;
+  /** Leer bei Einträgen, die vor der Verlaufsmessung hochgeladen wurden. */
+  profil?: { e: number; b: number; h: number; d: number }[];
 };
 
 /**
@@ -249,6 +251,8 @@ export default function DjAufnahme() {
   }
 
   const offen = eintraege.filter((e) => e.zustand !== "fertig").length;
+  // Wie viele Einträge stammen aus der Zeit vor der Verlaufsmessung?
+  const veraltet = bibliothek.filter((t) => (t.profil?.length ?? 0) === 0).length;
 
   return (
     <main className="mx-auto max-w-3xl space-y-8 px-5 py-8">
@@ -381,6 +385,11 @@ export default function DjAufnahme() {
           <h2 className="text-sm font-semibold">
             In der Bibliothek: {bibliothek.length}{" "}
             {bibliothek.length === 1 ? "Track" : "Tracks"}
+            {veraltet > 0 && (
+              <span className="ml-2 font-normal text-amber-700">
+                · {veraltet} vor der Verlaufsmessung hochgeladen
+              </span>
+            )}
           </h2>
           {bibliothek.length > 0 &&
             (sicherheitsfrage ? (
@@ -440,6 +449,22 @@ export default function DjAufnahme() {
                   {track.interpret} – {track.titel}
                 </span>
                 <span className="flex shrink-0 items-center gap-3">
+                  {/*
+                    Ein Track, dem der Verlauf fehlt, wurde vor der
+                    Verlaufsmessung hochgeladen. Er läuft weiter, aber die
+                    Übergänge können bei ihm nicht entscheiden, wo der Groove
+                    anfängt und wo der Track zurückgeht – sie fallen auf den
+                    natürlichen Einstieg zurück. Das sieht man dem Eintrag
+                    sonst nicht an, deshalb steht es hier.
+                  */}
+                  {(track.profil?.length ?? 0) === 0 && (
+                    <span
+                      className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900"
+                      title="Vor der Verlaufsmessung hochgeladen – neu hochladen, damit Ein- und Ausstieg berechnet werden können"
+                    >
+                      alte Messung
+                    </span>
+                  )}
                   <span className="text-xs text-muted-foreground">
                     {track.ohneRaster
                       ? "kein Raster"
