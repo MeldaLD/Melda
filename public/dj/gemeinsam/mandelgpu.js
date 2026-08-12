@@ -137,11 +137,36 @@ uniform float innenHell;     // Helligkeit der Innenflaeche
 uniform vec3  mittelFarbe;   // Mittelwert der Farbtabelle
 uniform float welle;         // Staerke der Drop-Welle
 uniform float welleZeit;     // wie lange sie schon laeuft
+uniform float mandala;       // 0 = reines Mandelbrot, 1 = volle Symmetrie
+uniform float sterne;        // Zahl der Spiegelachsen
+uniform float fangAnteil;    // wieviel die Bahnfalle zur Farbe beitraegt
 
 out vec4 ergebnis;
 
 vec4 bahnHolen(int i) {
   return texelFetch(bahn, ivec2(i % bahnBreite, i / bahnBreite), 0);
+}
+
+/*
+ * Kaleidoskop - der ganze Trick hinter dem Mandala.
+ *
+ * Ein Mandala ist nichts anderes als Radialsymmetrie: dasselbe Motiv, um die
+ * Mitte herum gespiegelt und gedreht. Statt das Bild hinterher zu spiegeln,
+ * wird die *Abtastkoordinate* gefaltet, bevor gerechnet wird. Jeder Punkt des
+ * Bildes holt sich seinen Wert damit aus einem einzigen Tortenstueck, und die
+ * Symmetrie entsteht von selbst - ohne einen einzigen zusaetzlichen
+ * Rechenschritt in der Iteration.
+ *
+ * Gefaltet wird der *Abstand zur Bildmitte*, und die Bildmitte ist der
+ * Zielpunkt der Zoomfahrt. Das Mandala sitzt also genau im Sog und waechst mit
+ * ihm, statt darueber zu kleben.
+ */
+vec2 falten(vec2 p, float n) {
+  float keil = 3.14159265 / max(1.0, n);
+  float winkel = atan(p.y, p.x);
+  float weite = length(p);
+  winkel = mod(winkel + keil, 2.0 * keil) - keil;
+  return vec2(cos(abs(winkel)), sin(abs(winkel))) * weite;
 }
 
 void main() {
@@ -151,13 +176,28 @@ void main() {
   // festhaelt. Ohne sie faellt der Blick nach ein paar Sekunden ab.
   float sd = sin(dreh);
   float cd = cos(dreh);
-  vec2 versch = vec2(bild.x * cd - bild.y * sd, bild.x * sd + bild.y * cd) * spanne;
+  vec2 roh = vec2(bild.x * cd - bild.y * sd, bild.x * sd + bild.y * cd);
+  // Zwischen ungefaltet und gefaltet ueberblenden. Beide sind stetig, also
+  // waechst die Symmetrie weich aus dem Bild heraus, statt umzuschalten.
+  vec2 versch = mix(roh, falten(roh, sterne), mandala) * spanne;
 
   vec2 d = vec2(0.0);
   int m = 0;
   int n = 0;
   float naechster = 1e30;
   float raus = 0.0;
+  /*
+   * Bahnfalle (orbit trap).
+   *
+   * Bisher entschied allein die Ausstiegszeit ueber die Farbe - das gibt die
+   * bekannten Hoehenlinien um den Rand. Die Bahnfalle fragt etwas anderes: Wie
+   * nah ist die Bahn einem *Gebilde* gekommen? Hier ist das Gebilde ein Kreuz
+   * aus den beiden Achsen. Punkte, deren Bahn nah an einer Achse vorbeikommt,
+   * bekommen dadurch eine eigene Zeichnung, und im Bild entstehen Blueten,
+   * Sterne und Faeden, die in der reinen Ausstiegszeit gar nicht vorkommen.
+   * Das ist der Griff, mit dem Fraktalgrafiker ornamentale Bilder machen.
+   */
+  float kreuz = 1e30;
 
   for (int k = 0; k < schritte; k++) {
     vec4 Z = bahnHolen(m);
@@ -175,6 +215,7 @@ void main() {
     vec2 z = vec2(Zn.x + Zn.y, Zn.z + Zn.w) + d;
     float r2 = dot(z, z);
     if (r2 < naechster) naechster = r2;
+    kreuz = min(kreuz, min(abs(z.x), abs(z.y)));
     if (r2 > 65536.0) { raus = r2; break; }
     // Der Kniff von Zhuoran: Ist der Abstand groesser als der Punkt selbst,
     // taugt die Bezugsbahn hier nicht mehr - dann faengt der Punkt bei sich
@@ -188,6 +229,9 @@ void main() {
     // Die Wurzelkennlinie: Ohne sie liegen die Baender in der Tiefe so dicht,
     // dass das Bild flimmert, und im Flachen so weit, dass es einfarbig wird.
     float p = pow(max(mu, 1.0), 0.45) * dichte;
+    // Die Falle mischt sich in die Farbe. Bei fangAnteil 0 bleibt alles beim
+    // Alten, darueber legen sich die Bluetenformen ueber die Hoehenlinien.
+    p += fangAnteil * 6.0 * pow(clamp(1.0 - kreuz * 3.0, 0.0, 1.0), 2.0);
     // Die Drop-Welle: eine Stauchung, die von innen nach aussen durch die
     // Baender laeuft. Weil sie auf p wirkt und nicht auf die Helligkeit,
     // *bewegt* sie das Bild, statt es nur aufzuhellen.
@@ -295,7 +339,7 @@ export function gpuBereit() {
     for (const name of [
       'bahn', 'farben', 'feld', 'spanne', 'seite', 'dreh',
       'schritte', 'bahnBreite', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
-      'welle', 'welleZeit',
+      'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
     ]) {
       orte[name] = gl.getUniformLocation(programm, name);
     }
@@ -377,7 +421,7 @@ export function gpuFarben(tabelle) {
  * derselben Stelle stehen.
  */
 export function gpuZeichnen(lage) {
-  const { breite, hoehe, ziel, tiefe, dreh, schritte, versatz, dichte, innenHell, guete, welle, welleZeit } = lage;
+  const { breite, hoehe, ziel, tiefe, dreh, schritte, versatz, dichte, innenHell, guete, welle, welleZeit, mandala, sterne, fangAnteil } = lage;
   const b = Math.max(64, Math.round(breite * guete));
   const h = Math.max(48, Math.round(hoehe * guete));
   if (b !== feldBreite || h !== feldHoehe) {
@@ -402,6 +446,9 @@ export function gpuZeichnen(lage) {
   gl.uniform1f(orte.innenHell, innenHell);
   gl.uniform1f(orte.welle, welle ?? 0);
   gl.uniform1f(orte.welleZeit, welleZeit ?? 0);
+  gl.uniform1f(orte.mandala, mandala ?? 0);
+  gl.uniform1f(orte.sterne, sterne ?? 6);
+  gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   return { leinwand, breite: b, hoehe: h, bahnSchritte };

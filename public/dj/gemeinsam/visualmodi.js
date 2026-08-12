@@ -510,7 +510,7 @@ let mandelDrehTempo = 0;
  * gelegentlich dreimal hintereinander ziehen, und genau das soll nicht
  * passieren.
  */
-const DROP_KUNSTSTUECKE = ['wirbel', 'welle', 'kippen', 'enge', 'sog'];
+const DROP_KUNSTSTUECKE = ['wirbel', 'welle', 'kippen', 'enge', 'sog', 'bluete', 'sternbruch', 'ranken'];
 let mandelBeutel = [];
 let mandelLetztesKunststueck = '';
 // Die Nachwirkungen, alle klingen von selbst ab.
@@ -518,6 +518,21 @@ let mandelTonDreh = 0;      // Farbkreis verdreht
 let mandelEnge = 0;         // Baender zusammengezogen
 let mandelWelle = 0;        // Welle, die durch die Baender laeuft
 let mandelWelleZeit = 0;
+/*
+ * Das Mandala.
+ *
+ * Es ist nicht dauernd an - das waere nach zehn Minuten Tapete. Es *bildet
+ * sich*: Die Symmetrie waechst mit der Spannung, also in den sechzehn Takten
+ * vor dem Drop, blueht beim Drop auf und loest sich danach wieder ins freie
+ * Fraktal. Damit hat das Bild denselben Spannungsbogen wie das Stueck, und
+ * der Zuschauer sieht die Vorbereitung, bevor er sie benennen kann.
+ */
+let mandelMandala = 0;
+let mandelMandalaHalt = 0;
+let mandelSterne = 6;
+let mandelSterneZiel = 6;
+let mandelFang = 0;
+let mandelFangHalt = 0;
 // Ueberblendung statt Blitz beim Stellenwechsel.
 let mandelSchnappschuss = null;
 let mandelSchnappStift = null;
@@ -708,7 +723,7 @@ const MANDEL_KANTEN_MIN = 3;
  * falsch: Die untere Oktave belegt dann ein Prozent der Tabelle, obwohl im
  * Techno dort das halbe Stueck stattfindet.
  */
-function mandelTabelleBauen(grundton, akzent, spektrum, glanz) {
+function mandelTabelleBauen(grundton, akzent, spektrum, glanz, baenderZahl = 3) {
   const n = 512;
   const tabelle = new Uint8Array(n * 3);
   const baender = spektrum ? spektrum.length : 0;
@@ -723,7 +738,20 @@ function mandelTabelleBauen(grundton, akzent, spektrum, glanz) {
      * Haelfte des Durchlaufs und trifft damit die hellsten Baender: Er ist der
      * Akzent, nicht die zweite Hauptfarbe.
      */
-    const bogen = ((akzent - grundton + 540) % 360) - 180;
+    let bogen = ((akzent - grundton + 540) % 360) - 180;
+    /*
+     * Der Bogen wird begrenzt.
+     *
+     * Ein Gegenton fast gegenueber sieht auf dem Papier reizvoll aus, aber der
+     * *Weg* dorthin fuehrt zwangslaeufig durch alles, was dazwischen liegt.
+     * Nachgemessen: Die Palette von Blau nach Gold nahm einen Bogen von 173
+     * Grad und lief dabei quer durch Gruen und Oliv - genau durch den
+     * Bereich, der am Tief der Vorliebenkurve liegt, und im Bild standen
+     * schmutzige Flecken. Siebzig Grad reichen fuer einen deutlichen Akzent
+     * und bleiben auf der Seite des Grundtons.
+     */
+    if (bogen > 70) bogen = 70;
+    else if (bogen < -70) bogen = -70;
     /*
      * Der Gegenton ist eine schmale Spitze, keine zweite Haelfte.
      *
@@ -738,18 +766,29 @@ function mandelTabelleBauen(grundton, akzent, spektrum, glanz) {
     const naehe = 0.5 - 0.5 * Math.cos(t * Math.PI * 2);
     const ton = (grundton + bogen * naehe * naehe * naehe + 360) % 360;
     // Helligkeit schwingt, damit Baender aus Licht und Dunkel entstehen.
-    let helligkeit = 4 + 34 * (0.5 - 0.5 * Math.cos(t * Math.PI * 6)) + t * 12;
+    /*
+     * Die Helligkeit laeuft zyklisch.
+     *
+     * Die Tabelle wird im Kreis gelesen - der letzte Eintrag stoesst an den
+     * ersten. Eine Kennlinie, die das nicht beruecksichtigt, hat dort eine
+     * Naht, und die wandert als harte Kante durch das Bild. Ein Kosinus ueber
+     * ganze Perioden hat diese Naht nicht.
+     */
+    let helligkeit = 0.1 + 0.34 * (0.5 - 0.5 * Math.cos(t * Math.PI * 2 * baenderZahl));
 
     if (baender) {
       // Logarithmisch: die unteren Oktaven bekommen den Platz, den sie im
       // Stueck auch haben.
       const stelle = Math.min(baender - 1, Math.round((Math.pow(baender, t) - 1) * (baender / (baender - 1))));
       const pegel = spektrum[stelle] / 255;
-      helligkeit += pegel * pegel * 34 * glanz;
+      helligkeit += pegel * pegel * 0.3 * glanz;
     }
 
+    // Buntheit folgt der Helligkeit: Ganz dunkle Stellen bleiben fast neutral,
+    // sonst leuchtet das Rauschen im Schatten staerker als die Zeichnung.
+    const buntheit = 0.055 + 0.085 * Math.min(1, helligkeit * 2.2);
     // Der Deckel bleibt: Das Bild ist Hintergrund, und darueber steht Schrift.
-    const [r, g, b] = hslZuRgb(ton, 64, Math.min(64, helligkeit));
+    const [r, g, b] = oklabZuRgb(Math.min(0.72, helligkeit), buntheit, ton);
     tabelle[i * 3] = r;
     tabelle[i * 3 + 1] = g;
     tabelle[i * 3 + 2] = b;
@@ -757,23 +796,42 @@ function mandelTabelleBauen(grundton, akzent, spektrum, glanz) {
   return tabelle;
 }
 
-function hslZuRgb(h, s, l) {
-  const S = s / 100;
-  const L = l / 100;
-  const c = (1 - Math.abs(2 * L - 1)) * S;
-  const hh = (((h % 360) + 360) % 360) / 60;
-  const x = c * (1 - Math.abs((hh % 2) - 1));
-  let r = 0;
-  let g = 0;
-  let b = 0;
-  if (hh < 1) [r, g, b] = [c, x, 0];
-  else if (hh < 2) [r, g, b] = [x, c, 0];
-  else if (hh < 3) [r, g, b] = [0, c, x];
-  else if (hh < 4) [r, g, b] = [0, x, c];
-  else if (hh < 5) [r, g, b] = [x, 0, c];
-  else [r, g, b] = [c, 0, x];
-  const m = L - c / 2;
-  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+/*
+ * Oklab statt HSL.
+ *
+ * HSL ist eine Rechenbequemlichkeit, keine Beschreibung des Sehens. Zwei
+ * Farben mit derselben "Helligkeit" sind darin verschieden hell: Ein
+ * gesaettigtes Blau bei 50 Prozent wirkt deutlich dunkler als ein Gelb bei 50
+ * Prozent. Fuer eine Farbtabelle, die als *Verlauf* gelesen wird, ist das ein
+ * echter Mangel - die Baender wirken ungleich breit, und an den Uebergaengen
+ * entstehen Kanten, die keine sind.
+ *
+ * Oklab ist so gebaut, dass gleiche Zahlenschritte gleichen wahrgenommenen
+ * Schritten entsprechen. Damit werden die Baender gleichmaessig, der Verlauf
+ * glatt, und die Helligkeit laesst sich unabhaengig vom Farbton fuehren -
+ * was hier wichtig ist, weil ueber dem Bild Schrift steht.
+ */
+export function oklabZuRgb(L, C, tonGrad) {
+  const h = (tonGrad * Math.PI) / 180;
+  const a = C * Math.cos(h);
+  const b = C * Math.sin(h);
+
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l3 = l_ * l_ * l_;
+  const m3 = m_ * m_ * m_;
+  const s3 = s_ * s_ * s_;
+
+  const rl = 4.0767416621 * l3 - 3.3077115913 * m3 + 0.2309699292 * s3;
+  const gl = -1.2684380046 * l3 + 2.6097574011 * m3 - 0.3413193965 * s3;
+  const bl = -0.0041960863 * l3 - 0.7034186147 * m3 + 1.707614701 * s3;
+
+  const gamma = (v) => {
+    const x = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(Math.max(0, v), 1 / 2.4) - 0.055;
+    return Math.max(0, Math.min(255, Math.round(x * 255)));
+  };
+  return [gamma(rl), gamma(gl), gamma(bl)];
 }
 
 /** An eine neue Stelle springen. Nur aufrufen, wenn ein Blitz das deckt. */
@@ -890,6 +948,31 @@ const MANDEL_MUSTER = (() => {
   return feld;
 })();
 
+/*
+ * Dieselbe Faltung wie im Schattierer, fuer die Fassung auf dem
+ * Hauptprozessor.
+ *
+ * Sie darf hier stehen, ohne die Streckung zu stoeren: Das Falten aendert nur
+ * den Winkel und laesst den Abstand zur Mitte unberuehrt - es vertauscht also
+ * mit dem Zoom. Ein gefalteter Punkt, der spaeter gestreckt wird, ist
+ * derselbe wie ein gestreckter, der gefaltet wird.
+ */
+let mandelFaltStaerke = 0;
+let mandelFaltAchsen = 6;
+
+function faltenCpu(dx, dy) {
+  if (mandelFaltStaerke <= 0.001) return null;
+  const keil = Math.PI / Math.max(1, mandelFaltAchsen);
+  const weite = Math.hypot(dx, dy);
+  let winkel = Math.atan2(dy, dx);
+  winkel = ((winkel + keil) % (2 * keil) + 2 * keil) % (2 * keil) - keil;
+  winkel = Math.abs(winkel);
+  const fx = Math.cos(winkel) * weite;
+  const fy = Math.sin(winkel) * weite;
+  const t = mandelFaltStaerke;
+  return [dx + (fx - dx) * t, dy + (fy - dy) * t];
+}
+
 /**
  * Eine Phase des Streumusters neu rechnen. Gibt zurueck, wieviele Punkte das
  * waren - die Zahl geht in die Abnahme.
@@ -897,13 +980,20 @@ const MANDEL_MUSTER = (() => {
 function mandelAuffrischen(phase, linksC, obenC, schrittX, schrittY, schritte) {
   const werte = mandelWerte;
   let gerechnet = 0;
+  const mx = (MANDEL_BREITE - 1) / 2;
+  const my = (MANDEL_HOEHE - 1) / 2;
+  const mitteX = linksC + mx * schrittX;
+  const mitteY = obenC + my * schrittY;
   for (let py = 0; py < MANDEL_HOEHE; py++) {
     const ci = obenC + py * schrittY;
     const zeile = (py & 7) * 8;
     const reihe = py * MANDEL_BREITE;
     for (let px = 0; px < MANDEL_BREITE; px++) {
       if (MANDEL_MUSTER[zeile + (px & 7)] !== phase) continue;
-      werte[reihe + px] = mandelBahn(linksC + px * schrittX, ci, schritte);
+      const gefaltet = faltenCpu((px - mx) * schrittX, (py - my) * schrittY);
+      werte[reihe + px] = gefaltet
+        ? mandelBahn(mitteX + gefaltet[0], mitteY + gefaltet[1], schritte)
+        : mandelBahn(linksC + px * schrittX, ci, schritte);
       gerechnet++;
     }
   }
@@ -1008,12 +1098,19 @@ function mandelStrecken(faktor, linksC, obenC, schrittX, schrittY, schritte) {
 function mandelGrundieren(linksC, obenC, schrittX, schrittY, schritte) {
   const werte = mandelWerte;
   const grob = Math.min(schritte, 260);
+  const gx = (MANDEL_BREITE - 1) / 2;
+  const gy = (MANDEL_HOEHE - 1) / 2;
+  const gMitteX = linksC + gx * schrittX;
+  const gMitteY = obenC + gy * schrittY;
   for (let py = 0; py < MANDEL_HOEHE; py += 4) {
     const ci = obenC + py * schrittY;
-    for (let px = 0; px < MANDEL_BREITE; px += 4) {
-      const wert = mandelBahn(linksC + px * schrittX, ci, grob);
-      const bisY = Math.min(py + 4, MANDEL_HOEHE);
-      const bisX = Math.min(px + 4, MANDEL_BREITE);
+    for (let px = 0; px < MANDEL_BREITE; px += 6) {
+      const gf = faltenCpu((px - gx) * schrittX, (py - gy) * schrittY);
+      const wert = gf
+        ? mandelBahn(gMitteX + gf[0], gMitteY + gf[1], grob)
+        : mandelBahn(linksC + px * schrittX, ci, grob);
+      const bisY = Math.min(py + 6, MANDEL_HOEHE);
+      const bisX = Math.min(px + 6, MANDEL_BREITE);
       for (let y = py; y < bisY; y++) {
         const reihe = y * MANDEL_BREITE;
         for (let x = px; x < bisX; x++) werte[reihe + x] = wert;
@@ -1098,10 +1195,46 @@ function mandelbrotZeichnen(stift, lage) {
     else if (kunststueck === 'kippen') mandelTonDreh += 128;
     else if (kunststueck === 'enge') mandelEnge = 1;
     else if (kunststueck === 'sog') mandelSchwung += 20;
+    else if (kunststueck === 'bluete') mandelMandalaHalt = 1;
+    else if (kunststueck === 'sternbruch') {
+      // Eine andere Zahl von Spiegelachsen - das Motiv bleibt, die Ordnung
+      // wechselt. Nie dieselbe wie eben, sonst sieht man nichts.
+      const auswahl = [4, 5, 6, 8, 10, 12].filter((z) => z !== mandelSterneZiel);
+      mandelSterneZiel = auswahl[Math.floor(Math.random() * auswahl.length)];
+      mandelMandalaHalt = 1;
+    } else if (kunststueck === 'ranken') mandelFangHalt = 1;
   }
 
   // Alle Nachwirkungen klingen ab - unterschiedlich schnell, damit sie sich
   // nicht wie ein einziger Effekt anfuehlen.
+  /*
+   * Die Symmetrie folgt der Spannung, und der Drop kann sie festhalten. Der
+   * Uebergang laeuft traege - eine Symmetrie, die zappelt, ist keine.
+   */
+  mandelMandalaHalt *= Math.pow(0.55, sekunden);
+  mandelFangHalt *= Math.pow(0.4, sekunden);
+  const mandalaZiel = Math.min(1, Math.max(spannung * 0.9, mandelMandalaHalt));
+  mandelMandala += (mandalaZiel - mandelMandala) * Math.min(1, sekunden * 1.6);
+  // Die Achsenzahl wandert weich, damit aus sechs nicht ruckartig zwoelf wird.
+  mandelSterne += (mandelSterneZiel - mandelSterne) * Math.min(1, sekunden * 2.2);
+  const fangZiel = Math.min(1, Math.max(spannung * 0.35, mandelFangHalt));
+  mandelFang += (fangZiel - mandelFang) * Math.min(1, sekunden * 1.2);
+
+  /*
+   * Aendert sich die Faltung, ist der ganze Wertespeicher veraltet: Er
+   * enthaelt dann Punkte von zwei verschiedenen Symmetrien nebeneinander, und
+   * das sieht nicht nach halbem Mandala aus, sondern nach Bruch. Also wird bei
+   * merklicher Aenderung neu grundiert - das kostet ein Sechzehntel Bild und
+   * laesst die Symmetrie sofort stimmen. (Auf der Grafikkarte stellt sich die
+   * Frage nicht, dort wird ohnehin jedes Bild ganz gerechnet.)
+   */
+  if (Math.abs(mandelMandala - mandelFaltStaerke) > 0.04 ||
+      Math.abs(mandelSterne - mandelFaltAchsen) > 0.15) {
+    mandelGrundierenNoetig = true;
+  }
+  mandelFaltStaerke = mandelMandala;
+  mandelFaltAchsen = mandelSterne;
+
   mandelTonDreh *= Math.pow(0.32, sekunden);
   mandelEnge *= Math.pow(0.2, sekunden);
   mandelWelle *= Math.pow(0.12, sekunden);
@@ -1198,6 +1331,7 @@ function mandelbrotZeichnen(stift, lage) {
     akzent + mandelTonDreh,
     spektrum,
     0.6 + wucht * 0.6,
+    (paletteB && anteilB > 0.5 ? paletteB.baender : paletteA.baender) ?? 3,
   );
   mandelFarbtonZuletzt = grundton;
 
@@ -1262,6 +1396,9 @@ function mandelbrotZeichnen(stift, lage) {
       innenHell: 0.4 + wucht * 0.35,
       welle: mandelWelle,
       welleZeit: mandelWelleZeit,
+      mandala: mandelMandala,
+      sterne: mandelSterne,
+      fangAnteil: mandelFang,
       guete: Math.min(mandelGuete, stufe.fraktal),
     });
     mandelPunkte = bild.breite * bild.hoehe;
@@ -1281,6 +1418,9 @@ function mandelbrotZeichnen(stift, lage) {
         dichte,
         versatz: versatzJetzt,
         kunststueck: mandelLetztesKunststueck,
+        mandala: mandelMandala,
+        sterne: mandelSterne,
+        fang: mandelFang,
         aufGpu: true,
         dauerMs: mandelDauer,
         schwung: mandelSchwung,
@@ -1435,6 +1575,22 @@ function mandelbrotZeichnen(stift, lage) {
   const schrittY = (2 * spanne * seitenverhaeltnis) / MANDEL_HOEHE;
   const linksC = zielPunkt.zx - spanne + schrittX * 0.5;
   const obenC = zielPunkt.zy - spanne * seitenverhaeltnis + schrittY * 0.5;
+
+  {
+    /*
+     * Ein zu grosser Sprung laesst sich nicht mehr strecken.
+     *
+     * Die Streckung holt jeden Punkt aus dem vorigen Bild. Das geht, solange
+     * der Zoom je Bild nur wenige Prozent zulegt. Nach einem Drop schiesst er
+     * um ein Vielfaches vor - dann liegt der ganze sichtbare Ausschnitt in
+     * ein paar Punkten des alten Bildes, und was herauskommt, ist kein Zoom
+     * mehr, sondern Schmier. Nachgemessen stand danach eine harte Naht mitten
+     * im Bild. Ab dem Anderthalbfachen wird deshalb lieber neu grundiert.
+     */
+    if (Math.pow(10, mandelTiefe - mandelTiefeGezeichnet) > 1.5) {
+      mandelGrundierenNoetig = true;
+    }
+  }
 
   if (mandelGrundierenNoetig) {
     mandelGrundieren(linksC, obenC, schrittX, schrittY, schritte);
@@ -1617,6 +1773,9 @@ function mandelbrotZeichnen(stift, lage) {
       // Wertespeichers setzt einen reinen Zoom voraus. Hier steht deshalb
       // nichts und nicht etwa eine Null, die eine Drehung vortaeuschte.
       dreh: null,
+      mandala: mandelMandala,
+      sterne: mandelSterne,
+      fang: mandelFang,
       streuung: mandelStreuung,
       kunststueck: mandelLetztesKunststueck,
       versatz: mandelFarbe - Math.floor(mandelFarbe),

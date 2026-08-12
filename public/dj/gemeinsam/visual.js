@@ -20,7 +20,7 @@
 // aus seiner Kennung, und die Bewegung laeuft ueber langsames Rauschen, das nie
 // denselben Weg nimmt.
 
-import { MODI, GUETESTUFEN, gueteZuruecksetzen, TAU } from './visualmodi.js';
+import { MODI, GUETESTUFEN, gueteZuruecksetzen, oklabZuRgb, TAU } from './visualmodi.js';
 
 // Die Reihenfolge, in der die Modi durchgewechselt werden. Nicht zufaellig
 // gezogen, sondern reihum: So sieht man zwei gleiche nie hintereinander, und
@@ -127,14 +127,54 @@ function rauschen(startwert) {
  * bekommt, entscheidet seine Kennung - also immer dieselbe fuer denselben
  * Track, aber ueber den Abend verteilt.
  */
+/*
+ * Acht Paletten - und diesmal nicht nach Gefuehl, sondern nach dem, was zu
+ * Farbpraeferenz tatsaechlich untersucht ist.
+ *
+ * Drei Befunde tragen die Auswahl:
+ *
+ *   1. Die gemittelte Vorliebe ueber den Farbkreis ist nicht flach. Sie hat
+ *      ein deutliches Hoch im Blau-Cyan-Bereich und ein ebenso deutliches
+ *      Tief bei dunklem Gelb und Oliv (Palmer/Schloss). Die Erklaerung, die
+ *      sie dafuer geben, ist die "oekologische Valenz": Vorliebe folgt dem,
+ *      womit die Farbe in der Welt verbunden ist - klarer Himmel und sauberes
+ *      Wasser auf der einen Seite, Faeulnis auf der anderen. Deshalb ist hier
+ *      *jede* Palette kuehl grundiert, und Gelb kommt nur als heller Akzent
+ *      vor, nie als dunkle Flaeche.
+ *   2. Zwei Farben werden als stimmiger beurteilt, wenn sie im Farbton nah
+ *      beieinander liegen, sich aber in der Helligkeit deutlich unterscheiden
+ *      (Ou/Luo, Schloss/Palmer zu Farbpaaren). Genau so sind die Paare
+ *      gebaut: kleiner Tonabstand, grosser Helligkeitsabstand. Der Kontrast
+ *      kommt aus dem Licht, nicht aus dem Streit zweier Toene.
+ *   3. Eine Tabelle, die im Kreis gelesen wird, braucht eine zyklische
+ *      Kennlinie und gleiche wahrgenommene Schritte, sonst entstehen Kanten,
+ *      die in den Daten nicht stehen (Kovesi zu Farbskalen). Deshalb Oklab
+ *      und ein Kosinus ueber ganze Perioden.
+ *
+ * Die Tonwerte sind Oklab-Winkel, nicht HSL-Grade - sie sehen anders aus als
+ * die gewohnten Zahlen und meinen auch etwas anderes.
+ *
+ * "baender" ist die Zahl der Hell-Dunkel-Perioden ueber einen Durchlauf. Sie
+ * unterscheidet die Paletten nicht in der Farbe, sondern im *Rhythmus*: eine
+ * mit drei breiten Baendern wirkt ruhig, eine mit fuenf schmalen treibend.
+ */
 const PALETTEN = [
-  { name: 'Nachtviolett', grundton: 268, akzent: 322 },
-  { name: 'Tiefsee', grundton: 196, akzent: 268 },
-  { name: 'Giftgruen', grundton: 132, akzent: 196 },
-  { name: 'Magenta', grundton: 318, akzent: 258 },
-  { name: 'Polarlicht', grundton: 168, akzent: 128 },
-  { name: 'Bernstein', grundton: 214, akzent: 32 },
+  // Das Hoch der Praeferenzkurve, beide Toene mittendrin.
+  { name: 'Tiefsee', grundton: 250, akzent: 200, baender: 3 },
+  { name: 'Eisblau', grundton: 232, akzent: 168, baender: 4 },
+  // Violett-Blau: knapp neben dem Hoch, dunkel sehr traegfaehig.
+  { name: 'Nachtviolett', grundton: 300, akzent: 262, baender: 3 },
+  { name: 'Amethyst', grundton: 318, akzent: 278, baender: 5 },
+  // Gruen-Cyan: die zweite Spitze, kuehl genug fuer grosse Flaechen.
+  { name: 'Polarlicht', grundton: 168, akzent: 208, baender: 4 },
+  { name: 'Giftgruen', grundton: 142, akzent: 190, baender: 5 },
+  // Magenta mit violettem Nachbarn - der einzige warme Grundton, und er liegt
+  // auf der kuehlen Seite von Rot.
+  { name: 'Magenta', grundton: 344, akzent: 300, baender: 3 },
+  // Blau ins Violette - der ruhigste der acht, fuer lange Passagen.
+  { name: 'Zwielicht', grundton: 272, akzent: 322, baender: 4 },
 ];
+
 
 function palette(kennung, energie = 0.5) {
   const wuerfel = streuung(ausText(kennung || 'ohne'));
@@ -146,20 +186,23 @@ function palette(kennung, energie = 0.5) {
   const akzent = (gewaehlt.akzent + versatz + 360) % 360;
   // Mit steigender Energie gesaettigter, aber nicht heller: Helligkeit ist auf
   // einer Leinwand im Dunkeln das knappe Gut.
-  const saettigung = 64 + energie * 26;
-  const helligkeit = 46 + energie * 8;
 
+  // Fuer die uebrigen Modi, die fertige Farbstrings erwarten. Auch sie kommen
+  // jetzt aus Oklab - dieselbe Palette, dieselbe Gleichmaessigkeit.
+  const rgb = (L, C, ton) => `rgb(${oklabZuRgb(L, C, ton).join(' ')})`;
+  const bunt = 0.09 + energie * 0.05;
   return {
     name: gewaehlt.name,
     grundton,
     akzent,
+    baender: gewaehlt.baender,
     toene: [
-      `hsl(${grundton} ${saettigung}% ${helligkeit}%)`,
-      `hsl(${(grundton + 20) % 360} ${saettigung}% ${helligkeit - 8}%)`,
-      `hsl(${akzent} ${saettigung - 6}% ${helligkeit + 8}%)`,
-      `hsl(${(grundton + 340) % 360} ${saettigung - 12}% ${helligkeit - 4}%)`,
+      rgb(0.5, bunt, grundton),
+      rgb(0.42, bunt, grundton + 14),
+      rgb(0.62, bunt * 0.9, akzent),
+      rgb(0.36, bunt * 0.8, grundton - 16),
     ],
-    hell: `hsl(${akzent} 88% 70%)`,
+    hell: rgb(0.82, bunt * 0.8, akzent),
   };
 }
 

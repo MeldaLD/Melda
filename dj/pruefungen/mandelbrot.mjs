@@ -568,16 +568,19 @@ try {
    * Beutelgrenze. Ein Fenster von fuenf liegt dann ueber zwei Beuteln und darf
    * sehr wohl eine Wiederholung enthalten.
    *
-   * Was auch ohne Ausrichtung gilt: Zehn Zuege decken immer einen *ganzen*
-   * Beutel ab, also kommt jedes Kunststueck mindestens einmal vor; und mehr
-   * als dreimal kann keines vorkommen, weil zehn Zuege hoechstens drei Beutel
-   * beruehren. Reiner Zufall haelt beides nicht ein - er laesst mit gut vierzig
-   * Prozent eines ganz aus.
+   * Was auch ohne Ausrichtung gilt: Bei acht Kunststuecken beruehren zehn
+   * Zuege hoechstens zwei Beutel, also kann keines mehr als zweimal vorkommen,
+   * und mindestens sechs verschiedene muessen dabei sein. Reiner Zufall haelt
+   * beides nicht ein - er zieht regelmaessig eines dreimal.
+   *
+   * (Die Zahlen haengen an der Groesse des Beutels. Kommt ein Kunststueck
+   * hinzu, gehoeren sie nachgerechnet - deshalb steht die Rechnung hier und
+   * nicht nur das Ergebnis.)
    */
   pruefe('nie zweimal dasselbe hintereinander', wiederholt === 0, `${wiederholt} Wiederholungen`);
-  pruefe('in zehn Drops kommt jedes Kunststueck vor', zaehler.size === 5,
-    `${zaehler.size} von 5 verschiedenen`);
-  pruefe('und keines haeuft sich', haeufigste <= 3, `haeufigstes ${haeufigste}-mal`);
+  pruefe('in zehn Drops kommen mindestens sechs verschiedene vor', zaehler.size >= 6,
+    `${zaehler.size} verschiedene`);
+  pruefe('und keines haeuft sich', haeufigste <= 2, `haeufigstes ${haeufigste}-mal`);
 
   // --- 5d. Die Schrittzahl wird gezaehlt, nicht geschaetzt -----------------
 
@@ -654,13 +657,26 @@ try {
     for (const stufe of ['hoch', 'mittel', 'niedrig']) {
       window.__dj.bild.gueteSetzen(stufe);
       /*
-       * Einschwingen lassen. Zwoelf Sekunden, nicht neun: Ein Wechsel der
-       * Stufe fragt die Grafikkarte neu, und wo keine ist, dauert es ein paar
-       * hundert Millisekunden je Bild, bis der Rueckfall greift. Nachgemessen
-       * hing die Stufe "mittel" nach neun Sekunden noch bei 675 ms - gemessen
-       * wurde da der Versuch, nicht die Stufe.
+       * Warten, bis es steht - nicht eine feste Zeit lang.
+       *
+       * Ein Wechsel der Stufe fragt die Grafikkarte neu. Wo keine ist, dauert
+       * es ein paar Bilder, bis der Rueckfall greift, und wie lange das ist,
+       * haengt daran, wie langsam der Nachbau in Software gerade ist -
+       * nachgemessen zwischen zwei und zwoelf Sekunden. Eine feste Wartezeit
+       * misst deshalb mal die Stufe und mal noch den Versuch. Gewartet wird
+       * jetzt auf den Zustand statt auf die Uhr; dass er ueberhaupt eintritt,
+       * ist damit gleich mitgeprueft.
        */
-      await new Promise((f) => setTimeout(f, 12000));
+      const bis = Date.now() + 30000;
+      let ruhig = 0;
+      while (Date.now() < bis) {
+        await new Promise((f) => setTimeout(f, 500));
+        ruhig = window.__dj.bild.bildMs < 50 ? ruhig + 1 : 0;
+        // Vier ruhige Messungen hintereinander, damit ein einzelnes schnelles
+        // Bild mitten im Versuch nicht als Ruhe durchgeht.
+        if (ruhig >= 4) break;
+      }
+      await new Promise((f) => setTimeout(f, 2000));
       const leinwand = document.getElementById('visual');
       ergebnis.push({
         stufe,
@@ -677,6 +693,11 @@ try {
     );
   }
   const [gHoch, gMittel, gNiedrig] = stufen;
+  pruefe(
+    'jede Stufe kommt zur Ruhe',
+    stufen.every((e) => e.ms < 50),
+    stufen.map((e) => `${e.stufe} ${e.ms.toFixed(0)} ms`).join(', '),
+  );
   pruefe(
     'jede Stufe ist schneller als die darueber',
     gMittel.ms < gHoch.ms * 0.9 && gNiedrig.ms < gMittel.ms * 0.9,
