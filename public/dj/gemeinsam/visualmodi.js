@@ -268,97 +268,311 @@ function strahlenZeichnen(stift, lage) {
   stift.globalCompositeOperation = 'source-over';
 }
 
-// --- Modus: Wellen ------------------------------------------------------------
+// --- Modus: Mandelbrot -------------------------------------------------------
 //
-// Die Wellenform als Linie, mehrfach uebereinander gestapelt, jede leicht
-// zeitversetzt und in einem anderen Ton der Palette. Kein Bezug zu
-// Frequenzen hier - die Wellenform liegt im Zeitbereich, also braucht dieser
-// Modus tonLage() nicht: die x-Achse ist schon fest (Zeit laeuft immer
-// gleich von links nach rechts, egal welcher Track spielt).
+// Ein unendlicher Zoom in die Mandelbrot-Menge, der im Takt atmet.
+//
+// Warum ausgerechnet die: Sie ist selbstaehnlich. Egal wie tief man
+// hineinfaehrt, es kommt immer wieder neue Struktur - und immer wieder
+// dieselbe. Genau diese Mischung aus "es geht immer weiter" und "ich erkenne
+// es wieder" ist das, was das Auge nicht loslaesst. Ein Zufallsmuster
+// ermuedet, ein wiederkehrendes langweilt; ein Fraktal tut keines von beidem.
+//
+// Die Mathematik dahinter passt auf drei Zeilen. Fuer jeden Bildpunkt c wird
+// z wiederholt durch z = z*z + c ersetzt. Bleibt z klein, gehoert der Punkt
+// zur Menge und bleibt dunkel. Entkommt es, faerbt die Anzahl der Schritte
+// bis dahin den Punkt.
+//
+// Zwei Dinge machen aus dieser Rechnung ein Bild, das man ansehen mag:
+//
+//   Glatte Faerbung. Die reine Schrittzahl ist eine ganze Zahl, und dadurch
+//   entstehen harte Farbringe. Der Ausweg ist bekannt: Man rechnet einen
+//   Nachkommaanteil dazu, mu = n + 1 - log2(log2|z|). Damit werden aus
+//   Ringen Verlaeufe.
+//
+//   Ein lohnendes Ziel. Ins Zentrum zu zoomen ist langweilig - dort ist
+//   alles schwarz. Interessant sind die Raender, und dort ein paar
+//   bestimmte Stellen: das Seepferdchental bei -0.745+0.113i, das
+//   Elefantental, die dreifache Spirale. Jeder Track bekommt eine davon.
 
-const WELLEN_KOPIEN = 5;
-const WELLEN_PUNKTE = 360;
+// Die Ziele. Entscheidend ist die Stellenzahl, nicht die Auswahl:
+//
+// Ein Punkt wie -0.7453+0.1127i beschreibt das Seepferdchental gut genug, um
+// es zu finden - aber nur auf vier Nachkommastellen. Zoomt man auf ein
+// Millionstel heran, liegt dieser Punkt laengst eindeutig innerhalb oder
+// ausserhalb der Menge, und das ganze Bild wird zu einer einzigen Flaeche.
+// Nachgemessen: Ab Tiefe 4 war nichts mehr zu sehen.
+//
+// Fuer einen tiefen Zoom braucht es einen Punkt, der *auf dem Rand* liegt,
+// und zwar auf so vielen Stellen, wie man hineinfahren will. Das sind die
+// bekannten Zieladressen aus der Fraktalliteratur - jede von ihnen bleibt
+// bis in die letzte hier angegebene Stelle Grenzpunkt.
+const MANDEL_ZIELE = [
+  {
+    x: -0.743643887037158704752191506114774,
+    y: 0.131825904205311970493132056385139,
+    name: 'Seepferdchental',
+  },
+  {
+    x: 0.360240443437614363236125244449545,
+    y: -0.641313061064803174860375015179302,
+    name: 'Spiralarme',
+  },
+  {
+    x: -1.768610930672608212890774771462666,
+    y: 0.001645580646883195878428974839603,
+    name: 'Miniatur',
+  },
+  {
+    x: -0.749705768080503617,
+    y: 0.028016647753687,
+    name: 'Elefantental',
+  },
+];
 
-// Der Pegel am Ausgang liegt nach Angleich und Begrenzer bei wenigen Prozent
-// der Vollaussteuerung. Zeichnet man den Rohwert, ist die Welle ein Strich.
-// Darum wird sie auf ihre eigene Spitze bezogen: schnell hoch, langsam
-// zurueck - so bleibt eine laute Stelle laut und eine leise Stelle wird
-// trotzdem sichtbar, ohne dass das Bild bei jedem Schlag die Groesse wechselt.
-let wellenSpitze = 0.1;
-const WELLEN_MINDESTSPITZE = 0.02;
-const WELLEN_RUECKGANG = 0.6; // Anteil pro Sekunde
+// Zwei Grenzen treffen hier aufeinander. Rechnerisch reicht doppelte
+// Genauigkeit bis etwa Tiefe 13 - darunter liegen benachbarte Bildpunkte
+// naeher beieinander als die Zahlen noch unterscheiden koennen, und das Bild
+// zerfaellt in Bloecke. Praktisch wird vorher die Rechenzeit zum Problem: Je
+// tiefer, desto mehr Schritte braucht der Rand. Bei 8 bleibt beides im
+// Rahmen, und der Wechsel zu einem neuen Ziel bringt ohnehin mehr Abwechslung
+// als ein endloser Sturz an dieselbe Stelle.
+const MANDEL_MAX_TIEFE = 6;
+const MANDEL_GRUNDZOOM = 0.13; // Zehnerpotenzen je Sekunde
+// Zeitbudget je Bild. Bei 60 Bildern je Sekunde bleiben 16 ms fuer alles;
+// 11 davon darf das Fraktal kosten, der Rest ist Lava, Ringe und Schrift.
+const MANDEL_BUDGET_MS = 11;
+// Grob gemessene Leistung: so viele Punkt-mal-Schritt-Rechnungen je
+// Millisekunde. Wird unten laufend nachgefuehrt, das hier ist nur der Start.
+let mandelLeistung = 700000;
+const MANDEL_RUECKSPRUNG = 7; // wie schnell wieder heraus
 
-function wellenZeichnen(stift, lage) {
-  const { breite, hoehe, welle, sekunden, wucht, spannung, zeit, palette: paletteA, paletteB, anteilB } = lage;
-  // Ohne Zeitbereichsdaten hat dieser Modus nichts zu zeichnen. Lieber leer
-  // als eine Kurve aus NaN, die stumm gar nichts malt und wie ein Ausfall
-  // aussieht.
-  if (!welle || welle.length < 8) return;
+let mandelLeinwand = null;
+let mandelStift = null;
+let mandelBild = null;
+let mandelBreite = 0;
+let mandelHoehe = 0;
+let mandelTiefe = 0.35;
+let mandelSchwung = 0;
+let mandelZiel = 0;
+let mandelFarbe = 0;
+let mandelZurueck = false;
+let mandelLetzterBeat = -1;
+let mandelDauer = 8; // gemessene Rechenzeit je Bild, in Millisekunden
+let mandelFarbtabelle = null;
+let mandelFarbtonZuletzt = -1;
 
-  const n = welle.length;
-  const mitteY = hoehe / 2;
-  const punkte = Math.min(WELLEN_PUNKTE, breite);
+// Eine Farbtabelle aus dem Grundton der Palette. Nicht pro Bild neu - das
+// waere die teuerste Zeile im ganzen Modus.
+function mandelTabelleBauen(grundton) {
+  const n = 512;
+  const tabelle = new Uint8Array(n * 3);
+  for (let i = 0; i < n; i++) {
+    const t = i / n;
+    // Eng um den Grundton herum. Ein weiter Bereich wird bunt statt stimmig -
+    // mit +-55 Grad standen Orange und Gruen nebeneinander im selben Bild.
+    const ton = (grundton + Math.sin(t * Math.PI * 6) * 26 + t * 18) % 360;
+    // Helligkeit schwingt, damit Baender aus Licht und Dunkel entstehen. Der
+    // Deckel liegt bewusst tief: Das Bild ist Hintergrund, und darueber steht
+    // Schrift. Ein Fraktal, das man bewundert und auf dem man nichts liest,
+    // hat seine Aufgabe nur halb erfuellt.
+    const helligkeit = 4 + 34 * (0.5 - 0.5 * Math.cos(t * Math.PI * 6)) + t * 12;
+    const [r, g, b] = hslZuRgb(ton, 64, Math.min(52, helligkeit));
+    tabelle[i * 3] = r;
+    tabelle[i * 3 + 1] = g;
+    tabelle[i * 3 + 2] = b;
+  }
+  return tabelle;
+}
 
-  // Statt jeden x-ten Abtastwert herauszupicken - was aus einem Schlag eine
-  // Treppe macht - bekommt jede Spalte den staerksten Ausschlag ihres
-  // Abschnitts. Das ist dieselbe Kurve, nur ohne die Spitzen zu verlieren.
-  const eimer = Math.max(1, Math.floor(n / punkte));
-  const spitzen = new Float32Array(punkte + 1);
-  let hoechste = 0;
-  for (let i = 0; i <= punkte; i++) {
-    const von = Math.min(n - 1, i * eimer);
-    let beste = 0;
-    for (let j = von; j < Math.min(n, von + eimer); j++) {
-      const v = welle[j];
-      if (Math.abs(v) > Math.abs(beste)) beste = v;
+function hslZuRgb(h, s, l) {
+  const S = s / 100;
+  const L = l / 100;
+  const c = (1 - Math.abs(2 * L - 1)) * S;
+  const hh = (((h % 360) + 360) % 360) / 60;
+  const x = c * (1 - Math.abs((hh % 2) - 1));
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hh < 1) [r, g, b] = [c, x, 0];
+  else if (hh < 2) [r, g, b] = [x, c, 0];
+  else if (hh < 3) [r, g, b] = [0, c, x];
+  else if (hh < 4) [r, g, b] = [0, x, c];
+  else if (hh < 5) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  const m = L - c / 2;
+  return [Math.round((r + m) * 255), Math.round((g + m) * 255), Math.round((b + m) * 255)];
+}
+
+function mandelbrotZeichnen(stift, lage) {
+  const { breite, hoehe, sekunden, takt, spannung, wucht, drop, palette: paletteA, paletteB, anteilB } = lage;
+
+  // --- Die Fahrt ---------------------------------------------------------
+
+  // Auf jedem Schlag ein Stoss nach vorn. Das ist der ganze Trick: Der Zoom
+  // laeuft gleichmaessig, aber er *atmet* im Takt, und das Auge liest das als
+  // Bewegung zur Musik statt als Bildschirmschoner.
+  if (takt && takt.nummer !== mandelLetzterBeat) {
+    mandelLetzterBeat = takt.nummer;
+    mandelSchwung += 0.22 + wucht * 0.5 + (takt.aufEins ? 0.25 : 0);
+  }
+  mandelSchwung *= Math.pow(0.06, sekunden); // klingt in etwa einer Sekunde ab
+
+  // Ein Drop kehrt die Fahrt um: erst schiesst das Bild heraus, dann geht es
+  // an einer neuen Stelle wieder hinein. Damit hat der staerkste Moment der
+  // Musik auch im Bild seinen staerksten Moment.
+  if (drop) mandelZurueck = true;
+  if (mandelTiefe > MANDEL_MAX_TIEFE) mandelZurueck = true;
+
+  if (mandelZurueck) {
+    mandelTiefe -= MANDEL_RUECKSPRUNG * sekunden;
+    if (mandelTiefe <= 0.35) {
+      mandelTiefe = 0.35;
+      mandelZurueck = false;
+      mandelZiel = (mandelZiel + 1) % MANDEL_ZIELE.length;
     }
-    spitzen[i] = beste;
-    if (Math.abs(beste) > hoechste) hoechste = Math.abs(beste);
+  } else {
+    // Bei hoher Spannung schneller - der Sog vor dem Drop auch im Bild.
+    const tempo = MANDEL_GRUNDZOOM * (1 + spannung * 1.6) + mandelSchwung * 0.5;
+    mandelTiefe += tempo * sekunden;
   }
 
-  wellenSpitze =
-    hoechste > wellenSpitze
-      ? hoechste
-      : wellenSpitze + (hoechste - wellenSpitze) * Math.min(1, (sekunden ?? 0.016) * WELLEN_RUECKGANG);
-  const skala = 1 / Math.max(WELLEN_MINDESTSPITZE, wellenSpitze);
+  mandelFarbe += sekunden * (0.05 + wucht * 0.35 + spannung * 0.2);
 
-  const amplitude = hoehe * 0.11 * (0.6 + wucht);
-  // Bei hoher Spannung ruecken die Kopien zusammen - das Bild zieht sich
-  // zusammen, bevor der Drop es auseinanderreisst.
-  const abstand = hoehe * 0.075 * (1 - spannung * 0.7);
+  // --- Die Leinwand ------------------------------------------------------
 
-  stift.globalCompositeOperation = 'lighter';
-
-  for (let k = 0; k < WELLEN_KOPIEN; k++) {
-    const y0 = mitteY + (k - (WELLEN_KOPIEN - 1) / 2) * abstand;
-    // Leichter Versatz je Kopie, damit sie nicht wie eine einzige dicke Linie
-    // wirken, sondern wie mehrere, die sich gerade so verfehlen.
-    const versatz = Math.floor(k * (punkte / 11) + zeit * 9);
-    // Die aeusseren Kopien schwingen weiter aus als die inneren - das gibt dem
-    // Stapel eine Form, statt fuenf gleicher Linien uebereinander.
-    const weite = amplitude * (1 + Math.abs(k - (WELLEN_KOPIEN - 1) / 2) * 0.45);
-
-    const nimmB = paletteB && anteilB > 0 && (k % 2 === 0 ? anteilB > 0.35 : anteilB > 0.65);
-    const pal = nimmB ? paletteB : paletteA;
-
-    stift.beginPath();
-    for (let i = 0; i <= punkte; i++) {
-      const x = (i / punkte) * breite;
-      const idx = (((i + versatz) % (punkte + 1)) + punkte + 1) % (punkte + 1);
-      // Gedeckelt, damit ein einzelner Ausreisser nicht aus dem Bild laeuft.
-      const wert = Math.max(-1.4, Math.min(1.4, spitzen[idx] * skala));
-      const y = y0 + wert * weite;
-      if (i === 0) stift.moveTo(x, y);
-      else stift.lineTo(x, y);
-    }
-    stift.strokeStyle = pal.toene[k % 4];
-    stift.globalAlpha = 0.5 + wucht * 0.4;
-    stift.lineWidth = 2;
-    stift.stroke();
+  // Klein rechnen, gross zeichnen. Ein Bildpunkt kostet hier eine ganze
+  // Schleife; in voller Aufloesung waeren das Millionen je Bild. Der
+  // Weichzeichner beim Hochskalieren schadet nicht - er hilft sogar, das
+  // Ergebnis wirkt weicher und weniger nach Rechnerei.
+  //
+  // Aufloesung und Schrittzahl duerfen aber nicht unabhaengig voneinander
+  // wachsen. Genau das war der Fehler: Mit der Tiefe stiegen die Schritte, die
+  // Aufloesung regelte getrennt nach, und bei Tiefe 6,5 stand ein Bild bei
+  // 49 ms - also zwanzig Bildern je Sekunde. Beides zusammen bildet die
+  // Rechenlast, also wird auch beides zusammen budgetiert: Erst steht fest,
+  // wie viele Schritte die Tiefe braucht, dann bekommt die Aufloesung, was vom
+  // Zeitbudget uebrig ist.
+  const schritte = Math.min(
+    900,
+    Math.round(200 + mandelTiefe * 110 + wucht * 90 + spannung * 60),
+  );
+  const punkteBudget = Math.max(6000, (MANDEL_BUDGET_MS * mandelLeistung) / schritte);
+  const wunschBreite = Math.max(
+    110,
+    Math.min(340, Math.round(Math.sqrt((punkteBudget * breite) / Math.max(1, hoehe)))),
+  );
+  if (!mandelLeinwand || Math.abs(wunschBreite - mandelBreite) > 16 || mandelHoehe === 0) {
+    mandelBreite = wunschBreite;
+    mandelHoehe = Math.max(70, Math.round((wunschBreite * hoehe) / Math.max(1, breite)));
+    mandelLeinwand = document.createElement('canvas');
+    mandelLeinwand.width = mandelBreite;
+    mandelLeinwand.height = mandelHoehe;
+    mandelStift = mandelLeinwand.getContext('2d');
+    mandelBild = mandelStift.createImageData(mandelBreite, mandelHoehe);
   }
 
+  const grundton = paletteB && anteilB > 0.5 ? paletteB.grundton : paletteA.grundton;
+  if (grundton !== mandelFarbtonZuletzt || !mandelFarbtabelle) {
+    mandelFarbtabelle = mandelTabelleBauen(grundton);
+    mandelFarbtonZuletzt = grundton;
+  }
+
+  // --- Die Rechnung ------------------------------------------------------
+
+  const begonnen = performance.now();
+  const zielPunkt = MANDEL_ZIELE[mandelZiel];
+  const spanne = 1.6 / Math.pow(10, mandelTiefe);
+  const seitenverhaeltnis = mandelHoehe / mandelBreite;
+
+  const daten = mandelBild.data;
+  const tabelle = mandelFarbtabelle;
+  const farbversatz = mandelFarbe * 512;
+
+  for (let py = 0; py < mandelHoehe; py++) {
+    const ci = zielPunkt.y + ((py / mandelHoehe) * 2 - 1) * spanne * seitenverhaeltnis;
+    for (let px = 0; px < mandelBreite; px++) {
+      const cr = zielPunkt.x + ((px / mandelBreite) * 2 - 1) * spanne;
+
+      let zr = 0;
+      let zi = 0;
+      let zr2 = 0;
+      let zi2 = 0;
+      let n = 0;
+      // Abbruch bei Betrag 256 statt 2: Fuer die glatte Faerbung braucht es
+      // eine grosse Fluchtschwelle, sonst bleibt ein Rest Bandenbildung.
+      while (n < schritte && zr2 + zi2 < 65536) {
+        zi = 2 * zr * zi + ci;
+        zr = zr2 - zi2 + cr;
+        zr2 = zr * zr;
+        zi2 = zi * zi;
+        n++;
+      }
+
+      const k = (py * mandelBreite + px) * 4;
+      if (n >= schritte) {
+        // Im Inneren: fast schwarz, aber nicht ganz - ein Hauch der Palette,
+        // damit die Flaeche nicht wie ein Loch wirkt.
+        daten[k] = tabelle[0] >> 3;
+        daten[k + 1] = tabelle[1] >> 3;
+        daten[k + 2] = tabelle[2] >> 3;
+        daten[k + 3] = 255;
+      } else {
+        // Glatte Faerbung: der Nachkommaanteil macht aus Ringen Verlaeufe.
+        const betrag = Math.sqrt(zr2 + zi2);
+        const mu = n + 1 - Math.log(Math.log(betrag)) / Math.LN2;
+        let index = Math.floor(mu * 7 + farbversatz) % 512;
+        if (index < 0) index += 512;
+        const t = index * 3;
+        daten[k] = tabelle[t];
+        daten[k + 1] = tabelle[t + 1];
+        daten[k + 2] = tabelle[t + 2];
+        daten[k + 3] = 255;
+      }
+    }
+  }
+
+  // Fuer die Abnahme sichtbar machen, was die Fahrt gerade tut.
+  if (typeof window !== 'undefined') {
+    window.__mandel = {
+      tiefe: mandelTiefe,
+      ziel: MANDEL_ZIELE[mandelZiel].name,
+      zurueck: mandelZurueck,
+      schritte,
+      breite: mandelBreite,
+      dauerMs: mandelDauer,
+    };
+  }
+
+  mandelStift.putImageData(mandelBild, 0, 0);
+  const gebraucht = Math.max(0.2, performance.now() - begonnen);
+  mandelDauer = mandelDauer * 0.8 + gebraucht * 0.2;
+  // Was hat der Rechner tatsaechlich geschafft? Daraus folgt das naechste
+  // Budget - auf einem Tablet anders als auf einem Rechner mit Grafikkarte.
+  const geschafft = (mandelBreite * mandelHoehe * schritte) / gebraucht;
+  mandelLeistung = mandelLeistung * 0.9 + geschafft * 0.1;
+
+  // --- Aufs Bild --------------------------------------------------------
+
+  stift.save();
+  stift.imageSmoothingEnabled = true;
+  stift.imageSmoothingQuality = 'high';
+  // Beim Rueckwaertsflug kurz heller: der Moment, in dem der Drop faellt.
+  stift.globalAlpha = mandelZurueck ? 1 : 0.92 + wucht * 0.08;
+  stift.drawImage(mandelLeinwand, 0, 0, breite, hoehe);
+
+  // Oben und unten abdunkeln. Dort stehen Titel, Uhr und Pegel, und ein
+  // Fraktal in voller Pracht direkt dahinter macht beides unlesbar.
   stift.globalAlpha = 1;
   stift.globalCompositeOperation = 'source-over';
+  const schleier = stift.createLinearGradient(0, 0, 0, hoehe);
+  schleier.addColorStop(0, 'rgba(0,0,0,0.62)');
+  schleier.addColorStop(0.16, 'rgba(0,0,0,0.06)');
+  schleier.addColorStop(0.66, 'rgba(0,0,0,0.06)');
+  schleier.addColorStop(1, 'rgba(0,0,0,0.72)');
+  stift.fillStyle = schleier;
+  stift.fillRect(0, 0, breite, hoehe);
+  stift.restore();
 }
 
 // --- Der Vertrag --------------------------------------------------------------
@@ -367,5 +581,5 @@ export const MODI = {
   iris: { name: 'Iris', zeichne: irisZeichnen },
   tunnel: { name: 'Tunnel', zeichne: tunnelZeichnen },
   strahlen: { name: 'Strahlen', zeichne: strahlenZeichnen },
-  wellen: { name: 'Wellen', zeichne: wellenZeichnen },
+  mandelbrot: { name: 'Mandelbrot', zeichne: mandelbrotZeichnen },
 };

@@ -16,7 +16,7 @@ const SEITE = process.env.DJ_SEITE ?? '/buehne';
 const CHROM = process.env.CHROMIUM_PFAD;
 const ZIEL = process.env.DJ_BILDER ?? path.join(process.cwd(), 'dj-bilder');
 
-const MODI = ['iris', 'tunnel', 'strahlen', 'wellen'];
+const MODI = ['mandelbrot', 'iris', 'tunnel', 'strahlen'];
 
 await fs.mkdir(ZIEL, { recursive: true });
 
@@ -37,9 +37,9 @@ try {
   for (const modus of MODI) {
     await seite.evaluate((m) => {
       // Die Zuordnung Track -> Modus fuer diesen Blick ueberschreiben.
-      window.__dj.bild.modusFuer = () => m;
+      window.__dj.bild.modusSetzen(m);
     }, modus);
-    await seite.waitForTimeout(4000);
+    await seite.waitForTimeout(modus === 'mandelbrot' ? 13000 : 4000);
 
     const datei = path.join(ZIEL, `modus-${modus}.png`);
     await seite.locator('#visual').screenshot({ path: datei });

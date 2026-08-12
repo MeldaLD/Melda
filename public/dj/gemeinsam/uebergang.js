@@ -101,7 +101,7 @@ export function kernEnde(profil) {
  * @param {number} zielenergie 0..1 - die Stimmung, die gehalten werden soll
  * @returns {{beat:number, grund:string}}
  */
-export function einstiegWaehlen(track, zielenergie) {
+export function einstiegWaehlen(track, zielenergie, uebergangBeats = BEATS_PRO_PHRASE) {
   const profil = track.profil ?? [];
   const natuerlich = Math.max(0, Math.round(track.einstiegBeat ?? 0));
 
@@ -121,25 +121,43 @@ export function einstiegWaehlen(track, zielenergie) {
     };
   }
 
-  // Ab hier zaehlt die Stimmung. Ein Intro von acht Takten ist ein Loch in der
-  // Tanzflaeche - der Neue faengt da an, wo er wirklich losgeht.
-  //
-  // Eine Phrase davor, nicht exakt auf dem Kern: So kommt der Groove nicht aus
-  // dem Nichts, sondern hat einen Takt Anlauf, und die Phrasengrenze stimmt.
-  const vorlauf = zielenergie >= KEIN_AUSKLANG_AB ? 0 : BEATS_PRO_PHRASE;
-  const ziel = Math.max(natuerlich, kernBeat - vorlauf);
-
-  // Liegt kurz nach dem Kern ein Drop, ist der der bessere Einstieg - dann
-  // faellt der Wechsel mit dem staerksten Moment des Tracks zusammen.
-  const drop = (track.marken ?? [])
-    .filter((m) => m.name === 'drop')
-    .map((m) => m.beat)
-    .find((b) => b >= kernBeat - BEATS_PRO_PHRASE && b <= kernBeat + BEATS_PRO_PHRASE * 4);
+  /*
+   * Der Drop soll *landen*, nicht anfangen.
+   *
+   * Das ist der Unterschied zwischen "der Neue faengt beim Drop an" und dem,
+   * was ein DJ tut. Setzt man den Einstieg auf den Drop, passiert der
+   * staerkste Moment des neuen Tracks, waehrend der alte noch voll laeuft -
+   * zwei Hoehepunkte uebereinander, und danach ist die Luft raus.
+   *
+   * Richtig ist der Cue-Punkt eine oder zwei Phrasen *vor* dem Drop, so
+   * gewaehlt, dass der Drop genau dann faellt, wenn der Uebergang fertig ist
+   * und der Alte weg. Dann traegt der Drop den Wechsel, statt mit ihm zu
+   * kollidieren. In der Literatur zur automatischen Cue-Punkt-Erkennung ist
+   * das die uebliche Vorgabe: 16 oder 32 Beats vor dem Drop ansetzen.
+   */
+  const drops = (track.marken ?? []).filter((m) => m.name === 'drop').map((m) => m.beat);
+  const drop = drops.find((b) => b >= kernBeat - BEATS_PRO_PHRASE * 2);
 
   if (drop !== undefined && zielenergie >= KEIN_AUSKLANG_AB) {
-    return { beat: aufPhrase(drop, track.phrasenVersatz), grund: `direkt auf den Drop bei Beat ${Math.round(drop)}` };
+    // So frueh ansetzen, dass der Drop auf das Ende des Uebergangs faellt.
+    // Ganze Phrasen, damit der Einstieg selbst auf einer Grenze sitzt.
+    const phrasenVorlauf = Math.max(1, Math.round(uebergangBeats / BEATS_PRO_PHRASE));
+    const roh = drop - phrasenVorlauf * BEATS_PRO_PHRASE;
+    if (roh >= 0) {
+      return {
+        beat: aufPhrase(roh, track.phrasenVersatz),
+        grund: `${phrasenVorlauf * 8} Takte vor dem Drop bei Beat ${Math.round(drop)}, damit er auf den Wechsel faellt`,
+      };
+    }
+    return {
+      beat: aufPhrase(drop, track.phrasenVersatz),
+      grund: `direkt auf den Drop bei Beat ${Math.round(drop)} (davor ist nichts)`,
+    };
   }
 
+  // Kein Drop in Reichweite: dann in den Groove, mit einer Phrase Anlauf.
+  const vorlauf = zielenergie >= KEIN_AUSKLANG_AB ? 0 : BEATS_PRO_PHRASE;
+  const ziel = Math.max(natuerlich, kernBeat - vorlauf);
   const uebersprungen = Math.round((ziel - natuerlich) / BEATS_PRO_TAKT);
   return {
     beat: aufPhrase(ziel, track.phrasenVersatz),
@@ -170,20 +188,79 @@ export function ausstiegWaehlen(track, zielenergie, fruehestensBeat = 0) {
   const ende = kernEnde(profil);
   const endeBeat = (ende + 1) * BEATS_PRO_TAKT;
 
-  // Bei hoher Zielenergie wird das Ausklingen nicht abgewartet. Ein Outro, das
-  // sich ueber acht Takte verabschiedet, ist genau die Stelle, an der die
-  // Tanzflaeche sich leert.
-  if (zielenergie >= KEIN_AUSKLANG_AB) {
-    const beat = aufPhrase(Math.max(fruehestensBeat, endeBeat - BEATS_PRO_PHRASE), track.phrasenVersatz);
-    return {
-      beat: Math.min(beat, aufPhrase(letzterBeat, track.phrasenVersatz)),
-      grund: 'raus vor dem Ausklingen',
-    };
+  /*
+   * Der beste Ausstieg ist ein Loch, das jemand anders fuellen kann.
+   *
+   * Frueher war es schlicht "hinter dem letzten tragenden Takt". Das ist nicht
+   * falsch, aber es verschenkt die beste Stelle: den Moment, an dem der Track
+   * von selbst zurueckgeht - sein Breakdown oder sein Outro. Genau dort
+   * entsteht die Luecke, in die der naechste Track hineinfaellt, und genau
+   * dort merkt niemand den Wechsel als Bruch, sondern nur als Weitergehen.
+   *
+   * Also werden Kandidaten bewertet statt einer berechnet. Jede Phrasengrenze
+   * im letzten Drittel bekommt Punkte fuer:
+   *
+   *   - wie stark die Energie danach abfaellt (das Loch),
+   *   - wie viel vom Track schon gelaufen ist (nicht zu frueh gehen),
+   *   - und wie nah sie an einer erkannten Abschnittsgrenze liegt.
+   */
+  const grenzen = new Set(
+    (track.marken ?? [])
+      .filter((m) => m.name === 'breakdown' || m.name === 'outro' || m.name === 'wechsel')
+      .map((m) => Math.round(m.beat)),
+  );
+
+  const mittelE = (vonTakt, bisTakt) => {
+    const a = Math.max(0, vonTakt);
+    const b = Math.min(profil.length, bisTakt);
+    if (b <= a) return 0;
+    let s = 0;
+    for (let i = a; i < b; i++) s += profil[i].e;
+    return s / (b - a);
+  };
+
+  const frueheste = Math.max(fruehestensBeat, endeBeat - BEATS_PRO_PHRASE * 6);
+  const spaeteste = Math.min(letzterBeat, endeBeat + BEATS_PRO_PHRASE * 2);
+
+  let bester = null;
+  for (let beat = aufPhrase(frueheste, track.phrasenVersatz); beat <= spaeteste; beat += BEATS_PRO_PHRASE) {
+    if (beat < fruehestensBeat) continue;
+    const takt = beat / BEATS_PRO_TAKT;
+    const davor = mittelE(takt - 8, takt);
+    const danach = mittelE(takt, takt + 8);
+
+    // Ein Abfall nach der Stelle ist das Loch, das wir suchen.
+    const loch = Math.max(0, davor - danach);
+    // Nicht zu frueh: was noch kommt, faellt ins Gewicht.
+    const gelaufen = Math.min(1, beat / Math.max(1, endeBeat));
+    // Eine erkannte Abschnittsgrenze ist ein starkes Zeichen.
+    const aufGrenze = [...grenzen].some((g) => Math.abs(g - beat) <= BEATS_PRO_TAKT) ? 0.35 : 0;
+
+    const punkte = loch * 1.4 + gelaufen * 0.8 + aufGrenze;
+    if (!bester || punkte > bester.punkte) {
+      bester = { beat, punkte, loch, aufGrenze: aufGrenze > 0 };
+    }
   }
 
-  // Sonst darf der Alte ausklingen - aber nicht bis zur Stille.
-  const beat = aufPhrase(Math.max(fruehestensBeat, endeBeat), track.phrasenVersatz);
-  return { beat: Math.min(beat, aufPhrase(letzterBeat, track.phrasenVersatz)), grund: 'nach dem letzten vollen Teil' };
+  if (!bester) {
+    const beat = aufPhrase(Math.max(fruehestensBeat, endeBeat), track.phrasenVersatz);
+    return { beat: Math.min(beat, aufPhrase(letzterBeat, track.phrasenVersatz)), grund: 'nach dem letzten vollen Teil' };
+  }
+
+  // Bei hoher Zielenergie nicht auf das Ausklingen warten - hoechstens eine
+  // Phrase davon mitnehmen.
+  const deckel =
+    zielenergie >= KEIN_AUSKLANG_AB
+      ? aufPhrase(Math.max(fruehestensBeat, endeBeat - BEATS_PRO_PHRASE), track.phrasenVersatz)
+      : Infinity;
+  const beat = Math.min(bester.beat, deckel, aufPhrase(letzterBeat, track.phrasenVersatz));
+
+  const grund = bester.aufGrenze
+    ? `auf einer Abschnittsgrenze, Energie faellt danach um ${(bester.loch * 100).toFixed(0)} %`
+    : bester.loch > 0.1
+      ? `dort geht der Track von selbst zurueck (${(bester.loch * 100).toFixed(0)} %)`
+      : 'nach dem letzten vollen Teil';
+  return { beat, grund };
 }
 
 /**
@@ -236,9 +313,12 @@ export function uebergangPlanen(
 ) {
   const ziel = Math.min(1, Math.max(0, zielenergie));
 
-  const einstieg = einstiegWaehlen(b, ziel);
+  // Henne und Ei, zum zweiten: Der Einstieg haengt an der Laenge (der Drop soll
+  // auf das Ende des Uebergangs fallen), die Laenge an dem, was am Einstieg
+  // klingt. Also mit einer Annahme anfangen und danach einmal nachziehen.
+  let einstieg = einstiegWaehlen(b, ziel, BEATS_PRO_PHRASE);
   const ausstieg = ausstiegWaehlen(a, ziel, jetztBeat + BEATS_PRO_PHRASE);
-  const bStelle = stelleBeschreiben(b.profil, einstieg.beat / BEATS_PRO_TAKT);
+  let bStelle = stelleBeschreiben(b.profil, einstieg.beat / BEATS_PRO_TAKT);
 
   /*
    * Der Ausstieg braucht Auslauf.
@@ -272,6 +352,14 @@ export function uebergangPlanen(
   }
 
   const beats = wahl.beats;
+
+  // Jetzt steht die Laenge - den Einstieg damit noch einmal setzen, damit der
+  // Drop wirklich auf das Ende faellt.
+  const nachgezogen = einstiegWaehlen(b, ziel, beats);
+  if (nachgezogen.beat !== einstieg.beat) {
+    einstieg = nachgezogen;
+    bStelle = stelleBeschreiben(b.profil, einstieg.beat / BEATS_PRO_TAKT);
+  }
 
   // Wann wechselt das Fundament das Deck?
   //

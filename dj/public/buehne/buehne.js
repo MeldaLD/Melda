@@ -261,6 +261,19 @@ document.addEventListener('visibilitychange', () => {
 $('jetztUeberblenden').addEventListener('click', () => ueberblenden($('artWahl').value));
 
 
+// Die Auswahl fuellt sich aus den Modi selbst - so taucht ein neuer Modus
+// hier von allein auf, statt an zwei Stellen gepflegt werden zu muessen.
+for (const { schluessel, name } of Visualisierung.modusnamen()) {
+  const eintrag = document.createElement('option');
+  eintrag.value = schluessel;
+  eintrag.textContent = `Bild: ${name}`;
+  $('modusWahl').append(eintrag);
+}
+
+$('modusWahl').addEventListener('change', (e) => {
+  bild?.modusSetzen(e.target.value || null);
+});
+
 $('angleichAn').addEventListener('change', (e) => {
   welt.angleichAn = e.target.checked;
 });

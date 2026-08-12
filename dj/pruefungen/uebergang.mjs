@@ -106,10 +106,15 @@ pruefe('auch hier wird das Pad uebersprungen', duennSpaet.beat >= 64, `Beat ${du
 
 console.log('\nEin Drop kurz nach dem Kern wird als Einstieg genommen:');
 const mitDrop = { ...sofortLos, profil: langesIntro.profil, einstiegBeat: 32, marken: [{ name: 'drop', beat: 128 }] };
-const aufDrop = einstiegWaehlen(mitDrop, 0.85);
+const aufDrop = einstiegWaehlen(mitDrop, 0.85, 32);
 console.log(`    Beat ${aufDrop.beat} – ${aufDrop.grund}`);
-pruefe('der Drop gewinnt', /Drop/.test(aufDrop.grund), aufDrop.grund);
+pruefe('der Drop bestimmt den Einstieg', /Drop/.test(aufDrop.grund), aufDrop.grund);
 pruefe('und liegt auf der Phrase', aufDrop.beat % 32 === 0);
+// Das Entscheidende: Der Einstieg liegt *vor* dem Drop, und zwar genau so
+// weit, dass der Drop auf das Ende des Uebergangs faellt.
+pruefe('der Einstieg liegt vor dem Drop', aufDrop.beat < 128, `Beat ${aufDrop.beat}`);
+pruefe('und der Drop landet auf dem Ende des Uebergangs', aufDrop.beat + 32 === 128,
+  `${aufDrop.beat} + 32 = ${aufDrop.beat + 32}, Drop bei 128`);
 
 // --- Ausstieg --------------------------------------------------------------
 

@@ -25,7 +25,41 @@ import { MODI, TAU } from './visualmodi.js';
 // Die Reihenfolge, in der die Modi durchgewechselt werden. Nicht zufaellig
 // gezogen, sondern reihum: So sieht man zwei gleiche nie hintereinander, und
 // ueber einen Abend kommt jeder gleich oft dran.
-const MODUSFOLGE = ['iris', 'tunnel', 'strahlen', 'wellen'];
+const MODUSFOLGE = ['mandelbrot', 'iris', 'tunnel', 'strahlen'];
+
+/**
+ * Welcher Modus passt zu diesem Track?
+ *
+ * Reihum durchzuwechseln ist gerecht, aber nicht gut: Ein Strahlenkranz
+ * braucht Percussion in den Hoehen, sonst steht er still, und eine Iris wirkt
+ * auf einem Brett verloren. Also entscheidet, was der Track mitbringt - und
+ * zwar aus denselben Zahlen, die auch die Uebergaenge planen.
+ *
+ * Der zuletzt gelaufene Modus wird ausgeschlossen. Zwei gleiche
+ * hintereinander sehen aus wie ein Fehler, selbst wenn beide passen.
+ */
+function modusAusTrack(track, zuletzt) {
+  const energie = track?.energie ?? 0.5;
+  const profil = track?.profil ?? [];
+  const mitte = profil.length ? profil[Math.floor(profil.length / 2)] : null;
+  const hoehen = mitte?.h ?? 0.2;
+  const dichte = mitte?.d ?? 2;
+
+  const punkte = {
+    // Das Fraktal traegt alles und wird mit der Energie nur intensiver. Es ist
+    // die sichere Wahl und darf deshalb die hoechste Grundpunktzahl haben.
+    mandelbrot: 0.6 + energie * 0.5,
+    // Strahlen leben von Percussion in den Hoehen.
+    strahlen: 0.2 + hoehen * 2.2 + Math.min(0.4, dichte * 0.12),
+    // Der Tunnel braucht einen klaren Puls, keinen Teppich.
+    tunnel: 0.35 + Math.max(0, 1 - Math.abs(dichte - 2.4) / 2.4) * 0.9,
+    // Die Iris ist die ruhige Wahl.
+    iris: 0.3 + Math.max(0, 0.7 - energie) * 1.4,
+  };
+  if (zuletzt) punkte[zuletzt] = -1;
+
+  return Object.entries(punkte).sort((a, b) => b[1] - a[1])[0][0];
+}
 
 // --- Zufall, der sich wiederholen laesst ----------------------------------
 
@@ -113,6 +147,9 @@ export class Visualisierung {
     // Effekt Raum und dem Abend Abwechslung.
     this.modusFuerTrack = new Map();
     this.naechsterModus = 0;
+    // null = automatisch. Sonst der Name eines Modus, von Hand gewaehlt.
+    this.modusZwang = null;
+    this.zuletztGewaehlt = null;
 
     // Drei Rauschquellen, damit sich die Bewegungen nicht synchronisieren.
     this.n1 = rauschen(7919);
@@ -135,12 +172,26 @@ export class Visualisierung {
   }
 
   modusFuer(track) {
+    if (this.modusZwang && MODI[this.modusZwang]) return this.modusZwang;
+
     const schluessel = track?.id ?? track?.titel ?? 'leer';
     if (!this.modusFuerTrack.has(schluessel)) {
-      this.modusFuerTrack.set(schluessel, MODUSFOLGE[this.naechsterModus % MODUSFOLGE.length]);
+      const gewaehlt = modusAusTrack(track, this.zuletztGewaehlt);
+      this.modusFuerTrack.set(schluessel, gewaehlt);
+      this.zuletztGewaehlt = gewaehlt;
       this.naechsterModus++;
     }
     return this.modusFuerTrack.get(schluessel);
+  }
+
+  /** Von Hand festlegen, oder mit null zurueck auf automatisch. */
+  modusSetzen(name) {
+    this.modusZwang = name && MODI[name] ? name : null;
+  }
+
+  /** Die Namen aller Modi - fuer die Auswahl auf der Buehne. */
+  static modusnamen() {
+    return Object.entries(MODI).map(([schluessel, m]) => ({ schluessel, name: m.name }));
   }
 
   paletteFuer(track) {
@@ -171,8 +222,11 @@ export class Visualisierung {
     const spannung = this.spannungBis(aktiv, takt);
     const wucht = this.pegelWucht(spektrum);
 
-    // Beim Drop: alles auf einmal.
-    if (takt && this.dropErreicht(aktiv, takt)) this.ausbruch(spannung);
+    // Beim Drop: alles auf einmal. Das Signal geht auch an den Modus - das
+    // Mandelbrot kehrt dabei seine Flugrichtung um, und damit hat der
+    // staerkste Moment der Musik auch im Bild seinen staerksten Moment.
+    const dropJetzt = Boolean(takt && this.dropErreicht(aktiv, takt));
+    if (dropJetzt) this.ausbruch(spannung);
     if (takt) this.beatPruefen(takt, wucht);
 
     stift.clearRect(0, 0, breite, hoehe);
@@ -193,6 +247,7 @@ export class Visualisierung {
       takt,
       spannung,
       wucht,
+      drop: dropJetzt,
       palette: this.paletteFuer(aktiv?.track),
       paletteB: zweit ? this.paletteFuer(zweit.track) : null,
       anteilB: uebergang ? uebergang.fortschritt : 0,
