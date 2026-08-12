@@ -599,9 +599,14 @@ try {
     const ergebnis = [];
     for (const stufe of ['hoch', 'mittel', 'niedrig']) {
       window.__dj.bild.gueteSetzen(stufe);
-      // Einschwingen lassen: Der Regler braucht ein paar Bilder, und nach dem
-      // Umschalten wird der Wertespeicher neu angelegt und grundiert.
-      await new Promise((f) => setTimeout(f, 9000));
+      /*
+       * Einschwingen lassen. Zwoelf Sekunden, nicht neun: Ein Wechsel der
+       * Stufe fragt die Grafikkarte neu, und wo keine ist, dauert es ein paar
+       * hundert Millisekunden je Bild, bis der Rueckfall greift. Nachgemessen
+       * hing die Stufe "mittel" nach neun Sekunden noch bei 675 ms - gemessen
+       * wurde da der Versuch, nicht die Stufe.
+       */
+      await new Promise((f) => setTimeout(f, 12000));
       const leinwand = document.getElementById('visual');
       ergebnis.push({
         stufe,

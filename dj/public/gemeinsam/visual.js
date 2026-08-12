@@ -252,6 +252,10 @@ export class Visualisierung {
     }
     this.masseSetzen();
     gueteZuruecksetzen();
+    // Den Messwert mit zuruecksetzen. Sonst zeigt die Anzeige nach dem
+    // Umschalten noch sekundenlang die Zeit der alten Stufe - samt der Spitze,
+    // die der neue Versuch auf der Grafikkarte kurz verursacht.
+    this.bildMs = 16;
   }
 
   static guetestufen() {

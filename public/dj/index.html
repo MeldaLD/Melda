@@ -3587,16 +3587,27 @@ const MANDEL_ZIELE0 = [
     x: '-0.743643887037158704752191506114774',
     y: '0.131825904205311970493132056385139',
     name: 'Seepferdchental',
+    start: 1.1,
   },
   {
     x: '0.360240443437614363236125244449545',
     y: '-0.641313061064803174860375015179302',
     name: 'Spiralarme',
+    start: 1.4,
   },
   {
     x: '-1.768610930672608212890774771462666',
     y: '0.001645580646883195878428974839603',
     name: 'Miniatur',
+    /*
+     * Dieses Ziel liegt auf der Antenne der Menge, dem duennen Stachel entlang
+     * der negativen Achse. Dort ist die Umgebung *weit* draussen leer: Bei
+     * geringer Tiefe steht eine haarduenne Nadel in einer riesigen glatten
+     * Flaeche - genau das war auf dem iPad zu sehen, als das Bild "ganz klein
+     * wurde und nicht wiederkam". Die Stelle ist nicht kaputt, sie fangt nur
+     * viel weiter innen an, interessant zu werden.
+     */
+    start: 3.4,
   },
 ];
 const MANDEL_ZIELE = MANDEL_ZIELE0.map((z) => ({ ...z, zx: Number(z.x), zy: Number(z.y) }));
@@ -3734,7 +3745,7 @@ let mandelFrischePunkte = 0;
 // Nach einem Stellenwechsel ist der Speicher wertlos und wird grob neu
 // gefuellt. Das geschieht unter dem Blitz, man sieht es nicht.
 let mandelGrundierenNoetig = true;
-let mandelTiefeGezeichnet = 0.6;
+let mandelTiefeGezeichnet = 1.1;
 // Die Drehung. Zoom allein ist ein Sog, Zoom mit Drehung ist ein Strudel - und
 // erst der haelt den Blick laenger als ein paar Sekunden fest.
 let mandelDrehung = 0;
@@ -3794,10 +3805,30 @@ let mandelStreuung = 40;
 let mandelTotzeit = 0;
 let mandelSchrittZugabe = 1;
 let mandelWacheZaehler = 0;
+/*
+ * Seit wann laeuft die aktuelle Stelle?
+ *
+ * Der Wachdienst braucht zwei Fristen, und beide verhindern denselben Fehler:
+ * dass er sich selbst im Kreis jagt. Auf dem iPad war genau das zu sehen - die
+ * Fahrt landete auf einer Stelle, die bei geringer Tiefe von Natur aus leer
+ * aussieht, der Wachdienst hielt das fuer ein totes Bild, zog weiter, landete
+ * wieder flach an, und so fort. Von aussen sieht das aus, als bliebe das
+ * Mandelbrot fuer immer winzig.
+ *
+ *   Schonzeit    Nach einem Wechsel wird ein paar Sekunden nicht geurteilt.
+ *                Die neue Stelle darf erst einmal ankommen.
+ *   Sperrfrist   Zwischen zwei Wechseln liegen mindestens zwanzig Sekunden.
+ *                Damit kann aus dem Wachdienst nie eine Schleife werden, ganz
+ *                gleich wie er sich irrt.
+ */
+let mandelSeitWechsel = 99;
+const MANDEL_SCHONZEIT = 5;
+const MANDEL_SPERRFRIST = 20;
 // Unter dieser Streuung der Helligkeit ist das Bild eine Flaeche.
 const MANDEL_STREUUNG_MIN = 4;
 let mandelPunkte = 0;
-let mandelTiefe = 0.6;
+// Anfangstiefe des ersten Ziels - siehe start in MANDEL_ZIELE.
+let mandelTiefe = 1.1;
 let mandelSchwung = 0;
 let mandelZiel = 0;
 let mandelNeuangesetzt = 0;
@@ -3991,7 +4022,10 @@ function hslZuRgb(h, s, l) {
 /** An eine neue Stelle springen. Nur aufrufen, wenn ein Blitz das deckt. */
 function mandelNeuAnsetzen() {
   mandelZiel = (mandelZiel + 1) % MANDEL_ZIELE.length;
-  mandelTiefe = 0.6;
+  // Jede Stelle hat ihre eigene Anfangstiefe - siehe die Begruendung bei
+  // "Miniatur". Eine feste Zahl fuer alle war falsch.
+  mandelTiefe = MANDEL_ZIELE[mandelZiel].start ?? 1;
+  mandelSeitWechsel = 0;
   mandelNeuangesetzt++;
   /*
    * Frueher blitzte hier das Bild weiss auf, um den Sprung zu decken. Das war
@@ -4364,15 +4398,17 @@ function mandelbrotZeichnen(stift, lage) {
    * und erst danach weitergezogen. Waehrend einer Ueberblendung wird nicht
    * geurteilt - da liegen zwei Bilder uebereinander, und das Mass gilt nicht.
    */
-  if (mandelUeberblendung > 0) mandelTotzeit = 0;
+  mandelSeitWechsel += sekunden;
+  if (mandelUeberblendung > 0 || mandelSeitWechsel < MANDEL_SCHONZEIT) mandelTotzeit = 0;
   else if (mandelStreuung < MANDEL_STREUUNG_MIN) mandelTotzeit += sekunden;
   else mandelTotzeit = Math.max(0, mandelTotzeit - sekunden * 2);
   if (mandelTotzeit > 0.8) {
     mandelTotzeit = 0;
     if (mandelSchrittZugabe < 4) {
+      // Ein flaches Bild heisst meistens "zu wenig Schritte".
       mandelSchrittZugabe = Math.min(4, mandelSchrittZugabe * 1.7);
       mandelStreuung = 40; // dem naechsten Bild eine Chance geben
-    } else {
+    } else if (mandelSeitWechsel > MANDEL_SPERRFRIST) {
       mandelNeuAnsetzen();
     }
   }
@@ -4499,8 +4535,23 @@ function mandelbrotZeichnen(stift, lage) {
      * nicht mehr zurueck - ein Hin und Her waere schlimmer als beide Fassungen
      * einzeln.
      */
-    if (mandelDauer > stufe.budget * 4 + 12 && mandelGuete <= MANDEL_GUETE_MIN * 1.05) mandelGpuZaeh++;
-    else mandelGpuZaeh = 0;
+    /*
+     * Zwei Wege zum Notausgang, und der zweite ist der wichtige.
+     *
+     * Der erste ist der geduldige: Der Regler steht unten und es reicht immer
+     * noch nicht. Der braucht aber Bilder, um zu urteilen - und wenn ein Bild
+     * eine Sekunde dauert, sind acht Bilder acht Sekunden Ruckeln, bevor
+     * ueberhaupt entschieden wird. Nachgemessen hing die Stufe "mittel" nach
+     * zwoelf Sekunden immer noch bei 1216 ms je Bild.
+     *
+     * Der zweite ist der kurze: Ein einzelnes Bild ueber 250 ms braucht keine
+     * Beratung. Kein Regler der Welt macht daraus 12 ms - vier Mal weniger
+     * Aufloesung waeren immer noch 300. Zwei solche Bilder genuegen.
+     */
+    if (mandelDauer > 250) mandelGpuZaeh += 3;
+    else if (mandelDauer > stufe.budget * 4 + 12 && mandelGuete <= MANDEL_GUETE_MIN * 1.05) {
+      mandelGpuZaeh++;
+    } else mandelGpuZaeh = 0;
     if (mandelGpuZaeh > 3) {
       mandelAufGpu = false;
       mandelTiefe = Math.min(mandelTiefe, MANDEL_MAX_TIEFE - 0.5);
@@ -5136,6 +5187,10 @@ class Visualisierung {
     }
     this.masseSetzen();
     gueteZuruecksetzen();
+    // Den Messwert mit zuruecksetzen. Sonst zeigt die Anzeige nach dem
+    // Umschalten noch sekundenlang die Zeit der alten Stufe - samt der Spitze,
+    // die der neue Versuch auf der Grafikkarte kurz verursacht.
+    this.bildMs = 16;
   }
 
   static guetestufen() {
