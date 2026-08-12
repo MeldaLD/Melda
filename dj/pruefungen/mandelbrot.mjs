@@ -483,6 +483,57 @@ try {
   pruefe('auch der Drop blitzt nicht', dropMessung.hellste < 170,
     `hellstes Bild ${dropMessung.hellste.toFixed(1)}`);
 
+  // --- 6. Die Bildguete laesst sich wirklich senken ------------------------
+
+  /*
+   * Warum das geprueft wird: An dieser Kette sind mir zwei Fehler
+   * unterlaufen, und beide waren unsichtbar, solange nur gemessen wurde, ob
+   * das Bild noch da ist.
+   *
+   * Der erste: Der Regler zielt auf ein Zeitbudget. Rechnet er kleiner,
+   * frischt er einfach mehr auf und landet wieder bei derselben Zeit - alle
+   * drei Stufen kamen auf dieselben 12 ms. Das Budget muss mitsinken.
+   *
+   * Der zweite: Die Bedingung fuer den Rueckfall auf den Hauptprozessor
+   * verglich den Regler mit einer Schranke, die er nie erreichen konnte. Der
+   * Rueckfall kam also nie, und die niedrigen Stufen waren die langsamsten.
+   */
+  console.log('\nDie Bildguete laesst sich senken:');
+  const stufen = await seite.evaluate(async () => {
+    const ergebnis = [];
+    for (const stufe of ['hoch', 'mittel', 'niedrig']) {
+      window.__dj.bild.gueteSetzen(stufe);
+      // Einschwingen lassen: Der Regler braucht ein paar Bilder, und nach dem
+      // Umschalten wird der Wertespeicher neu angelegt und grundiert.
+      await new Promise((f) => setTimeout(f, 9000));
+      const leinwand = document.getElementById('visual');
+      ergebnis.push({
+        stufe,
+        ms: window.__dj.bild.bildMs,
+        punkte: leinwand.width * leinwand.height,
+      });
+    }
+    return ergebnis;
+  });
+  for (const e of stufen) {
+    console.log(
+      `    ${e.stufe.padEnd(8)} ${e.ms.toFixed(1)} ms je Bild, ` +
+        `Leinwand ${(e.punkte / 1e6).toFixed(2)} Millionen Punkte`,
+    );
+  }
+  const [gHoch, gMittel, gNiedrig] = stufen;
+  pruefe(
+    'jede Stufe ist schneller als die darueber',
+    gMittel.ms < gHoch.ms * 0.9 && gNiedrig.ms < gMittel.ms * 0.9,
+    `${gHoch.ms.toFixed(1)} -> ${gMittel.ms.toFixed(1)} -> ${gNiedrig.ms.toFixed(1)} ms`,
+  );
+  pruefe(
+    'die niedrigste Stufe rechnet auch die Leinwand kleiner',
+    gNiedrig.punkte < gHoch.punkte,
+    `${(gHoch.punkte / 1e6).toFixed(2)} -> ${(gNiedrig.punkte / 1e6).toFixed(2)} Millionen Punkte`,
+  );
+  await seite.evaluate(() => window.__dj.bild.gueteSetzen('hoch'));
+
   console.log(
     konsolenfehler.length
       ? `\nKonsolenfehler:\n  ${konsolenfehler.slice(0, 5).join('\n  ')}`

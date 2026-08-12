@@ -645,6 +645,9 @@ header {
         <select id="modusWahl" title="Visualisierung: automatisch oder fest">
           <option value="">Bild: automatisch</option>
         </select>
+        <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
+        </select>
+        <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
         <label class="schieber">
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
@@ -3616,6 +3619,12 @@ const MANDEL_GRUNDZOOM = 0.055; // Zehnerpotenzen je Sekunde
 // Zeitbudget je Bild. Bei 60 Bildern je Sekunde bleiben 16 ms fuer alles;
 // 12 davon darf das Fraktal kosten, der Rest ist Lava, Ringe und Schrift.
 const MANDEL_BUDGET_MS = 12;
+// Unter diesen Anteil der vollen Aufloesung geht der Regler nie. Der Wert
+// steht hier, weil der Notausgang ihn braucht: "Der Regler steht unten und es
+// reicht immer noch nicht" ist die Bedingung zum Umschalten, und die muss sich
+// auf denselben Wert beziehen wie die Schranke selbst - sonst ist sie nie
+// erfuellt, und es wird nie umgeschaltet.
+const MANDEL_GUETE_MIN = 0.22;
 /*
  * Das Bild wird nicht mehr in jedem Bild neu gerechnet.
  *
@@ -3636,9 +3645,55 @@ const MANDEL_BUDGET_MS = 12;
  *
  * Ergebnis: dreimal so viel Aufloesung bei gleichem Zeitbudget.
  */
-const MANDEL_BREITE = 384;
-const MANDEL_HOEHE = 240;
-const MANDEL_PUNKTE = MANDEL_BREITE * MANDEL_HOEHE;
+/*
+ * Die drei Bildguete-Stufen.
+ *
+ *   dichte  Obergrenze fuer die Punktdichte der Leinwand. Ein iPad meldet 2,
+ *           also viermal so viele Punkte wie noetig - und zwar fuer jede
+ *           Schicht, nicht nur fuers Fraktal. Das ist auf einem Tablet der
+ *           groesste einzelne Posten.
+ *   fraktal Obergrenze fuer den Regler im Fraktal. Ueber 1 ist Ueberabtastung
+ *           (schoener), unter 1 wird kleiner gerechnet und hochgezogen.
+ *   lava    Durch wieviel die Lavaschicht kleiner gerechnet wird.
+ *   rechen  Breite des Wertespeichers, wenn ohne Grafikkarte gerechnet wird.
+ *
+ * "Hoch" ist genau das, was vorher fest eingebaut war.
+ */
+const GUETESTUFEN = {
+  hoch: { name: 'Hoch', dichte: 2, fraktal: 2, lava: 3, rechen: 384, budget: 12 },
+  mittel: { name: 'Mittel', dichte: 1, fraktal: 0.9, lava: 4, rechen: 288, budget: 7 },
+  niedrig: { name: 'Niedrig', dichte: 0.7, fraktal: 0.5, lava: 5, rechen: 192, budget: 4 },
+};
+
+let MANDEL_BREITE = 384;
+let MANDEL_HOEHE = 240;
+let MANDEL_PUNKTE = MANDEL_BREITE * MANDEL_HOEHE;
+
+/**
+ * Nach einem Wechsel der Bildguete alles zuruecksetzen, was von der Groesse
+ * abhaengt. Das passiert auf Knopfdruck, also darf es ruhig etwas kosten.
+ */
+function gueteZuruecksetzen() {
+  /*
+   * Auch die Grafikkarte bekommt eine neue Chance.
+   *
+   * Wer die Guete heruntersetzt, sagt damit: Versuch es noch einmal mit
+   * weniger. War die Karte bei voller Aufloesung zu langsam und ist deshalb
+   * auf den Hauptprozessor zurueckgefallen, waere es falsch, sie bei
+   * niedriger Stufe gar nicht mehr zu fragen - dort ist sie der
+   * Notfassung deutlich ueberlegen, weil nur sie die Tiefe traegt.
+   */
+  mandelAufGpu = null;
+  mandelLeinwand = null;
+  mandelWerte = null;
+  mandelWerteAlt = null;
+  mandelSchnappschuss = null;
+  mandelGrundierenNoetig = true;
+  mandelGuete = 1;
+  mandelGpuZaeh = 0;
+  mandelDauer = 8;
+  mandelUeberblendung = 0;
+}
 // Die Auffrischung laeuft in 64 Phasen ueber ein 8x8-Muster. Ein Streifenmuster
 // waere billiger zu rechnen, aber man saehe die Kante wandern; das gestreute
 // Muster verteilt die frischen Punkte gleichmaessig ueber die Flaeche.
@@ -4211,6 +4266,7 @@ function mandelbrotZeichnen(stift, lage) {
   mandelFarbtabelle = mandelTabelleBauen(grundton, spektrum, 0.6 + wucht * 0.6);
   mandelFarbtonZuletzt = grundton;
 
+  const stufe = GUETESTUFEN[lage.guetestufe] ?? GUETESTUFEN.hoch;
   const versatzJetzt = mandelFarbe - Math.floor(mandelFarbe);
   // Enger werdende Ringe, je naeher der Drop. Das ist die zweite Haelfte der
   // Vorbereitung - die erste ist die Drehung.
@@ -4238,7 +4294,7 @@ function mandelbrotZeichnen(stift, lage) {
       versatz: versatzJetzt,
       dichte,
       innenHell: 0.4 + wucht * 0.35,
-      guete: mandelGuete,
+      guete: Math.min(mandelGuete, stufe.fraktal),
     });
     mandelPunkte = bild.breite * bild.hoehe;
 
@@ -4252,7 +4308,7 @@ function mandelbrotZeichnen(stift, lage) {
         ueberblendung: mandelUeberblendung,
         schritte: schritteGpu,
         breite: bild.breite,
-        guete: mandelGuete,
+        guete: Math.min(mandelGuete, stufe.fraktal),
         dreh: mandelDrehung,
         dichte,
         versatz: versatzJetzt,
@@ -4281,7 +4337,7 @@ function mandelbrotZeichnen(stift, lage) {
      * die alle eine Sekunde dauerten. Nach oben bleibt er vorsichtig, damit er
      * nicht ueberschwingt; nach unten muss er springen koennen.
      */
-    const regelGpu = Math.min(1.06, Math.max(0.5, Math.sqrt(MANDEL_BUDGET_MS / Math.max(1, mandelDauer))));
+    const regelGpu = Math.min(1.06, Math.max(0.5, Math.sqrt(stufe.budget / Math.max(1, mandelDauer))));
     /*
      * Die Obergrenze liegt bei 2, nicht bei 1.
      *
@@ -4292,7 +4348,7 @@ function mandelbrotZeichnen(stift, lage) {
      * deshalb oben und rechnet vierfach; wo die Kraft fehlt, faellt er unter 1
      * und das Bild wird weicher statt ruckelig.
      */
-    mandelGuete = Math.min(2, Math.max(0.28, mandelGuete * regelGpu));
+    mandelGuete = Math.min(stufe.fraktal, Math.max(MANDEL_GUETE_MIN, mandelGuete * regelGpu));
 
     /*
      * Der Notausgang.
@@ -4306,7 +4362,7 @@ function mandelbrotZeichnen(stift, lage) {
      * nicht mehr zurueck - ein Hin und Her waere schlimmer als beide Fassungen
      * einzeln.
      */
-    if (mandelDauer > 45 && mandelGuete <= 0.31) mandelGpuZaeh++;
+    if (mandelDauer > stufe.budget * 4 + 12 && mandelGuete <= MANDEL_GUETE_MIN * 1.05) mandelGpuZaeh++;
     else mandelGpuZaeh = 0;
     if (mandelGpuZaeh > 3) {
       mandelAufGpu = false;
@@ -4329,6 +4385,9 @@ function mandelbrotZeichnen(stift, lage) {
   // nachzog, passierte das dauernd - und jede dieser Neuanlagen war ein
   // Ausreisser von ueber 40 ms mitten im laufenden Bild.
   if (!mandelLeinwand) {
+    MANDEL_BREITE = stufe.rechen;
+    MANDEL_HOEHE = Math.round((stufe.rechen * 5) / 8);
+    MANDEL_PUNKTE = MANDEL_BREITE * MANDEL_HOEHE;
     mandelLeinwand = document.createElement('canvas');
     mandelLeinwand.width = MANDEL_BREITE;
     mandelLeinwand.height = MANDEL_HOEHE;
@@ -4368,7 +4427,7 @@ function mandelbrotZeichnen(stift, lage) {
    * je Bild aufgefrischt wird. Das ist der bessere Knopf: Zu wenig Zeit macht
    * das Bild nicht grob, sondern nur ein wenig aelter.
    */
-  const nachregeln = Math.min(1.12, Math.max(0.78, Math.sqrt(MANDEL_BUDGET_MS / Math.max(1, mandelDauer))));
+  const nachregeln = Math.min(1.12, Math.max(0.78, Math.sqrt(stufe.budget / Math.max(1, mandelDauer))));
   mandelPhasenProBild = Math.min(16, Math.max(0.6, mandelPhasenProBild * nachregeln));
 
 
@@ -4820,6 +4879,30 @@ class Visualisierung {
     // Von Hand ausgeloester Drop - fuer die Abnahme und zum Vorfuehren.
     this.dropVonHand = false;
 
+    /*
+     * Die Bildguete.
+     *
+     * Der Regler im Fraktal passt sich zwar von allein an die gemessene Zeit
+     * an, aber er kann nur eine Sache: kleiner rechnen und wieder groesser.
+     * Was er nicht kann, ist die Leinwand selbst kleiner machen - und genau
+     * die ist auf einem Tablet der grosse Posten. Ein iPad meldet die
+     * doppelte Punktdichte, also viermal so viele Punkte, und zwar fuer
+     * *alle* Schichten: Lava, Fraktal, Ringe, Schrift.
+     *
+     * Deshalb hier eine Stufe von Hand. Sie senkt beides zugleich - die
+     * Punktdichte der Leinwand und die Obergrenze, bis zu der das Fraktal
+     * rechnen darf.
+     */
+    this.guetestufe = 'hoch';
+    try {
+      const gemerkt = window.localStorage?.getItem('dj-bildguete');
+      if (gemerkt && GUETESTUFEN[gemerkt]) this.guetestufe = gemerkt;
+    } catch {
+      // Kein Speicher, kein Problem - dann eben jedes Mal von vorn.
+    }
+    // Geglaettete Bildzeit, damit man auf dem Geraet sieht, was die Stufe tut.
+    this.bildMs = 16;
+
     // Drei Rauschquellen, damit sich die Bewegungen nicht synchronisieren.
     this.n1 = rauschen(7919);
     this.n2 = rauschen(104729);
@@ -4829,15 +4912,33 @@ class Visualisierung {
   }
 
   masseSetzen() {
-    const dichte = Math.min(window.devicePixelRatio || 1, 2);
+    const stufe = GUETESTUFEN[this.guetestufe] ?? GUETESTUFEN.hoch;
+    const dichte = Math.min(window.devicePixelRatio || 1, stufe.dichte);
     this.breite = this.leinwand.clientWidth;
     this.hoehe = this.leinwand.clientHeight;
-    this.leinwand.width = this.breite * dichte;
-    this.leinwand.height = this.hoehe * dichte;
+    this.leinwand.width = Math.max(1, Math.round(this.breite * dichte));
+    this.leinwand.height = Math.max(1, Math.round(this.hoehe * dichte));
     this.stift.setTransform(dichte, 0, 0, dichte, 0, 0);
 
-    this.lavaLeinwand.width = Math.max(1, Math.round(this.breite / 3));
-    this.lavaLeinwand.height = Math.max(1, Math.round(this.hoehe / 3));
+    this.lavaLeinwand.width = Math.max(1, Math.round(this.breite / stufe.lava));
+    this.lavaLeinwand.height = Math.max(1, Math.round(this.hoehe / stufe.lava));
+  }
+
+  /** Die Bildguete umstellen. Wirkt sofort und wird gemerkt. */
+  gueteSetzen(name) {
+    if (!GUETESTUFEN[name]) return;
+    this.guetestufe = name;
+    try {
+      window.localStorage?.setItem('dj-bildguete', name);
+    } catch {
+      // s.o.
+    }
+    this.masseSetzen();
+    gueteZuruecksetzen();
+  }
+
+  static guetestufen() {
+    return Object.entries(GUETESTUFEN).map(([schluessel, g]) => ({ schluessel, name: g.name }));
   }
 
   modusFuer(track) {
@@ -4917,6 +5018,7 @@ class Visualisierung {
     this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
 
     const modus = MODI[this.modusFuer(aktiv?.track)] ?? MODI.iris;
+    const bildBegonnen = performance.now();
     this.letzterModusName = modus.name;
     modus.zeichne(stift, {
       breite,
@@ -4929,6 +5031,7 @@ class Visualisierung {
       spannung,
       wucht,
       drop: dropJetzt,
+      guetestufe: this.guetestufe,
       palette: this.paletteFuer(aktiv?.track),
       paletteB: zweit ? this.paletteFuer(zweit.track) : null,
       anteilB: uebergang ? uebergang.fortschritt : 0,
@@ -4956,6 +5059,11 @@ class Visualisierung {
       this.funken.length = 0;
     }
     if (this.stossHalt > 0) this.stossHalt = Math.max(0, this.stossHalt - sekunden * 3.5);
+
+    // Wie lange ein Bild wirklich braucht. Traege geglaettet, damit die
+    // Anzeige lesbar bleibt statt zu zappeln.
+    const gebraucht = performance.now() - bildBegonnen;
+    this.bildMs = this.bildMs * 0.9 + gebraucht * 0.1;
   }
 
   // --- Wo stehen wir im Takt? ---------------------------------------------
@@ -5444,6 +5552,35 @@ for (const { schluessel, name } of Visualisierung.modusnamen()) {
 $('modusWahl').addEventListener('change', (e) => {
   bild?.modusSetzen(e.target.value || null);
 });
+
+/*
+ * Die Bildguete von Hand.
+ *
+ * Der Regler im Fraktal passt sich zwar an die gemessene Zeit an, aber er
+ * kann die Leinwand nicht kleiner machen - und die ist auf einem Tablet mit
+ * doppelter Punktdichte der grosse Posten. Drei Stufen zum Durchprobieren,
+ * daneben die gemessene Bildzeit, damit man sieht, was die Wahl bringt,
+ * statt es zu erraten.
+ */
+for (const { schluessel, name } of Visualisierung.guetestufen()) {
+  const eintrag = document.createElement('option');
+  eintrag.value = schluessel;
+  eintrag.textContent = `Qualität: ${name}`;
+  $('gueteWahl').append(eintrag);
+}
+
+$('gueteWahl').addEventListener('change', (e) => {
+  bild?.gueteSetzen(e.target.value);
+});
+
+// Die Anzeige zweimal je Sekunde nachziehen. Oefter waere unlesbar.
+setInterval(() => {
+  if (!bild) return;
+  $('gueteWahl').value = bild.guetestufe;
+  const ms = bild.bildMs;
+  const bilder = ms > 0.01 ? Math.min(60, Math.round(1000 / ms)) : 60;
+  $('bildTempo').textContent = `${ms.toFixed(1)} ms · ${bilder}/s`;
+}, 500);
 
 $('angleichAn').addEventListener('change', (e) => {
   welt.angleichAn = e.target.checked;

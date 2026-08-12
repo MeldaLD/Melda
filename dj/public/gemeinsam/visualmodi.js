@@ -377,6 +377,12 @@ const MANDEL_GRUNDZOOM = 0.055; // Zehnerpotenzen je Sekunde
 // Zeitbudget je Bild. Bei 60 Bildern je Sekunde bleiben 16 ms fuer alles;
 // 12 davon darf das Fraktal kosten, der Rest ist Lava, Ringe und Schrift.
 const MANDEL_BUDGET_MS = 12;
+// Unter diesen Anteil der vollen Aufloesung geht der Regler nie. Der Wert
+// steht hier, weil der Notausgang ihn braucht: "Der Regler steht unten und es
+// reicht immer noch nicht" ist die Bedingung zum Umschalten, und die muss sich
+// auf denselben Wert beziehen wie die Schranke selbst - sonst ist sie nie
+// erfuellt, und es wird nie umgeschaltet.
+const MANDEL_GUETE_MIN = 0.22;
 /*
  * Das Bild wird nicht mehr in jedem Bild neu gerechnet.
  *
@@ -397,9 +403,55 @@ const MANDEL_BUDGET_MS = 12;
  *
  * Ergebnis: dreimal so viel Aufloesung bei gleichem Zeitbudget.
  */
-const MANDEL_BREITE = 384;
-const MANDEL_HOEHE = 240;
-const MANDEL_PUNKTE = MANDEL_BREITE * MANDEL_HOEHE;
+/*
+ * Die drei Bildguete-Stufen.
+ *
+ *   dichte  Obergrenze fuer die Punktdichte der Leinwand. Ein iPad meldet 2,
+ *           also viermal so viele Punkte wie noetig - und zwar fuer jede
+ *           Schicht, nicht nur fuers Fraktal. Das ist auf einem Tablet der
+ *           groesste einzelne Posten.
+ *   fraktal Obergrenze fuer den Regler im Fraktal. Ueber 1 ist Ueberabtastung
+ *           (schoener), unter 1 wird kleiner gerechnet und hochgezogen.
+ *   lava    Durch wieviel die Lavaschicht kleiner gerechnet wird.
+ *   rechen  Breite des Wertespeichers, wenn ohne Grafikkarte gerechnet wird.
+ *
+ * "Hoch" ist genau das, was vorher fest eingebaut war.
+ */
+export const GUETESTUFEN = {
+  hoch: { name: 'Hoch', dichte: 2, fraktal: 2, lava: 3, rechen: 384, budget: 12 },
+  mittel: { name: 'Mittel', dichte: 1, fraktal: 0.9, lava: 4, rechen: 288, budget: 7 },
+  niedrig: { name: 'Niedrig', dichte: 0.7, fraktal: 0.5, lava: 5, rechen: 192, budget: 4 },
+};
+
+let MANDEL_BREITE = 384;
+let MANDEL_HOEHE = 240;
+let MANDEL_PUNKTE = MANDEL_BREITE * MANDEL_HOEHE;
+
+/**
+ * Nach einem Wechsel der Bildguete alles zuruecksetzen, was von der Groesse
+ * abhaengt. Das passiert auf Knopfdruck, also darf es ruhig etwas kosten.
+ */
+export function gueteZuruecksetzen() {
+  /*
+   * Auch die Grafikkarte bekommt eine neue Chance.
+   *
+   * Wer die Guete heruntersetzt, sagt damit: Versuch es noch einmal mit
+   * weniger. War die Karte bei voller Aufloesung zu langsam und ist deshalb
+   * auf den Hauptprozessor zurueckgefallen, waere es falsch, sie bei
+   * niedriger Stufe gar nicht mehr zu fragen - dort ist sie der
+   * Notfassung deutlich ueberlegen, weil nur sie die Tiefe traegt.
+   */
+  mandelAufGpu = null;
+  mandelLeinwand = null;
+  mandelWerte = null;
+  mandelWerteAlt = null;
+  mandelSchnappschuss = null;
+  mandelGrundierenNoetig = true;
+  mandelGuete = 1;
+  mandelGpuZaeh = 0;
+  mandelDauer = 8;
+  mandelUeberblendung = 0;
+}
 // Die Auffrischung laeuft in 64 Phasen ueber ein 8x8-Muster. Ein Streifenmuster
 // waere billiger zu rechnen, aber man saehe die Kante wandern; das gestreute
 // Muster verteilt die frischen Punkte gleichmaessig ueber die Flaeche.
@@ -972,6 +1024,7 @@ function mandelbrotZeichnen(stift, lage) {
   mandelFarbtabelle = mandelTabelleBauen(grundton, spektrum, 0.6 + wucht * 0.6);
   mandelFarbtonZuletzt = grundton;
 
+  const stufe = GUETESTUFEN[lage.guetestufe] ?? GUETESTUFEN.hoch;
   const versatzJetzt = mandelFarbe - Math.floor(mandelFarbe);
   // Enger werdende Ringe, je naeher der Drop. Das ist die zweite Haelfte der
   // Vorbereitung - die erste ist die Drehung.
@@ -999,7 +1052,7 @@ function mandelbrotZeichnen(stift, lage) {
       versatz: versatzJetzt,
       dichte,
       innenHell: 0.4 + wucht * 0.35,
-      guete: mandelGuete,
+      guete: Math.min(mandelGuete, stufe.fraktal),
     });
     mandelPunkte = bild.breite * bild.hoehe;
 
@@ -1013,7 +1066,7 @@ function mandelbrotZeichnen(stift, lage) {
         ueberblendung: mandelUeberblendung,
         schritte: schritteGpu,
         breite: bild.breite,
-        guete: mandelGuete,
+        guete: Math.min(mandelGuete, stufe.fraktal),
         dreh: mandelDrehung,
         dichte,
         versatz: versatzJetzt,
@@ -1042,7 +1095,7 @@ function mandelbrotZeichnen(stift, lage) {
      * die alle eine Sekunde dauerten. Nach oben bleibt er vorsichtig, damit er
      * nicht ueberschwingt; nach unten muss er springen koennen.
      */
-    const regelGpu = Math.min(1.06, Math.max(0.5, Math.sqrt(MANDEL_BUDGET_MS / Math.max(1, mandelDauer))));
+    const regelGpu = Math.min(1.06, Math.max(0.5, Math.sqrt(stufe.budget / Math.max(1, mandelDauer))));
     /*
      * Die Obergrenze liegt bei 2, nicht bei 1.
      *
@@ -1053,7 +1106,7 @@ function mandelbrotZeichnen(stift, lage) {
      * deshalb oben und rechnet vierfach; wo die Kraft fehlt, faellt er unter 1
      * und das Bild wird weicher statt ruckelig.
      */
-    mandelGuete = Math.min(2, Math.max(0.28, mandelGuete * regelGpu));
+    mandelGuete = Math.min(stufe.fraktal, Math.max(MANDEL_GUETE_MIN, mandelGuete * regelGpu));
 
     /*
      * Der Notausgang.
@@ -1067,7 +1120,7 @@ function mandelbrotZeichnen(stift, lage) {
      * nicht mehr zurueck - ein Hin und Her waere schlimmer als beide Fassungen
      * einzeln.
      */
-    if (mandelDauer > 45 && mandelGuete <= 0.31) mandelGpuZaeh++;
+    if (mandelDauer > stufe.budget * 4 + 12 && mandelGuete <= MANDEL_GUETE_MIN * 1.05) mandelGpuZaeh++;
     else mandelGpuZaeh = 0;
     if (mandelGpuZaeh > 3) {
       mandelAufGpu = false;
@@ -1090,6 +1143,9 @@ function mandelbrotZeichnen(stift, lage) {
   // nachzog, passierte das dauernd - und jede dieser Neuanlagen war ein
   // Ausreisser von ueber 40 ms mitten im laufenden Bild.
   if (!mandelLeinwand) {
+    MANDEL_BREITE = stufe.rechen;
+    MANDEL_HOEHE = Math.round((stufe.rechen * 5) / 8);
+    MANDEL_PUNKTE = MANDEL_BREITE * MANDEL_HOEHE;
     mandelLeinwand = document.createElement('canvas');
     mandelLeinwand.width = MANDEL_BREITE;
     mandelLeinwand.height = MANDEL_HOEHE;
@@ -1129,7 +1185,7 @@ function mandelbrotZeichnen(stift, lage) {
    * je Bild aufgefrischt wird. Das ist der bessere Knopf: Zu wenig Zeit macht
    * das Bild nicht grob, sondern nur ein wenig aelter.
    */
-  const nachregeln = Math.min(1.12, Math.max(0.78, Math.sqrt(MANDEL_BUDGET_MS / Math.max(1, mandelDauer))));
+  const nachregeln = Math.min(1.12, Math.max(0.78, Math.sqrt(stufe.budget / Math.max(1, mandelDauer))));
   mandelPhasenProBild = Math.min(16, Math.max(0.6, mandelPhasenProBild * nachregeln));
 
 

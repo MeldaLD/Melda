@@ -274,6 +274,35 @@ $('modusWahl').addEventListener('change', (e) => {
   bild?.modusSetzen(e.target.value || null);
 });
 
+/*
+ * Die Bildguete von Hand.
+ *
+ * Der Regler im Fraktal passt sich zwar an die gemessene Zeit an, aber er
+ * kann die Leinwand nicht kleiner machen - und die ist auf einem Tablet mit
+ * doppelter Punktdichte der grosse Posten. Drei Stufen zum Durchprobieren,
+ * daneben die gemessene Bildzeit, damit man sieht, was die Wahl bringt,
+ * statt es zu erraten.
+ */
+for (const { schluessel, name } of Visualisierung.guetestufen()) {
+  const eintrag = document.createElement('option');
+  eintrag.value = schluessel;
+  eintrag.textContent = `Qualität: ${name}`;
+  $('gueteWahl').append(eintrag);
+}
+
+$('gueteWahl').addEventListener('change', (e) => {
+  bild?.gueteSetzen(e.target.value);
+});
+
+// Die Anzeige zweimal je Sekunde nachziehen. Oefter waere unlesbar.
+setInterval(() => {
+  if (!bild) return;
+  $('gueteWahl').value = bild.guetestufe;
+  const ms = bild.bildMs;
+  const bilder = ms > 0.01 ? Math.min(60, Math.round(1000 / ms)) : 60;
+  $('bildTempo').textContent = `${ms.toFixed(1)} ms · ${bilder}/s`;
+}, 500);
+
 $('angleichAn').addEventListener('change', (e) => {
   welt.angleichAn = e.target.checked;
 });

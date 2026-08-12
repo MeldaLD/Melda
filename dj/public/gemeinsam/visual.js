@@ -20,7 +20,7 @@
 // aus seiner Kennung, und die Bewegung laeuft ueber langsames Rauschen, das nie
 // denselben Weg nimmt.
 
-import { MODI, TAU } from './visualmodi.js';
+import { MODI, GUETESTUFEN, gueteZuruecksetzen, TAU } from './visualmodi.js';
 
 // Die Reihenfolge, in der die Modi durchgewechselt werden. Nicht zufaellig
 // gezogen, sondern reihum: So sieht man zwei gleiche nie hintereinander, und
@@ -153,6 +153,30 @@ export class Visualisierung {
     // Von Hand ausgeloester Drop - fuer die Abnahme und zum Vorfuehren.
     this.dropVonHand = false;
 
+    /*
+     * Die Bildguete.
+     *
+     * Der Regler im Fraktal passt sich zwar von allein an die gemessene Zeit
+     * an, aber er kann nur eine Sache: kleiner rechnen und wieder groesser.
+     * Was er nicht kann, ist die Leinwand selbst kleiner machen - und genau
+     * die ist auf einem Tablet der grosse Posten. Ein iPad meldet die
+     * doppelte Punktdichte, also viermal so viele Punkte, und zwar fuer
+     * *alle* Schichten: Lava, Fraktal, Ringe, Schrift.
+     *
+     * Deshalb hier eine Stufe von Hand. Sie senkt beides zugleich - die
+     * Punktdichte der Leinwand und die Obergrenze, bis zu der das Fraktal
+     * rechnen darf.
+     */
+    this.guetestufe = 'hoch';
+    try {
+      const gemerkt = window.localStorage?.getItem('dj-bildguete');
+      if (gemerkt && GUETESTUFEN[gemerkt]) this.guetestufe = gemerkt;
+    } catch {
+      // Kein Speicher, kein Problem - dann eben jedes Mal von vorn.
+    }
+    // Geglaettete Bildzeit, damit man auf dem Geraet sieht, was die Stufe tut.
+    this.bildMs = 16;
+
     // Drei Rauschquellen, damit sich die Bewegungen nicht synchronisieren.
     this.n1 = rauschen(7919);
     this.n2 = rauschen(104729);
@@ -162,15 +186,33 @@ export class Visualisierung {
   }
 
   masseSetzen() {
-    const dichte = Math.min(window.devicePixelRatio || 1, 2);
+    const stufe = GUETESTUFEN[this.guetestufe] ?? GUETESTUFEN.hoch;
+    const dichte = Math.min(window.devicePixelRatio || 1, stufe.dichte);
     this.breite = this.leinwand.clientWidth;
     this.hoehe = this.leinwand.clientHeight;
-    this.leinwand.width = this.breite * dichte;
-    this.leinwand.height = this.hoehe * dichte;
+    this.leinwand.width = Math.max(1, Math.round(this.breite * dichte));
+    this.leinwand.height = Math.max(1, Math.round(this.hoehe * dichte));
     this.stift.setTransform(dichte, 0, 0, dichte, 0, 0);
 
-    this.lavaLeinwand.width = Math.max(1, Math.round(this.breite / 3));
-    this.lavaLeinwand.height = Math.max(1, Math.round(this.hoehe / 3));
+    this.lavaLeinwand.width = Math.max(1, Math.round(this.breite / stufe.lava));
+    this.lavaLeinwand.height = Math.max(1, Math.round(this.hoehe / stufe.lava));
+  }
+
+  /** Die Bildguete umstellen. Wirkt sofort und wird gemerkt. */
+  gueteSetzen(name) {
+    if (!GUETESTUFEN[name]) return;
+    this.guetestufe = name;
+    try {
+      window.localStorage?.setItem('dj-bildguete', name);
+    } catch {
+      // s.o.
+    }
+    this.masseSetzen();
+    gueteZuruecksetzen();
+  }
+
+  static guetestufen() {
+    return Object.entries(GUETESTUFEN).map(([schluessel, g]) => ({ schluessel, name: g.name }));
   }
 
   modusFuer(track) {
@@ -250,6 +292,7 @@ export class Visualisierung {
     this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
 
     const modus = MODI[this.modusFuer(aktiv?.track)] ?? MODI.iris;
+    const bildBegonnen = performance.now();
     this.letzterModusName = modus.name;
     modus.zeichne(stift, {
       breite,
@@ -262,6 +305,7 @@ export class Visualisierung {
       spannung,
       wucht,
       drop: dropJetzt,
+      guetestufe: this.guetestufe,
       palette: this.paletteFuer(aktiv?.track),
       paletteB: zweit ? this.paletteFuer(zweit.track) : null,
       anteilB: uebergang ? uebergang.fortschritt : 0,
@@ -289,6 +333,11 @@ export class Visualisierung {
       this.funken.length = 0;
     }
     if (this.stossHalt > 0) this.stossHalt = Math.max(0, this.stossHalt - sekunden * 3.5);
+
+    // Wie lange ein Bild wirklich braucht. Traege geglaettet, damit die
+    // Anzeige lesbar bleibt statt zu zappeln.
+    const gebraucht = performance.now() - bildBegonnen;
+    this.bildMs = this.bildMs * 0.9 + gebraucht * 0.1;
   }
 
   // --- Wo stehen wir im Takt? ---------------------------------------------
