@@ -35,6 +35,33 @@ function wuerfel(startwert) {
   };
 }
 
+// Energie, Bassanteil, Hoehenanteil und Dichte je Abschnitt - so, wie der
+// Generator unten die Takte tatsaechlich fuellt.
+const PROFIL_JE_ABSCHNITT = {
+  intro: { e: 0.28, b: 0.18, h: 0.12, d: 0.6 },
+  aufbau: { e: 0.62, b: 0.55, h: 0.2, d: 1.6 },
+  haupt: { e: 0.9, b: 0.72, h: 0.24, d: 2.4 },
+  breakdown: { e: 0.4, b: 0.22, h: 0.16, d: 0.9 },
+  drop: { e: 1, b: 0.78, h: 0.28, d: 2.8 },
+  outro: { e: 0.5, b: 0.45, h: 0.14, d: 1.2 },
+};
+
+function demoProfil(energie) {
+  const profil = [];
+  for (let takt = 0; takt < TAKTE; takt++) {
+    const werte = PROFIL_JE_ABSCHNITT[abschnittBei(takt).name] ?? PROFIL_JE_ABSCHNITT.haupt;
+    // Energiereichere Tracks sind ueberall etwas voller.
+    const zuschlag = 0.85 + energie * 0.3;
+    profil.push({
+      e: Number(Math.min(1, werte.e * zuschlag).toFixed(3)),
+      b: werte.b,
+      h: Number((werte.h * zuschlag).toFixed(3)),
+      d: Number((werte.d * zuschlag).toFixed(2)),
+    });
+  }
+  return profil;
+}
+
 function abschnittBei(takt) {
   return ABSCHNITTE.find((a) => takt >= a.vonTakt && takt < a.bisTakt) ?? ABSCHNITTE[0];
 }
@@ -144,6 +171,11 @@ export function erzeugeTrack(ctx, { nummer, bpm, energie, titel }) {
       angleichDb: Number((-versatzDb).toFixed(2)),
       versatzDb: Number(versatzDb.toFixed(2)),
       marken,
+      // Der Verlauf je Takt, wie ihn die Analyse aus echter Musik liest. Hier
+      // ist er nicht gemessen, sondern abgeschrieben - wir haben den Track ja
+      // selbst nach diesen Abschnitten gebaut. Damit kann der Pruefstand
+      // dieselbe Uebergangsplanung fahren wie eine echte Bibliothek.
+      profil: demoProfil(energie),
       demo: true,
     },
     puffer,

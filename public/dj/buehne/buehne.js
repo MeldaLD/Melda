@@ -13,8 +13,6 @@ import { Mixer, UEBERGAENGE } from '../gemeinsam/mixer.js';
 import { demoBibliothek } from '../gemeinsam/demomusik.js';
 import { leitungSuchen } from '../gemeinsam/leitung.js';
 import { Visualisierung } from '../gemeinsam/visual.js';
-import { loopRoll, rollLohntSich, regieFuer } from '../gemeinsam/remix.js';
-import { Maschine } from '../gemeinsam/maschine.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,24 +39,6 @@ const welt = {
   angleichAn: true,
   stilleSeit: null,
   zielenergie: 0.5,
-  // Wie viele Drops seit dem letzten Roll vergangen sind. Ohne diesen Zaehler
-  // wuerde vor jedem Drop gerollt, und aus einem Kniff wuerde eine Masche.
-  seitLetztemRoll: 99,
-  // Schon eingeplante Drops, damit derselbe nicht mehrfach bedient wird.
-  bedienteDrops: new Set(),
-  remixAn: true,
-  // Das Schlagwerk. Laeuft nur, wenn es jemand einschaltet oder ein Track
-  // ohne brauchbares Raster hochkommt.
-  maschine: null,
-  maschineLaeuft: false,
-  maschineGrund: null,
-  // Von Hand eingeschaltet? Dann bleibt sie an, auch wenn der naechste Track
-  // ein sauberes Raster mitbringt.
-  maschineVonHand: false,
-  // Und umgekehrt: Fuer welchen Track hat jemand sie ausdruecklich
-  // abgeschaltet? Ohne dieses Gedaechtnis wuerde die Nachfuehrung sie im
-  // naechsten Bild wieder anwerfen, und der Knopf waere wirkungslos.
-  maschineAbgelehnt: null,
 };
 
 // Zustand offenlegen. Zwei Gruende: Die Abnahme prueft damit die Engine statt
@@ -208,8 +188,6 @@ async function ueberblenden(artWunsch = null) {
     const puffer = welt.puffer.get(track.id) ?? (await pufferFuer(track));
     const angepasst = welt.angleichAn ? track : { ...track, angleichDb: 0 };
     const plan = welt.mixer.uebergang(angepasst, puffer, artWunsch || null, welt.zielenergie);
-    // Ein neuer Track bringt eigene Drops mit.
-    welt.bedienteDrops.clear();
 
     verlaufEintragen(plan);
     await laufendMelden(track);
@@ -282,11 +260,6 @@ document.addEventListener('visibilitychange', () => {
 
 $('jetztUeberblenden').addEventListener('click', () => ueberblenden($('artWahl').value));
 
-$('remixAn').addEventListener('change', (e) => {
-  welt.remixAn = e.target.checked;
-});
-
-$('remixJetzt').addEventListener('click', () => maschineUmschalten());
 
 $('angleichAn').addEventListener('change', (e) => {
   welt.angleichAn = e.target.checked;
@@ -305,7 +278,6 @@ document.addEventListener('keydown', (e) => {
   }
   const arten = { 1: 'blende', 2: 'aufzug', 3: 'echo', 4: 'schnitt' };
   if (arten[e.key]) ueberblenden(arten[e.key]);
-  if (e.key === 'r' || e.key === 'R') maschineUmschalten();
 });
 
 // --- Zustand vom Server ---------------------------------------------------
@@ -314,9 +286,7 @@ welt.leitung.beiZustand((zustand) => {
   $('anlass').textContent = zustand.anlass ?? 'resident-dj';
   welt.zielenergie = zustand.zielenergie ?? 0.5;
   const prozent = Math.round(welt.zielenergie * 100);
-  const regie = regieFuer(welt.zielenergie);
   $('energieWert').textContent = `${prozent} %`;
-  $('stil').textContent = regie.name;
   if (document.activeElement !== $('energieRegler')) {
     $('energieRegler').value = prozent;
   }
@@ -387,8 +357,6 @@ function schleife(jetzt = 0) {
     : '';
 
   tonZustandZeigen();
-  maschinePflegen();
-  remixPruefen(zustand);
   nachschubPruefen();
   wachhund(zustand);
 }
@@ -398,217 +366,6 @@ function schleife(jetzt = 0) {
 // Vor jedem Drop wird geprueft, ob ein Loop-Roll hineinpasst und ob die Regie
 // ihn gerade will. Die Regie haengt an der Zielenergie: frueh am Abend gar
 // nicht, spaeter oft und schaerfer.
-
-// --- Die Maschine ---------------------------------------------------------
-//
-// Der Grund, warum es sie gibt, stand eines Abends als Datei da: eine
-// fuenfminuetige Aufnahme von Meeresrauschen. Kein Beat, nichts zum Anlegen,
-// und die Tempoerkennung meldete pflichtbewusst 161 BPM. Ein Beatmatcher kann
-// damit nichts anfangen.
-//
-// Ein DJ schon. Er wuerde eine Drum Machine daruntersetzen, dem Rauschen den
-// Bass wegnehmen und es als Flaeche benutzen. Danach ist es Techno.
-
-// Wenn die Quelle kein eigenes Tempo mitbringt, laeuft die Maschine hier.
-// 128 ist die Mitte des Clubtempos und passt zu fast allem.
-const MASCHINE_STANDARDTEMPO = 128;
-// So weit wird der Musik der Bass weggenommen, solange die Maschine laeuft.
-const MASCHINE_HOCHPASS = 165;
-
-function maschineSichern() {
-  if (!welt.maschine && welt.mixer) {
-    welt.maschine = new Maschine(welt.ctx, welt.mixer.maschinenBus, (zeit, tiefe, dauer) =>
-      welt.mixer.ducken(zeit, tiefe, dauer),
-    );
-  }
-  return welt.maschine;
-}
-
-/**
- * Das Schlagwerk anwerfen.
- *
- * Tempo und Phase kommen vom laufenden Deck, wenn dessen Raster etwas taugt -
- * dann sitzt der Kick auf den Schlaegen der Musik. Taugt es nichts, setzt die
- * Maschine ihr eigenes Tempo, und die Quelle wird zur Flaeche darunter.
- */
-function maschineStarten(grund = 'von Hand') {
-  const maschine = maschineSichern();
-  if (!maschine || welt.maschineLaeuft) return null;
-
-  const deck = welt.mixer.laufendesDeck;
-  const track = deck?.track;
-  const traegt = deck?.laeuft && track && !track.ohneRaster && (track.bpmVertrauen ?? 1) >= 0.35;
-
-  let bpm = MASCHINE_STANDARDTEMPO;
-  let anker = welt.ctx.currentTime;
-  if (traegt) {
-    bpm = deck.effektivBpm() ?? MASCHINE_STANDARDTEMPO;
-    // Die Kontextzeit von Beat 0 der Datei. Von dort aus rechnet die Maschine
-    // selbst weiter - sie braucht das Deck danach nicht mehr.
-    anker = deck.startZeit + ((track.raster ?? 0) - deck.startInDatei) / deck.tempo;
-  }
-
-  // Bei rasterlosem Material darf die Maschine auch Toene beisteuern. Bei
-  // echter Musik nicht: Ein Stich in der falschen Tonart ist schlimmer als
-  // gar keiner, und die Tonart kennen wir nicht.
-  maschine.stiche = !traegt;
-  maschine.zielenergie = welt.zielenergie;
-  maschine.starten(bpm, anker);
-
-  const jetzt = welt.ctx.currentTime;
-  welt.mixer.maschinenPegel(jetzt, 1, 0.6);
-  // Der Musik den Keller wegnehmen. Zwei Bassdrums uebereinander sind Matsch -
-  // dieselbe Regel wie zwischen zwei Decks, hier zwischen Musik und Maschine.
-  welt.mixer.musikHochpass(jetzt, MASCHINE_HOCHPASS, 1.5);
-
-  welt.maschineLaeuft = true;
-  welt.maschineGrund = traegt ? `auf ${bpm.toFixed(1)} BPM des Tracks` : `eigenes Tempo, ${grund}`;
-  welt.verlauf.unshift({
-    zeit: new Date(),
-    art: 'Remix an',
-    nach: track?.titel ?? '—',
-    hinweis: welt.maschineGrund,
-  });
-  welt.verlauf = welt.verlauf.slice(0, 30);
-  zeichneVerlauf();
-  return maschine;
-}
-
-function maschineStoppen() {
-  if (!welt.maschineLaeuft) return;
-  const jetzt = welt.ctx.currentTime;
-  // Erst ausblenden, dann den Planer abstellen - sonst bricht der Kick mitten
-  // im Schlag ab.
-  welt.mixer.maschinenPegel(jetzt, 0, 0.8);
-  welt.mixer.musikHochpass(jetzt, 20, 1.2);
-  setTimeout(() => welt.maschine?.stoppen(), 900);
-
-  welt.maschineLaeuft = false;
-  welt.maschineGrund = null;
-  welt.verlauf.unshift({ zeit: new Date(), art: 'Remix aus', nach: '—', hinweis: '' });
-  welt.verlauf = welt.verlauf.slice(0, 30);
-  zeichneVerlauf();
-}
-
-function maschineUmschalten() {
-  if (welt.maschineLaeuft) {
-    welt.maschineVonHand = false;
-    // Merken, dass es fuer diesen Track ausdruecklich nicht gewollt ist.
-    welt.maschineAbgelehnt = welt.mixer?.laufendesDeck?.track?.id ?? null;
-    maschineStoppen();
-  } else {
-    welt.maschineVonHand = true;
-    welt.maschineAbgelehnt = null;
-    maschineStarten('Knopf');
-  }
-}
-
-/**
- * Muss die Maschine von allein anspringen?
- *
- * Ja, sobald ein Track laeuft, dessen Raster nichts taugt. Ohne Raster kann
- * der Mixer nicht mischen - er wuesste nicht, wo die Phrasengrenzen liegen -
- * und ohne Schlagwerk waere so ein Stueck auf einer Party einfach eine Pause.
- * Mit Schlagwerk ist es eine Flaeche, ueber der ein Beat laeuft.
- *
- * Umgekehrt: Hat der naechste Track wieder ein sauberes Raster, macht die
- * Maschine Platz - aber nur, wenn sie von allein angesprungen ist. Wer sie von
- * Hand eingeschaltet hat, will sie behalten.
- */
-function maschineNachfuehren() {
-  const deck = welt.mixer?.laufendesDeck;
-  const track = deck?.track;
-  if (!deck?.laeuft || !track) return;
-
-  // Der Widerspruch gilt nur fuer den Track, bei dem er geaeussert wurde.
-  // Kommt der naechste, faengt die Nachfuehrung wieder bei null an.
-  if (welt.maschineAbgelehnt && welt.maschineAbgelehnt !== track.id) {
-    welt.maschineAbgelehnt = null;
-  }
-
-  const braucht = track.ohneRaster === true || (track.bpmVertrauen ?? 1) < 0.35;
-
-  if (braucht && !welt.maschineLaeuft && welt.maschineAbgelehnt !== track.id) {
-    maschineStarten('kein Raster im Track');
-    welt.maschineVonHand = false;
-  } else if (!braucht && welt.maschineLaeuft && !welt.maschineVonHand) {
-    maschineStoppen();
-  }
-}
-
-// Jedes Bild: planen, was faellig ist, und die Anzeige nachziehen.
-function maschinePflegen() {
-  maschineNachfuehren();
-  if (!welt.maschine) return;
-  welt.maschine.zielenergie = welt.zielenergie;
-  welt.maschine.tick();
-
-  const knopf = $('remixJetzt');
-  if (!knopf) return;
-  if (welt.maschineLaeuft) {
-    const m = welt.maschine.zustand();
-    knopf.textContent = 'Remix stoppen';
-    knopf.classList.add('an');
-    $('maschineZeile').hidden = false;
-    $('maschineTakt').textContent = `${m.taktImBlock + 1}/32`;
-    $('maschineAbschnitt').textContent = m.abschnitt;
-    $('maschineStufe').textContent = m.stufe;
-    $('maschineStimmen').textContent = m.stimmen.join(' · ') || '—';
-    $('maschineTempo').textContent = `${m.bpm.toFixed(1)} BPM`;
-  } else {
-    knopf.textContent = 'Remix starten';
-    knopf.classList.remove('an');
-    $('maschineZeile').hidden = true;
-  }
-}
-
-function remixPruefen(zustand) {
-  if (!welt.remixAn || welt.wechselLaeuft) return;
-
-  const deck = welt.mixer.laufendesDeck;
-  const drops = deck?.track?.marken?.filter((m) => m.name === 'drop') ?? [];
-  if (drops.length === 0 || !deck.laeuft) return;
-
-  const beatLaenge = 60 / deck.track.bpm;
-  const jetztBeat = (deck.stelle() - (deck.track.raster ?? 0)) / beatLaenge;
-
-  for (const drop of drops) {
-    const schluessel = `${deck.track.id}:${drop.beat}`;
-    if (welt.bedienteDrops.has(schluessel)) continue;
-
-    const beatsBisZiel = drop.beat - jetztBeat;
-    if (beatsBisZiel <= 0) {
-      // Vorbei, ohne dass gerollt wurde - zaehlt trotzdem als Drop.
-      welt.bedienteDrops.add(schluessel);
-      welt.seitLetztemRoll++;
-      continue;
-    }
-
-    if (!rollLohntSich({
-      zielenergie: welt.zielenergie,
-      seitLetztemRoll: welt.seitLetztemRoll,
-      imUebergang: welt.wechselLaeuft,
-      beatsBisZiel,
-    })) continue;
-
-    const regie = regieFuer(welt.zielenergie);
-    const plan = loopRoll(deck, drop.beat, regie.rollLaengen);
-    welt.bedienteDrops.add(schluessel);
-
-    if (plan) {
-      welt.seitLetztemRoll = 0;
-      welt.verlauf.unshift({
-        zeit: new Date(),
-        art: `Roll (${regie.name})`,
-        nach: deck.track.titel,
-        hinweis: `${plan.laengen.length} Stufen auf ${plan.beats} Beats`,
-      });
-      welt.verlauf = welt.verlauf.slice(0, 30);
-      zeichneVerlauf();
-    }
-    return;
-  }
-}
 
 function nachschubPruefen() {
   const rest = welt.mixer.restSekunden();

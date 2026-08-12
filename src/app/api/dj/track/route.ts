@@ -60,6 +60,9 @@ export async function GET() {
     // benutzen.
     bpmVertrauen: zeile.bpm_vertrauen ?? 1,
     ohneRaster: zeile.ohne_raster ?? false,
+    // Der Verlauf über den Track. Fehlt er, plant der Übergang ohne ihn –
+    // dann bleibt es beim natürlichen Einstieg statt beim Sprung in den Groove.
+    profil: Array.isArray(zeile.profil) ? zeile.profil : [],
   }));
 
   return NextResponse.json(
@@ -114,6 +117,7 @@ export async function POST(anfrage: Request) {
     marken: Array.isArray(koerper.marken) ? koerper.marken : [],
     bpm_vertrauen: zahl("bpmVertrauen", 1),
     ohne_raster: koerper.ohneRaster === true,
+    profil: Array.isArray(koerper.profil) ? koerper.profil : [],
   };
 
   const { error } = await supabaseAdmin()
@@ -136,9 +140,10 @@ export async function POST(anfrage: Request) {
     return NextResponse.json({ fehler: error.message }, { status: 500 });
   }
 
-  const { bpm_vertrauen, ohne_raster, ...ohneNeueSpalten } = zeile;
+  const { bpm_vertrauen, ohne_raster, profil, ...ohneNeueSpalten } = zeile;
   void bpm_vertrauen;
   void ohne_raster;
+  void profil;
 
   const zweiter = await supabaseAdmin()
     .from("dj_track")
@@ -152,7 +157,7 @@ export async function POST(anfrage: Request) {
     id: zeile.id,
     warnung:
       "Eingetragen, aber ohne das Rastervertrauen – die Migration " +
-      "20260812060000_dj_rastervertrauen.sql ist auf dieser Datenbank noch nicht gelaufen. " +
+      "20260812060000_dj_rastervertrauen.sql / 20260812090000_dj_verlauf.sql sind auf dieser Datenbank noch nicht gelaufen. " +
       "Bis dahin gilt jedes Tempo als belastbar, auch ein erfundenes.",
   });
 }
@@ -163,6 +168,7 @@ function fehltSpalte(meldung: string) {
   return (
     text.includes("bpm_vertrauen") ||
     text.includes("ohne_raster") ||
+    text.includes("profil") ||
     (text.includes("column") && text.includes("does not exist")) ||
     text.includes("schema cache")
   );

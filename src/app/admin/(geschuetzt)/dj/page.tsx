@@ -29,8 +29,10 @@ type Befund = {
   marken: { name: string; beat: number; sekunde: number }[];
   /** Wie belastbar Tempo und Raster sind, 0 bis 1. */
   bpmVertrauen: number;
-  /** true = kein brauchbares Raster; der Track wird zur Fläche unter dem Schlagwerk. */
+  /** true = kein brauchbares Raster; damit lässt sich nicht beatmatchen. */
   ohneRaster: boolean;
+  /** Verlauf je Takt – daran hängt, wo ein Übergang ansetzt und wo er landet. */
+  profil: { e: number; b: number; h: number; d: number }[];
 };
 
 type Vorhanden = {
@@ -341,8 +343,8 @@ export default function DjAufnahme() {
                        * Genau das täte ein DJ mit so einer Aufnahme auch.
                        */
                       <>
-                        <strong>Kein Beat erkennbar</strong> – wird als Fläche
-                        gespielt, das Schlagwerk gibt den Takt vor ·{" "}
+                        <strong>Kein Beat erkennbar</strong> – wird geschnitten
+                        statt gemischt ·{" "}
                         {eintrag.befund.lufs} LUFS → Angleich{" "}
                         {eintrag.befund.angleichDb > 0 ? "+" : ""}
                         {eintrag.befund.angleichDb} dB

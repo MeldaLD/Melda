@@ -110,52 +110,6 @@ try {
   console.log(`    ${(bewegung * 100).toFixed(1)} % der Punkte haben sich in 0,7 s geaendert`);
   pruefe('das Bild bewegt sich', bewegung > 0.01);
 
-  // Der Remix-Knopf, und zwar hier in der ausgelieferten Einzeldatei.
-  //
-  // Die Abnahme unter /buehne prueft ihn schon - aber genau dort lag der
-  // Fehler, der einmal durchgerutscht ist: Der Code war richtig, die Abnahme
-  // gruen, und in der zusammengebauten Datei fehlte das Modul. Ein Knopf, der
-  // nur in der Modulfassung funktioniert, nuetzt am Partyabend nichts.
-  const remix = await seite.evaluate(async () => {
-    const knopf = document.getElementById('remixJetzt');
-    if (!knopf) return { fehlt: true };
-
-    knopf.click();
-    await new Promise((f) => setTimeout(f, 2500));
-
-    const welt = window.__dj;
-    const vorher = welt.maschine?.zustand().takt;
-    await new Promise((f) => setTimeout(f, 2200));
-    const nachher = welt.maschine?.zustand().takt;
-
-    return {
-      laeuft: welt.maschineLaeuft,
-      beschriftung: knopf.textContent.trim(),
-      zeileSichtbar: !document.getElementById('maschineZeile').hidden,
-      stimmen: welt.maschine?.zustand().stimmen ?? [],
-      hochpass: welt.mixer.musikHoch.frequency.value,
-      maschinenPegel: welt.mixer.maschinenBus.gain.value,
-      vorher,
-      nachher,
-    };
-  });
-
-  if (remix.fehlt) {
-    pruefe('der Remix-Knopf ist da', false, 'kein Element #remixJetzt');
-  } else {
-    console.log(
-      `    Remix: Knopf sagt "${remix.beschriftung}", Takt ${remix.vorher} -> ${remix.nachher}, ` +
-        `Stimmen ${remix.stimmen.join(' · ') || '—'}`,
-    );
-    console.log(
-      `    Musikhochpass ${Math.round(remix.hochpass)} Hz, Schlagwerkpegel ${remix.maschinenPegel.toFixed(2)}`,
-    );
-    pruefe('der Knopf wirft das Schlagwerk an', remix.laeuft === true);
-    pruefe('der Planer laeuft', remix.nachher > remix.vorher, `Takt ${remix.vorher} -> ${remix.nachher}`);
-    pruefe('die Anzeige klappt auf', remix.zeileSichtbar === true);
-    pruefe('das Schlagwerk ist hoerbar', remix.maschinenPegel > 0.9);
-    pruefe('der Musik ist der Bass genommen', remix.hochpass > 100, `${Math.round(remix.hochpass)} Hz`);
-  }
 
   console.log(fehler.length ? `\nKonsolenfehler:\n  ${fehler.slice(0, 5).join('\n  ')}` : '\nKeine Konsolenfehler.');
   if (fehler.length) misslungen++;

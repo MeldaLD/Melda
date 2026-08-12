@@ -40,20 +40,14 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
   beiSchritt('Lautheit');
   const lufs = await lautheitMessen(puffer);
 
-  beiSchritt('Bassband');
-  const bass = await bandRendern(puffer, 'lowpass', 160);
-  const { kurve: anschlaege, hops } = anschlagskurve(bass, puffer.sampleRate);
+  beiSchritt('Frequenzbaender');
+  const baender = await baenderRendern(puffer);
+  // Das Tiefband wird fuer Aufbau und Energie gebraucht. Es kommt aus
+  // derselben Bank - ein eigener Rendervorgang dafuer waere verschenkt.
+  const bass = baender[0];
 
   beiSchritt('Tempo');
-  const grobesTempo = tempoFinden(anschlaege, hops);
-
-  beiSchritt('Raster');
-  const grobesRaster = rasterFinden(anschlaege, grobesTempo.bpm, grobesTempo.phase, hops);
-  const { bpm, raster } = ausgleichen(anschlaege, grobesTempo.bpm, grobesRaster, hops);
-
-  // Erst jetzt, mit dem fertigen Raster, laesst sich die wichtigste Frage
-  // beantworten: Stimmt das ueberhaupt? Alles Weitere haengt daran.
-  const vertrauen = rasterVertrauen(anschlaege, bpm, raster, hops);
+  const { bpm, raster, vertrauen, anschlaege, hops } = rasterBestimmen(baender, puffer.sampleRate);
   const ohneRaster = vertrauen < VERTRAUENSSCHWELLE;
 
   beiSchritt('Aufbau');
@@ -65,8 +59,12 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
   const hoehen = await bandRendern(puffer, 'highpass', 3000);
   const energie = energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops, vertrauen);
 
+  beiSchritt('Verlauf');
+  const profil = profilBauen(baender, anschlaege, hops, bpm, raster, puffer.sampleRate, ohneRaster);
+
   return {
     dauer,
+    profil,
     bpm: Number(bpm.toFixed(2)),
     raster: Number(raster.toFixed(4)),
     // Wie sehr das Raster zu glauben ist, von 0 bis 1. Ohne diesen Wert meldet
@@ -92,6 +90,138 @@ const ANGLEICH_RUNTER = -12;
 
 function angleichBegrenzen(db) {
   return Math.min(ANGLEICH_HOCH, Math.max(ANGLEICH_RUNTER, db));
+}
+
+// --- Der Verlauf ueber den Track ------------------------------------------
+//
+// Ein einziger Energiewert je Track sagt nur, welcher Track dran ist. Fuer
+// einen Uebergang ist die falsche Frage - dort geht es darum, an *welcher
+// Stelle* man einen Track verlaesst und an welcher man in den naechsten
+// einsteigt. Ein Stueck mit zwei Minuten Ambient-Intro hat denselben
+// Mittelwert wie eines, das sofort losgeht.
+//
+// Darum je Takt vier Zahlen. Das reicht, um ein Intro von einem Groove zu
+// unterscheiden, und ist klein genug, um mit in die Datenbank zu gehen: Ein
+// Sechsminueter hat rund 190 Takte.
+//
+//   e  Energie, auf den lautesten Takt des Tracks bezogen
+//   b  Bassanteil - laeuft hier ein Fundament oder schwebt es nur?
+//   h  Hoehenanteil - Hi-Hats und Percussion, das Kennzeichen von Fahrt
+//   d  Anschlaege je Beat - wie dicht ist es hier?
+function profilBauen(baender, anschlaege, hops, bpm, raster, rate, ohneRaster) {
+  // Ohne Raster gibt es keine Takte. Dann wird in festen Zwei-Sekunden-
+  // Abschnitten gerechnet, damit wenigstens der Verlauf stimmt.
+  const taktSekunden = ohneRaster ? 2 : (60 / bpm) * 4;
+  const versatz = ohneRaster ? 0 : raster;
+  const laenge = baender[0].length;
+  const takte = Math.floor((laenge / rate - versatz) / taktSekunden);
+  if (!Number.isFinite(takte) || takte < 2) return [];
+
+  const tief = [baender[0], baender[1]];
+  const hoch = [baender[4], baender[5]];
+  const effektiv = (felder, von, bis) => {
+    let summe = 0;
+    let zahl = 0;
+    for (const feld of felder) {
+      for (let i = von; i < bis; i += 4) {
+        summe += feld[i] * feld[i];
+        zahl++;
+      }
+    }
+    return zahl > 0 ? Math.sqrt(summe / zahl) : 0;
+  };
+
+  const roh = [];
+  for (let t = 0; t < takte; t++) {
+    const von = Math.max(0, Math.floor((versatz + t * taktSekunden) * rate));
+    const bis = Math.min(laenge, Math.floor((versatz + (t + 1) * taktSekunden) * rate));
+    if (bis - von < rate * 0.05) break;
+
+    const gesamt = effektiv(baender, von, bis);
+    const unten = effektiv(tief, von, bis);
+    const oben = effektiv(hoch, von, bis);
+
+    // Anschlaege im selben Fenster zaehlen.
+    let dichte = 0;
+    const hVon = Math.floor(((versatz + t * taktSekunden) * hops));
+    const hBis = Math.floor(((versatz + (t + 1) * taktSekunden) * hops));
+    for (let i = Math.max(0, hVon); i < Math.min(anschlaege.length, hBis); i++) {
+      if (anschlaege[i] > 0.08) dichte++;
+    }
+
+    roh.push({ gesamt, unten, oben, dichte: dichte / 4 });
+  }
+
+  let hoechste = 0;
+  for (const r of roh) if (r.gesamt > hoechste) hoechste = r.gesamt;
+  if (hoechste <= 0) return [];
+
+  return roh.map((r) => ({
+    e: Number((r.gesamt / hoechste).toFixed(3)),
+    b: Number((r.gesamt > 0 ? r.unten / r.gesamt : 0).toFixed(3)),
+    h: Number((r.gesamt > 0 ? r.oben / r.gesamt : 0).toFixed(3)),
+    d: Number(r.dichte.toFixed(2)),
+  }));
+}
+
+// --- Zwei Anlaeufe, und der bessere gewinnt --------------------------------
+//
+// Es gibt nicht die eine richtige Anschlagskurve, und das ist keine
+// Bequemlichkeit, sondern nachgemessen:
+//
+//   Nur das Tiefband  trifft Material mit klarer Bassdrum und ohne Bassline
+//                     exakt - aber eine Bassline auf Sechzehnteln macht aus
+//                     128 BPM gemessene 102,4.
+//   Alle Baender      haelt der Bassline stand, verliert aber bei Material
+//                     mit viel Percussion in den Hoehen den Viertelpuls.
+//
+// Statt mich fuer eine Seite zu entscheiden und die andere Haelfte der Musik
+// zu verlieren, laufen beide - und danach entscheidet ein Mass, das mit der
+// Frage nichts zu tun hat: Wie viel Anschlagsenergie faengt das fertige Raster
+// wirklich ein, verglichen mit einem zufaellig verschobenen? Das ist dieselbe
+// Rechnung, an der auch das Vertrauen haengt, und sie beantwortet genau die
+// Frage, um die es geht - nicht "welche Kurve ist schoener", sondern "welches
+// Raster passt auf diesen Track".
+//
+// Bewertet wird immer auf *beiden* Kurven. Sonst gewaenne jeder Anlauf auf
+// seiner eigenen Kurve, und der Vergleich waere keiner.
+function rasterBestimmen(baender, rate) {
+  const breit = anschlagskurve(baender, rate, true);
+  // Der zweite Anlauf ist bewusst das alte Verfahren: nur der Bassbereich,
+  // roher Effektivwert. Es war jahrelang richtig und ist es bei Material mit
+  // klarer Bassdrum immer noch - nur eben nicht bei allem.
+  const tief = anschlagskurve([baender[0], baender[1]], rate, false);
+
+  const anlauf = (kurve, hops) => {
+    const grob = tempoFinden(kurve, hops);
+    const grobesRaster = rasterFinden(kurve, grob.bpm, grob.phase, hops);
+    const { bpm, raster } = ausgleichen(kurve, grob.bpm, grobesRaster, hops);
+    const punkte =
+      rasterVertrauen(breit.kurve, bpm, raster, breit.hops) +
+      rasterVertrauen(tief.kurve, bpm, raster, tief.hops);
+    return { bpm, raster, punkte };
+  };
+
+  const kandidaten = [anlauf(breit.kurve, breit.hops), anlauf(tief.kurve, tief.hops)];
+  const sieger = kandidaten[0].punkte >= kandidaten[1].punkte ? kandidaten[0] : kandidaten[1];
+
+  // Gemeldet wird der bessere der beiden Werte, nicht der der breiten Kurve.
+  //
+  // Die Frage lautet "faengt dieses Raster die Anschlaege ein?" - und wenn es
+  // das in einer der beiden Darstellungen ueberzeugend tut, ist die Antwort
+  // ja. Auf die breite Kurve allein bezogen kamen bei Pruefstandmusik mit
+  // exakt getroffenem Tempo Werte von 48 bis 86 Prozent heraus; das war nicht
+  // Unsicherheit ueber das Raster, sondern darueber, welche Kurve man ansieht.
+  return {
+    bpm: sieger.bpm,
+    raster: sieger.raster,
+    vertrauen: Math.max(
+      rasterVertrauen(breit.kurve, sieger.bpm, sieger.raster, breit.hops),
+      rasterVertrauen(tief.kurve, sieger.bpm, sieger.raster, tief.hops),
+    ),
+    anschlaege: breit.kurve,
+    hops: breit.hops,
+  };
 }
 
 // --- Wie sehr ist dem Raster zu trauen? -----------------------------------
@@ -260,13 +390,82 @@ async function bandRendern(puffer, art, frequenz) {
   return fertig.getChannelData(0);
 }
 
+// --- Die Filterbank -------------------------------------------------------
+//
+// Sechs Baender auf einmal, in einem einzigen Rendervorgang. Jedes Band geht
+// auf einen eigenen Kanal eines Merger-Knotens; danach liegen alle sechs als
+// Kanaele desselben Puffers vor.
+//
+// Warum sechs Baender und nicht nur der Bass, wie vorher: Ein Kick ist
+// breitbandig - er hat einen Klick oben und einen Koerper unten und taucht
+// darum in mehreren Baendern gleichzeitig auf. Eine Bassnote ist schmalbandig
+// und steht nur unten. Zaehlt man nur das Tiefband, sind beide nicht zu
+// unterscheiden.
+//
+// Genau daran ist die Tempoerkennung an realistischem Material gescheitert:
+// Mit einer Bassline auf Sechzehnteln wurden aus 128 BPM gemessene 102,4 -
+// die Kurve war voller Anschlaege, die keine Beats waren.
+const ANSCHLAG_BAENDER = [
+  [20, 110],
+  [110, 260],
+  [260, 700],
+  [700, 1800],
+  [1800, 5000],
+  [5000, 12000],
+];
+
+async function baenderRendern(puffer) {
+  const rate = puffer.sampleRate;
+  const hoechste = rate * 0.47; // knapp unter Nyquist, sonst rechnet der Filter Unsinn
+  const ctx = new OfflineAudioContext(ANSCHLAG_BAENDER.length, puffer.length, rate);
+  const quelle = ctx.createBufferSource();
+  quelle.buffer = puffer;
+
+  const verteiler = ctx.createChannelMerger(ANSCHLAG_BAENDER.length);
+
+  ANSCHLAG_BAENDER.forEach(([von, bis], nummer) => {
+    const stufe = (art, hz) => {
+      const f = ctx.createBiquadFilter();
+      f.type = art;
+      f.frequency.value = Math.min(hz, hoechste);
+      f.Q.value = 0.7071;
+      return f;
+    };
+    // Je zwei Stufen pro Flanke - eine einzelne laesst zu viel vom Nachbarband
+    // durch, und dann waere die Trennung wertlos.
+    const kette = [stufe('highpass', von), stufe('highpass', von), stufe('lowpass', bis), stufe('lowpass', bis)];
+    let letzter = quelle;
+    for (const knoten of kette) letzter = letzter.connect(knoten);
+    letzter.connect(verteiler, 0, nummer);
+  });
+
+  verteiler.connect(ctx.destination);
+  quelle.start();
+  const fertig = await ctx.startRendering();
+  return ANSCHLAG_BAENDER.map((_, i) => fertig.getChannelData(i));
+}
+
 // --- Anschlagskurve -------------------------------------------------------
 //
 // Wo faengt ein Schlag an? Nicht der laute Teil zaehlt, sondern der *Anstieg*.
 // Deshalb wird die Lautstaerke pro Zeitfenster gemessen und davon nur
 // behalten, was gegenueber dem Fenster davor zugenommen hat.
 
-function anschlagskurve(daten, rate) {
+/**
+ * Anschlagskurve aus einer Reihe von Baendern.
+ *
+ * @param {Float32Array[]} baender
+ * @param {number} rate
+ * @param {boolean} logarithmisch
+ *        true  - jedes Band auf den gemeinsamen Mittelwert bezogen und
+ *                logarithmiert. Bringt leise Baender ueberhaupt erst zur
+ *                Geltung; noetig, damit eine Bassline nicht das Tempo kapert.
+ *        false - roher Effektivwert, ohne Umrechnung. Das lauteste Band
+ *                bestimmt die Kurve. Genau so hat es vor der Filterbank
+ *                gerechnet, und fuer Material mit klarer Bassdrum ist es bis
+ *                heute das treffsicherere Verfahren.
+ */
+function anschlagskurve(baender, rate, logarithmisch = true) {
   // Die Fensterlaenge muss eine ganze Zahl von Abtastwerten sein, also ist die
   // tatsaechliche Aufloesung nie genau HOPS_PRO_SEKUNDE. Bei 44,1 kHz sind es
   // 220 statt 220,5 Abtastwerte - und damit 200,45 statt 200 Punkte je
@@ -275,17 +474,54 @@ function anschlagskurve(daten, rate) {
   // sie benutzt.
   const fenster = Math.round(rate / HOPS_PRO_SEKUNDE);
   const hops = rate / fenster;
-  const anzahl = Math.floor(daten.length / fenster);
+  const anzahl = Math.floor(baender[0].length / fenster);
   const kurve = new Float32Array(anzahl);
+  const huellen = [];
+  const mittelwerte = [];
 
-  let vorher = 0;
-  for (let i = 0; i < anzahl; i++) {
-    let summe = 0;
-    const von = i * fenster;
-    for (let j = von; j < von + fenster; j++) summe += daten[j] * daten[j];
-    const jetzt = Math.sqrt(summe / fenster);
-    kurve[i] = Math.max(0, jetzt - vorher);
-    vorher = jetzt;
+  for (const band of baender) {
+    // Effektivwert je Fenster.
+    const huelle = new Float32Array(anzahl);
+    let mittel = 0;
+    for (let i = 0; i < anzahl; i++) {
+      let summe = 0;
+      const von = i * fenster;
+      for (let j = von; j < von + fenster; j++) summe += band[j] * band[j];
+      huelle[i] = Math.sqrt(summe / fenster);
+      mittel += huelle[i];
+    }
+    mittel = mittel / anzahl || 1e-12;
+
+    huellen.push(huelle);
+    mittelwerte.push(mittel);
+  }
+
+  // Der Bezugswert ist der Mittelwert *aller* Baender, nicht der des eigenen.
+  //
+  // Das ist ein Zielkonflikt, und beide Enden sind nachgemessen falsch:
+  //
+  //   Bezieht man jedes Band auf sich selbst, wird ein leises Hi-Hat genauso
+  //   wichtig wie ein Kick. Dann passt jedes Raster gleich gut, und aus
+  //   128 BPM wurden gemessene 85,1 - der Schaetzer rastete auf dem
+  //   Halbbeat-Gitter aus Kick und Hi-Hat ein.
+  //
+  //   Zaehlt man gar nichts um, uebertoent das Bassband alles, und eine
+  //   Bassline auf Sechzehnteln macht aus 128 BPM gemessene 102,4.
+  //
+  // Der gemeinsame Bezug haelt die Mitte: Alle Baender kommen vor, aber ein
+  // lautes bleibt lauter als ein leises.
+  const gesamtMittel = mittelwerte.reduce((a, b) => a + b, 0) / mittelwerte.length || 1e-12;
+
+  for (const huelle of huellen) {
+    // Logarithmieren, weil das Ohr Verhaeltnisse hoert und keine Differenzen:
+    // Ein Hi-Hat, der von 0,01 auf 0,04 springt, ist derselbe Anschlag wie ein
+    // Kick von 0,1 auf 0,4.
+    let vorher = 0;
+    for (let i = 0; i < anzahl; i++) {
+      const jetzt = logarithmisch ? Math.log(1 + huelle[i] / gesamtMittel) : huelle[i];
+      kurve[i] += Math.max(0, jetzt - vorher);
+      vorher = jetzt;
+    }
   }
 
   // Auf den Hoechstwert normieren, damit die Schwellen unabhaengig von der
@@ -383,13 +619,39 @@ function periodeSchaetzen(kurve, hops) {
     // wiederholt sich auch ueber zwei und vier Schlaege, ein zufaelliger
     // Nebenmaximum nicht. Das haelt Zwischenwerte wie zwei Drittel des
     // Tempos zuverlaessig heraus.
-    const punkte = R[lag] + 0.5 * (R[2 * lag] ?? 0) + 0.25 * (R[4 * lag] ?? 0);
+    const roh = R[lag] + 0.5 * (R[2 * lag] ?? 0) + 0.25 * (R[4 * lag] ?? 0);
+    const punkte = roh * tempoErwartung((hops * 60) / lag);
     if (punkte > bestePunkte) {
       bestePunkte = punkte;
       besterLag = lag;
     }
   }
   return besterLag;
+}
+
+// --- Was ist ueberhaupt ein plausibles Tempo? ------------------------------
+//
+// Ohne diese Gewichtung bleibt eine Luecke offen, die sich rein aus dem Signal
+// nicht schliessen laesst. Kick auf den Vierteln, Hi-Hat auf den Achteln: Der
+// Abstand von anderthalb Beats korreliert dann fast genauso gut wie der von
+// einem, weil dort immer *etwas* liegt. Gemessen kamen bei 128er-Material
+// darum 85,3 heraus (zwei Drittel) und 102,2 (vier Fuenftel) - beides sind
+// echte Selbstaehnlichkeiten des Signals, keine Rechenfehler.
+//
+// Entscheiden laesst sich das nur mit Wissen, das nicht im Signal steht: Diese
+// Anlage spielt Clubmusik. 128 ist die Mitte, 120 bis 140 die Regel, alles
+// darunter und darueber die Ausnahme. Genau das steht hier - als Gewicht, das
+// den Punktestand verschiebt, nicht als harte Grenze. Ein echter 100er-Track
+// gewinnt weiterhin, er muss nur deutlicher gewinnen als ein Artefakt.
+const TEMPO_MITTE = 128;
+// Breite in Oktaven. 0,32 heisst: Bei halbem oder doppeltem Tempo ist das
+// Gewicht auf rund ein Zehntel gefallen, bei 100 oder 164 BPM auf zwei Drittel.
+const TEMPO_BREITE = 0.32;
+
+function tempoErwartung(bpm) {
+  if (!Number.isFinite(bpm) || bpm <= 0) return 0;
+  const oktaven = Math.log2(bpm / TEMPO_MITTE);
+  return Math.exp(-0.5 * (oktaven / TEMPO_BREITE) ** 2);
 }
 
 // Halbes oder doppeltes Tempo trifft den Kamm genauso gut: Wer jeden zweiten
@@ -621,18 +883,54 @@ function einmalAusgleichen(kurve, bpm, raster, anteil, hops) {
   // Zu wenige Stuetzpunkte - dann bleibt es beim bisherigen Ergebnis.
   if (nummern.length < 12) return null;
 
-  const mittelK = nummern.reduce((a, b) => a + b, 0) / nummern.length;
-  const mittelT = zeiten.reduce((a, b) => a + b, 0) / zeiten.length;
-  let oben = 0;
-  let unten = 0;
-  for (let i = 0; i < nummern.length; i++) {
-    oben += (nummern[i] - mittelK) * (zeiten[i] - mittelT);
-    unten += (nummern[i] - mittelK) ** 2;
-  }
-  if (unten === 0) return null;
+  const gerade = (ks, ts) => {
+    const mittelK = ks.reduce((a, b) => a + b, 0) / ks.length;
+    const mittelT = ts.reduce((a, b) => a + b, 0) / ts.length;
+    let oben = 0;
+    let unten = 0;
+    for (let i = 0; i < ks.length; i++) {
+      oben += (ks[i] - mittelK) * (ts[i] - mittelT);
+      unten += (ks[i] - mittelK) ** 2;
+    }
+    if (unten === 0) return null;
+    const m = oben / unten;
+    return { steigung: m, abschnitt: mittelT - m * mittelK };
+  };
 
-  const steigung = oben / unten;
-  const abschnitt = mittelT - steigung * mittelK;
+  let anpassung = gerade(nummern, zeiten);
+  if (!anpassung) return null;
+
+  /*
+   * Ausreisser hinauswerfen und noch einmal rechnen.
+   *
+   * Fehlt an einer Stelle der Kick - Breakdown, Synkope, ausgelassener Schlag -
+   * dann greift die Suche oben nach dem naechstbesten Anschlag in der
+   * Umgebung. Das ist oft eine Bassnote auf dem Achtel daneben, und die ist
+   * stark genug, um die Schwelle zu nehmen. Ein solcher Punkt liegt einen
+   * halben Beat neben der Wahrheit und verbiegt die Ausgleichsgerade.
+   *
+   * Nachgemessen war das der Unterschied zwischen einem stabilen Tempo und
+   * 128,4 statt 128 - und 0,4 BPM reichen, damit das Raster ueber hundert
+   * Sekunden um eine Drittelsekunde wegwandert und die Rasterpruefung den
+   * ganzen Track als unbrauchbar abstempelt.
+   */
+  const grenze = periode * 0.15;
+  const treueK = [];
+  const treueT = [];
+  for (let i = 0; i < nummern.length; i++) {
+    const rest = zeiten[i] - (anpassung.abschnitt + anpassung.steigung * nummern[i]);
+    if (Math.abs(rest) <= grenze) {
+      treueK.push(nummern[i]);
+      treueT.push(zeiten[i]);
+    }
+  }
+  // Nur uebernehmen, wenn genug uebrig bleibt. Bleibt fast nichts uebrig, war
+  // nicht der Punkt der Ausreisser, sondern die Gerade.
+  if (treueK.length >= 12 && treueK.length >= nummern.length * 0.6) {
+    anpassung = gerade(treueK, treueT) ?? anpassung;
+  }
+
+  const { steigung, abschnitt } = anpassung;
 
   const neuesBpm = (hops * 60) / steigung;
   // Ein Ausgleich, der das Tempo um mehr als zwei Prozent verschiebt, hat sich

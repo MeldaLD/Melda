@@ -14,19 +14,20 @@
 // zusammen lauter als einer - ohne Kopfraum verzerrt genau der Moment, auf den
 // alle warten.
 
-import { uebergangWaehlen } from './remix.js';
+import { uebergangPlanen, BASS_AUS } from './uebergang.js';
 import {
   beatDauer,
   beatZeit,
   naechstePhrase,
   naechsterTakt,
+  beatBei,
   tempoVerhaeltnis,
   kontextZeitVonBeat,
   stelleInDatei,
 } from './takt.js';
 
-// Wie tief der Bass gekappt wird, wenn ein Deck ihn abgeben muss.
-const BASS_AUS = -32;
+// Wie tief der Bass gekappt wird, wenn ein Deck ihn abgeben muss. Steht in
+// uebergang.js, weil die gerechneten Plaene ihn genauso brauchen.
 
 // --- Uebergaenge als Ablaufplan -------------------------------------------
 //
@@ -128,12 +129,6 @@ export const UEBERGAENGE = {
     ],
   },
 };
-
-// Welcher Uebergang passt gerade? Das entscheidet die Regie in remix.js
-// anhand der Zielenergie - frueh am Abend lange Blenden, spaeter Schnitte.
-export function waehleUebergang({ tempoPasst, energiesprung, zielenergie = 0.5 }) {
-  return uebergangWaehlen({ zielenergie, tempoPasst, energiesprung });
-}
 
 // --- Ein Deck -------------------------------------------------------------
 
@@ -325,42 +320,7 @@ export class Mixer {
     this.verzoegerung.connect(this.rueckfuehrung).connect(this.verzoegerung);
     this.verzoegerung.connect(this.summe);
 
-    // --- Der Weg fuer den Remix -------------------------------------------
-    //
-    // Zwischen Summe und Begrenzer haengen drei Knoten, die im Normalbetrieb
-    // nichts tun und erst gebraucht werden, wenn die Maschine laeuft:
-    //
-    //   musikHoch   nimmt der Quelle den Bass weg. Der Kick der Maschine soll
-    //               den Keller allein haben - dieselbe Regel wie zwischen zwei
-    //               Decks, nur eben zwischen Musik und Schlagwerk.
-    //   musikTief   fuer Filterfahrten ueber die ganze Musik.
-    //   pumpe       der Sidechain. Jeder Kick drueckt die Musik kurz herunter.
-    //
-    // Die Maschine haengt *hinter* der Pumpe: Sie darf sich nicht selbst
-    // ducken, sonst frisst der Kick seinen eigenen Anschlag weg.
-    this.musikHoch = ctx.createBiquadFilter();
-    this.musikHoch.type = 'highpass';
-    this.musikHoch.frequency.value = 20;
-    this.musikHoch.Q.value = 0.7071;
-
-    this.musikTief = ctx.createBiquadFilter();
-    this.musikTief.type = 'lowpass';
-    this.musikTief.frequency.value = 20000;
-    this.musikTief.Q.value = 0.7071;
-
-    this.pumpe = ctx.createGain();
-    this.pumpe.gain.value = 1;
-
-    this.maschinenBus = ctx.createGain();
-    this.maschinenBus.gain.value = 0;
-
-    this.summe
-      .connect(this.musikHoch)
-      .connect(this.musikTief)
-      .connect(this.pumpe)
-      .connect(this.begrenzer);
-    this.maschinenBus.connect(this.begrenzer);
-    this.begrenzer.connect(this.ausgang);
+    this.summe.connect(this.begrenzer).connect(this.ausgang);
     this.ausgang.connect(this.messung);
     this.ausgang.connect(ctx.destination);
 
@@ -408,22 +368,41 @@ export class Mixer {
 
     const tempo = tempoVerhaeltnis(alt.effektivBpm(), neuTrack.bpm);
     const energiesprung = (neuTrack.energie ?? 0.5) - (alt.track.energie ?? 0.5);
-    const art =
-      artWunsch ??
-      waehleUebergang({ tempoPasst: tempo.passt, energiesprung, zielenergie });
-    const plan = UEBERGAENGE[art];
+
+    /*
+     * Der Plan wird aus den beiden Tracks gerechnet, nicht aus einer Liste
+     * gezogen: wo der Alte aufhoert zu tragen, wo der Neue wirklich losgeht,
+     * und was an genau diesen beiden Stellen klingt. Siehe uebergang.js.
+     *
+     * artWunsch kommt vom Knopf auf der Buehne und sticht - beim Entwickeln
+     * will man eine bestimmte Art hoeren koennen, ohne die Lage passend
+     * hinzubiegen.
+     */
+    const plan = uebergangPlanen(alt.track, neuTrack, {
+      zielenergie,
+      tempoPasst: tempo.passt,
+      jetztBeat: beatBei(alt.track, alt.stelle(jetzt)),
+      // Damit nicht eine Stunde lang derselbe Zug kommt.
+      letzteArt: this.letzteArt ?? null,
+    });
+    const art = artWunsch ?? plan.art;
+    const schritte = artWunsch ? UEBERGAENGE[artWunsch].schritte : plan.schritte;
+    const beats = artWunsch ? UEBERGAENGE[artWunsch].beats : plan.beats;
+    const name = artWunsch ? UEBERGAENGE[artWunsch].name : plan.name;
 
     // Der Uebergang beginnt auf einer Phrasengrenze des laufenden Decks. Das
     // ist der Unterschied zwischen "gemischt" und "uebereinandergelegt".
     // Vorlauf: der Uebergang muss noch vor dem Ende des alten Tracks passen.
     const vorlaufBeats = Math.max(2, Math.ceil(0.3 / beatSekundeAlt));
-    const startBeat = plan.beats > 1
+    const startBeat = beats > 1
       ? naechstePhrase(alt.track, alt.stelle(jetzt), vorlaufBeats)
       : naechsterTakt(alt.track, alt.stelle(jetzt), vorlaufBeats);
     const startZeit = kontextZeitVonBeat(alt, startBeat);
 
-    // Der Neue steigt an seinem ersten brauchbaren Downbeat ein.
-    const einstieg = beatZeit(neuTrack, neuTrack.einstiegBeat ?? 0);
+    // Der Neue steigt dort ein, wo der Plan es sagt - bei hoher Energie
+    // mitten im Groove statt im Intro.
+    const einstiegBeat = artWunsch ? (neuTrack.einstiegBeat ?? 0) : plan.einstiegBeat;
+    const einstieg = beatZeit(neuTrack, einstiegBeat);
 
     neu.starten({
       track: neuTrack,
@@ -444,7 +423,7 @@ export class Mixer {
     // Wer stattdessen vor jeder Rampe neu ankert, bekommt an jedem Zielpunkt
     // einen Sprung statt einer Bewegung - hoerbar als Klacken, nicht als Mix.
     const gruppen = new Map();
-    for (const schritt of plan.schritte) {
+    for (const schritt of schritte) {
       const schluessel = `${schritt.deck}:${schritt.regler}`;
       if (!gruppen.has(schluessel)) gruppen.set(schluessel, []);
       gruppen.get(schluessel).push(schritt);
@@ -468,17 +447,20 @@ export class Mixer {
       }
     }
 
-    const endeZeit = startZeit + plan.beats * beatSekunde;
+    const endeZeit = startZeit + beats * beatSekunde;
     alt.stoppen(endeZeit + 0.05);
 
     this.aktiv = 1 - this.aktiv;
     this.wechselZaehler++;
+    this.letzteArt = art;
 
     this.laufenderUebergang = {
       art,
-      name: plan.name,
-      beschreibung: plan.beschreibung,
-      beats: plan.beats,
+      name,
+      beschreibung: artWunsch ? UEBERGAENGE[artWunsch].beschreibung : plan.begruendung,
+      beats,
+      einstiegBeat,
+      ausstiegBeat: plan.ausstiegBeat,
       startZeit,
       endeZeit,
       vonTrack: alt.track,
@@ -561,62 +543,6 @@ export class Mixer {
     return ziel;
   }
 
-  // --- Regler fuer den Remix ----------------------------------------------
-
-  /**
-   * Die Musik einmal ducken - der Sidechain.
-   *
-   * Von allen Produktionskniffen im Techno ist das der wirksamste: Der Kick
-   * drueckt alles andere kurz herunter und laesst es wieder hoch. Dadurch
-   * bekommt der Kick Platz, ohne lauter zu werden, und das Ganze atmet im
-   * Takt. Ohne ihn stehen Schlagwerk und Musik nur uebereinander.
-   *
-   * Wird im Voraus geplant und *niemals* mit cancelScheduledValues
-   * aufgeraeumt: Der Taktgeber plant 250 ms voraus, ein Abbruch wuerde die
-   * schon eingetragene naechste Kurve mitloeschen.
-   *
-   * @param {number} zeit   Kontextzeit des Kicks
-   * @param {number} tiefe  worauf heruntergedrueckt wird, 0..1
-   * @param {number} dauer  wie lange die Rueckkehr auf 1 braucht
-   */
-  ducken(zeit, tiefe, dauer) {
-    const g = this.pumpe.gain;
-    const ab = Math.min(0.99, Math.max(0.02, tiefe));
-    // Kein Sprung, sondern ein sehr kurzer Sturz: Ein harter Sprung im
-    // Verstaerkungsfaktor knackt hoerbar, weil die Wellenform an der Stelle
-    // eine Kante bekommt.
-    g.setValueAtTime(1, zeit);
-    g.linearRampToValueAtTime(ab, zeit + 0.006);
-    // Exponentiell zurueck - so hoert man das Nachgeben, nicht das Ende.
-    g.exponentialRampToValueAtTime(1, zeit + Math.max(0.03, dauer));
-  }
-
-  /**
-   * Der Musik den Bass wegnehmen, damit der Kick den Keller allein hat.
-   * Dieselbe Regel wie zwischen zwei Decks, nur zwischen Musik und Maschine.
-   */
-  musikHochpass(zeit, hertz, sekunden = 0.5) {
-    const p = this.musikHoch.frequency;
-    p.setValueAtTime(p.value, zeit);
-    p.exponentialRampToValueAtTime(Math.max(20, hertz), zeit + Math.max(0.01, sekunden));
-  }
-
-  /** Filterfahrt ueber die ganze Musik - fuer Aufbauten. */
-  musikTiefpass(zeit, hertz, sekunden = 0.5) {
-    const p = this.musikTief.frequency;
-    p.setValueAtTime(p.value, zeit);
-    p.exponentialRampToValueAtTime(
-      Math.min(20000, Math.max(120, hertz)),
-      zeit + Math.max(0.01, sekunden),
-    );
-  }
-
-  /** Das Schlagwerk als Ganzes ein- oder ausblenden. */
-  maschinenPegel(zeit, wert, sekunden = 1) {
-    const p = this.maschinenBus.gain;
-    p.setValueAtTime(p.value, zeit);
-    p.linearRampToValueAtTime(Math.max(0, wert), zeit + Math.max(0.01, sekunden));
-  }
 }
 
 function fortschritt(jetzt, uebergang) {
