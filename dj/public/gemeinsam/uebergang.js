@@ -116,7 +116,7 @@ export function einstiegWaehlen(track, zielenergie) {
   // niemand tanzt um zehn.
   if (zielenergie < PARTY_AB) {
     return {
-      beat: aufPhrase(natuerlich),
+      beat: aufPhrase(natuerlich, track.phrasenVersatz),
       grund: `Intro bleibt drin (Ziel ${(zielenergie * 100).toFixed(0)} %)`,
     };
   }
@@ -137,12 +137,12 @@ export function einstiegWaehlen(track, zielenergie) {
     .find((b) => b >= kernBeat - BEATS_PRO_PHRASE && b <= kernBeat + BEATS_PRO_PHRASE * 4);
 
   if (drop !== undefined && zielenergie >= KEIN_AUSKLANG_AB) {
-    return { beat: aufPhrase(drop), grund: `direkt auf den Drop bei Beat ${Math.round(drop)}` };
+    return { beat: aufPhrase(drop, track.phrasenVersatz), grund: `direkt auf den Drop bei Beat ${Math.round(drop)}` };
   }
 
   const uebersprungen = Math.round((ziel - natuerlich) / BEATS_PRO_TAKT);
   return {
-    beat: aufPhrase(ziel),
+    beat: aufPhrase(ziel, track.phrasenVersatz),
     grund:
       uebersprungen > 1
         ? `${uebersprungen} Takte Intro uebersprungen, rein in den Groove`
@@ -163,7 +163,7 @@ export function ausstiegWaehlen(track, zielenergie, fruehestensBeat = 0) {
   const letzterBeat = Math.max(0, ((track.dauer ?? 0) - (track.raster ?? 0)) / beatDauer);
 
   if (profil.length < 4) {
-    const beat = aufPhrase(Math.max(fruehestensBeat, letzterBeat - BEATS_PRO_PHRASE * 2));
+    const beat = aufPhrase(Math.max(fruehestensBeat, letzterBeat - BEATS_PRO_PHRASE * 2), track.phrasenVersatz);
     return { beat, grund: 'kein Verlauf bekannt, kurz vor Schluss' };
   }
 
@@ -174,20 +174,31 @@ export function ausstiegWaehlen(track, zielenergie, fruehestensBeat = 0) {
   // sich ueber acht Takte verabschiedet, ist genau die Stelle, an der die
   // Tanzflaeche sich leert.
   if (zielenergie >= KEIN_AUSKLANG_AB) {
-    const beat = aufPhrase(Math.max(fruehestensBeat, endeBeat - BEATS_PRO_PHRASE));
+    const beat = aufPhrase(Math.max(fruehestensBeat, endeBeat - BEATS_PRO_PHRASE), track.phrasenVersatz);
     return {
-      beat: Math.min(beat, aufPhrase(letzterBeat)),
+      beat: Math.min(beat, aufPhrase(letzterBeat, track.phrasenVersatz)),
       grund: 'raus vor dem Ausklingen',
     };
   }
 
   // Sonst darf der Alte ausklingen - aber nicht bis zur Stille.
-  const beat = aufPhrase(Math.max(fruehestensBeat, endeBeat));
-  return { beat: Math.min(beat, aufPhrase(letzterBeat)), grund: 'nach dem letzten vollen Teil' };
+  const beat = aufPhrase(Math.max(fruehestensBeat, endeBeat), track.phrasenVersatz);
+  return { beat: Math.min(beat, aufPhrase(letzterBeat, track.phrasenVersatz)), grund: 'nach dem letzten vollen Teil' };
 }
 
-function aufPhrase(beat) {
-  return Math.max(0, Math.round(beat / BEATS_PRO_PHRASE) * BEATS_PRO_PHRASE);
+/**
+ * Auf die naechste Phrasengrenze *dieses Tracks*.
+ *
+ * Der Versatz ist der Punkt. Ein Vielfaches von 32 Beats ab Dateianfang ist
+ * eine Phrasengrenze nur dann, wenn die Phrase auch dort beginnt - und das
+ * weiss das Raster nicht, es kennt nur Beats und die Eins eines Taktes. Liegt
+ * die Phrase in Wahrheit sieben Takte spaeter, sitzt ein Uebergang beatgenau
+ * und trotzdem mitten im Satz. Genau so klingt "gemischt, aber irgendwie
+ * falsch".
+ */
+function aufPhrase(beat, versatzTakte = 0) {
+  const versatz = ((versatzTakte % 8) + 8) % 8 * BEATS_PRO_TAKT;
+  return Math.max(0, Math.round((beat - versatz) / BEATS_PRO_PHRASE) * BEATS_PRO_PHRASE + versatz);
 }
 
 // --- Der Uebergang selbst --------------------------------------------------

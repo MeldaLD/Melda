@@ -33,6 +33,8 @@ type Befund = {
   ohneRaster: boolean;
   /** Verlauf je Takt – daran hängt, wo ein Übergang ansetzt und wo er landet. */
   profil: { e: number; b: number; h: number; d: number }[];
+  /** Auf welchem Takt eine Achttaktphrase beginnt (0–7). */
+  phrasenVersatz: number;
 };
 
 type Vorhanden = {

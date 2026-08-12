@@ -50,17 +50,19 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
   const { bpm, raster, vertrauen, anschlaege, hops } = rasterBestimmen(baender, puffer.sampleRate);
   const ohneRaster = vertrauen < VERTRAUENSSCHWELLE;
 
+  beiSchritt('Verlauf');
+  const profil = profilBauen(baender, anschlaege, hops, bpm, raster, puffer.sampleRate, ohneRaster);
+
   beiSchritt('Aufbau');
   const takte = taktEnergien(bass, puffer.sampleRate, bpm, raster);
   const einstiegBeat = ohneRaster ? 0 : einstiegFinden(takte);
-  const marken = ohneRaster ? [] : aufbauErkennen(takte, bpm, raster, einstiegBeat);
+  const { marken, phrasenVersatz } = ohneRaster
+    ? { marken: [], phrasenVersatz: 0 }
+    : strukturErkennen(profil, bpm, raster);
 
   beiSchritt('Energie');
   const hoehen = await bandRendern(puffer, 'highpass', 3000);
   const energie = energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops, vertrauen);
-
-  beiSchritt('Verlauf');
-  const profil = profilBauen(baender, anschlaege, hops, bpm, raster, puffer.sampleRate, ohneRaster);
 
   return {
     dauer,
@@ -73,6 +75,11 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
     bpmVertrauen: Number(vertrauen.toFixed(3)),
     ohneRaster,
     einstiegBeat,
+    // Auf welchem Takt eine Achttaktphrase beginnt. Das Raster kennt nur Beats
+    // und die Eins eines Taktes - wo die musikalische Phrase anfaengt, steht
+    // erst hier. Ohne diesen Wert sitzt ein Uebergang beatgenau und trotzdem
+    // mitten in der Phrase.
+    phrasenVersatz,
     lufs: Number(lufs.toFixed(1)),
     angleichDb: Number(angleichBegrenzen(ZIEL_LUFS - lufs).toFixed(2)),
     energie: Number(energie.toFixed(3)),
@@ -162,6 +169,208 @@ function profilBauen(baender, anschlaege, hops, bpm, raster, rate, ohneRaster) {
     h: Number((r.gesamt > 0 ? r.oben / r.gesamt : 0).toFixed(3)),
     d: Number(r.dichte.toFixed(2)),
   }));
+}
+
+// --- Aufbau erkennen: Neuheit auf der Selbstaehnlichkeit ------------------
+//
+// Die Frage "wo aendert sich etwas?" laesst sich sauber beantworten, und zwar
+// so, wie es in der Musikinformatik seit Foote (2000) ueblich ist:
+//
+//   1. Jeder Takt wird zu einem Merkmalsvektor (Energie, Bass, Hoehen, Dichte).
+//   2. Jeder Takt wird mit jedem verglichen - das ergibt eine
+//      Aehnlichkeitsmatrix. Gleichartige Abschnitte bilden darin helle
+//      Quadrate entlang der Diagonalen.
+//   3. Ueber die Diagonale wird ein Schachbrettmuster geschoben. Wo zwei
+//      verschiedene Quadrate aneinanderstossen, schlaegt es aus. Das ist die
+//      Neuheitskurve, und ihre Spitzen sind die Abschnittsgrenzen.
+//
+// Warum das Vorherige nicht reichte: Es zaehlte Takte im Bassband unter einer
+// festen Schwelle und nannte die Rueckkehr des Basses einen Drop. An "Bang
+// Bang" von Neelix sassen damit zwei von vier Drops, und die beiden falschen
+// lagen mitten im leisesten Teil des Tracks. Der erste Drop fehlte ganz -
+// die Suche begann beim Einstiegsbeat, und der lag genau darauf.
+//
+// Die Neuheitskurve findet die Grenzen, ohne eine Schwelle zu brauchen. Was
+// eine Grenze *ist*, entscheidet danach ein Vergleich der Energie davor und
+// dahinter.
+
+// Halbe Kantenlaenge des Schachbretts, in Takten. Acht Takte sind eine Phrase;
+// mit dieser Groesse findet der Kern Grenzen zwischen Phrasengruppen und nicht
+// jeden Hi-Hat-Wechsel.
+const NEUHEIT_KERN = 8;
+
+function neuheitskurve(profil) {
+  const n = profil.length;
+  if (n < NEUHEIT_KERN * 2 + 2) return new Float32Array(Math.max(0, n));
+
+  // Merkmale, jedes auf 0..1 gebracht. Die Energie zaehlt doppelt: In
+  // elektronischer Musik ist der Aufbau vor allem eine Energiegeschichte.
+  let hoechsteDichte = 0;
+  for (const p of profil) if (p.d > hoechsteDichte) hoechsteDichte = p.d;
+  const dTeiler = hoechsteDichte || 1;
+  const merkmale = profil.map((p) => [
+    (p.e ?? 0) * 2,
+    Math.min(1.5, p.b ?? 0),
+    Math.min(1.5, p.h ?? 0),
+    (p.d ?? 0) / dTeiler,
+  ]);
+
+  const abstand = (a, b) => {
+    let summe = 0;
+    for (let k = 0; k < a.length; k++) summe += (a[k] - b[k]) ** 2;
+    return Math.sqrt(summe);
+  };
+
+  // Aehnlichkeit als abklingende Funktion des Abstands. Der Massstab kommt aus
+  // dem Material selbst, damit ein Track mit wenig Kontrast nicht flach wird.
+  let summeAbstand = 0;
+  let zahl = 0;
+  for (let i = 0; i < n; i += 2) {
+    for (let j = i + 1; j < n; j += 2) {
+      summeAbstand += abstand(merkmale[i], merkmale[j]);
+      zahl++;
+    }
+  }
+  const massstab = zahl > 0 ? summeAbstand / zahl : 1;
+  const aehnlich = (i, j) => Math.exp(-abstand(merkmale[i], merkmale[j]) / (massstab || 1));
+
+  // Das Schachbrett, mit Gauss-Fenster zu den Raendern hin.
+  const L = NEUHEIT_KERN;
+  const kern = [];
+  for (let u = -L; u < L; u++) {
+    const zeile = [];
+    for (let v = -L; v < L; v++) {
+      const vorzeichen = (u < 0 ? -1 : 1) * (v < 0 ? -1 : 1);
+      const fenster = Math.exp(-((u / L) ** 2 + (v / L) ** 2) * 2);
+      zeile.push(vorzeichen * fenster);
+    }
+    kern.push(zeile);
+  }
+
+  const kurve = new Float32Array(n);
+  for (let i = L; i < n - L; i++) {
+    let summe = 0;
+    for (let u = -L; u < L; u++) {
+      for (let v = -L; v < L; v++) {
+        summe += aehnlich(i + u, i + v) * kern[u + L][v + L];
+      }
+    }
+    kurve[i] = Math.max(0, summe);
+  }
+
+  let hoch = 0;
+  for (const w of kurve) if (w > hoch) hoch = w;
+  if (hoch > 0) for (let i = 0; i < n; i++) kurve[i] /= hoch;
+  return kurve;
+}
+
+/**
+ * Abschnittsgrenzen und was sie bedeuten.
+ *
+ * Zusaetzlich faellt hier der Phrasenversatz ab: In elektronischer Musik
+ * liegen Abschnittswechsel fast immer auf Achttaktgrenzen. Wo genau diese
+ * Grenzen liegen, verraet das Raster *nicht* - es kennt nur Beats und die Eins
+ * eines Taktes. Sucht man den Versatz, bei dem die Neuheitskurve am staerksten
+ * auf Achttaktgrenzen faellt, hat man ihn. Ohne ihn sitzt ein Uebergang zwar
+ * beatgenau, aber mitten in der Phrase - beatgemischt und trotzdem falsch.
+ */
+function strukturErkennen(profil, bpm, raster) {
+  if (!profil || profil.length < 20) return { marken: [], phrasenVersatz: 0 };
+
+  const kurve = neuheitskurve(profil);
+  const n = profil.length;
+  const taktSekunden = (60 / bpm) * 4;
+
+  // Spitzen der Neuheitskurve, mit Sperrzeit gegen Doppelzaehlung.
+  const spitzen = [];
+  const sperre = 6;
+  for (let i = 1; i < n - 1; i++) {
+    if (kurve[i] < 0.18) continue;
+    if (kurve[i] < kurve[i - 1] || kurve[i] < kurve[i + 1]) continue;
+    if (spitzen.length && i - spitzen.at(-1) < sperre) {
+      if (kurve[i] > kurve[spitzen.at(-1)]) spitzen[spitzen.length - 1] = i;
+      continue;
+    }
+    spitzen.push(i);
+  }
+
+  /*
+   * Der Phrasenversatz wird aus den gefundenen Grenzen abgelesen, nicht aus
+   * der Kurve als Ganzes.
+   *
+   * Ein frueherer Versuch summierte die Neuheitskurve ueber alle Achttakt-
+   * grenzen und nahm den besten Versatz. Das ging daneben: Die Kurve ist breit,
+   * und der Versatz kam als 0 heraus, obwohl die echten Abschnittswechsel bei
+   * Takt 23, 46 und 95 lagen - also auf Versatz 7. Die Spitzen selbst sind das
+   * genauere Zeugnis, denn sie *sind* die Grenzen.
+   */
+  const nachVersatz = new Array(8).fill(0);
+  for (const t of spitzen) nachVersatz[((t % 8) + 8) % 8] += kurve[t];
+  let besterVersatz = 0;
+  for (let v = 1; v < 8; v++) if (nachVersatz[v] > nachVersatz[besterVersatz]) besterVersatz = v;
+
+  /*
+   * Die Grenzen selbst werden *nicht* auf dieses Raster gezogen.
+   *
+   * Ein Drop liegt da, wo er liegt. Wird er auf die naechste Achttaktgrenze
+   * geschoben, landet er im schlechtesten Fall einen Takt zu spaet - und wer
+   * dann "auf den Drop" einsteigt, verpasst genau dessen ersten Takt. An "Bang
+   * Bang" waren das nachgemessen 1 bis 2 Takte, also bis zu 3,4 Sekunden
+   * hinter dem Moment, auf den alle warten.
+   *
+   * Der Versatz oben wird trotzdem gebraucht - aber fuer die Uebergaenge, wo
+   * es um Phrasengrenzen geht und nicht um einen einzelnen Einschlag.
+   */
+  const aufPhrase = (t) => Math.min(n - 1, Math.max(0, t));
+
+  let spitzeE = 0;
+  for (const p of profil) if (p.e > spitzeE) spitzeE = p.e;
+
+  const mittelE = (von, bis) => {
+    const a = Math.max(0, von);
+    const b = Math.min(n, bis);
+    if (b <= a) return 0;
+    let s = 0;
+    for (let i = a; i < b; i++) s += profil[i].e;
+    return s / (b - a);
+  };
+
+  const marken = [];
+  const gesehen = new Set();
+  for (const roh of spitzen) {
+    const t = aufPhrase(roh);
+    if (gesehen.has(t)) continue;
+    gesehen.add(t);
+
+    const davor = mittelE(t - 4, t);
+    const danach = mittelE(t, t + 4);
+
+    // Ein Drop ist nicht "es wird lauter", sondern "es geht von deutlich
+    // weniger auf beinahe alles". Beides muss zutreffen, sonst zaehlt jeder
+    // Aufbauschritt als Drop.
+    if (danach >= spitzeE * 0.72 && danach > davor * 1.5) {
+      marken.push({ name: 'drop', beat: t * 4, sekunde: raster + t * taktSekunden });
+    } else if (danach <= spitzeE * 0.5 && danach < davor * 0.6) {
+      marken.push({ name: 'breakdown', beat: t * 4, sekunde: raster + t * taktSekunden });
+    } else {
+      // Kein Drop und kein Breakdown, aber trotzdem eine Grenze - genau die
+      // Stellen, an denen sich ein Uebergang unauffaellig ansetzen laesst.
+      marken.push({ name: 'wechsel', beat: t * 4, sekunde: raster + t * taktSekunden });
+    }
+  }
+
+  // Outro: ab wo es dauerhaft unter der Haelfte bleibt.
+  for (let t = n - 1; t > 8; t--) {
+    if (profil[t].e >= spitzeE * 0.5) {
+      if (t < n - 3) {
+        marken.push({ name: 'outro', beat: (t + 1) * 4, sekunde: raster + (t + 1) * taktSekunden });
+      }
+      break;
+    }
+  }
+
+  marken.sort((a, b) => a.beat - b.beat);
+  return { marken, phrasenVersatz: besterVersatz };
 }
 
 // --- Zwei Anlaeufe, und der bessere gewinnt --------------------------------

@@ -63,6 +63,7 @@ export async function GET() {
     // Der Verlauf über den Track. Fehlt er, plant der Übergang ohne ihn –
     // dann bleibt es beim natürlichen Einstieg statt beim Sprung in den Groove.
     profil: Array.isArray(zeile.profil) ? zeile.profil : [],
+    phrasenVersatz: zeile.phrasen_versatz ?? 0,
   }));
 
   return NextResponse.json(
@@ -118,6 +119,7 @@ export async function POST(anfrage: Request) {
     bpm_vertrauen: zahl("bpmVertrauen", 1),
     ohne_raster: koerper.ohneRaster === true,
     profil: Array.isArray(koerper.profil) ? koerper.profil : [],
+    phrasen_versatz: Math.max(0, Math.min(7, Math.round(zahl("phrasenVersatz", 0)))),
   };
 
   const { error } = await supabaseAdmin()
@@ -140,10 +142,11 @@ export async function POST(anfrage: Request) {
     return NextResponse.json({ fehler: error.message }, { status: 500 });
   }
 
-  const { bpm_vertrauen, ohne_raster, profil, ...ohneNeueSpalten } = zeile;
+  const { bpm_vertrauen, ohne_raster, profil, phrasen_versatz, ...ohneNeueSpalten } = zeile;
   void bpm_vertrauen;
   void ohne_raster;
   void profil;
+  void phrasen_versatz;
 
   const zweiter = await supabaseAdmin()
     .from("dj_track")
@@ -169,6 +172,7 @@ function fehltSpalte(meldung: string) {
     text.includes("bpm_vertrauen") ||
     text.includes("ohne_raster") ||
     text.includes("profil") ||
+    text.includes("phrasen_versatz") ||
     (text.includes("column") && text.includes("does not exist")) ||
     text.includes("schema cache")
   );
