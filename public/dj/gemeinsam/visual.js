@@ -150,6 +150,8 @@ export class Visualisierung {
     // null = automatisch. Sonst der Name eines Modus, von Hand gewaehlt.
     this.modusZwang = null;
     this.zuletztGewaehlt = null;
+    // Von Hand ausgeloester Drop - fuer die Abnahme und zum Vorfuehren.
+    this.dropVonHand = false;
 
     // Drei Rauschquellen, damit sich die Bewegungen nicht synchronisieren.
     this.n1 = rauschen(7919);
@@ -182,6 +184,17 @@ export class Visualisierung {
       this.naechsterModus++;
     }
     return this.modusFuerTrack.get(schluessel);
+  }
+
+  /**
+   * Einen Drop von Hand ausloesen.
+   *
+   * Am Abend braucht das niemand, aber ohne diesen Griff laesst sich die
+   * Wirkung eines Drops nicht messen: Man muesste warten, bis im Track einer
+   * kommt, und haette dann keinen definierten Zeitpunkt.
+   */
+  dropAusloesen() {
+    this.dropVonHand = true;
   }
 
   /** Von Hand festlegen, oder mit null zurueck auf automatisch. */
@@ -225,7 +238,8 @@ export class Visualisierung {
     // Beim Drop: alles auf einmal. Das Signal geht auch an den Modus - das
     // Mandelbrot kehrt dabei seine Flugrichtung um, und damit hat der
     // staerkste Moment der Musik auch im Bild seinen staerksten Moment.
-    const dropJetzt = Boolean(takt && this.dropErreicht(aktiv, takt));
+    const dropJetzt = Boolean(takt && this.dropErreicht(aktiv, takt)) || this.dropVonHand;
+    this.dropVonHand = false;
     if (dropJetzt) this.ausbruch(spannung);
     if (takt) this.beatPruefen(takt, wucht);
 
