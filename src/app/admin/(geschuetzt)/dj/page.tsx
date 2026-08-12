@@ -33,7 +33,14 @@ type Befund = {
   ohneRaster: boolean;
 };
 
-type Vorhanden = { id: string; titel: string; interpret: string; bpm: number | null };
+type Vorhanden = {
+  id: string;
+  titel: string;
+  interpret: string;
+  bpm: number | null;
+  /** Fehlt bei Einträgen aus der Zeit vor der Vertrauensmessung. */
+  ohneRaster?: boolean;
+};
 
 /**
  * Musik aufnehmen: Datei aussuchen, im Browser vermessen, hochladen.
@@ -48,6 +55,11 @@ export default function DjAufnahme() {
   const [laeuft, setLaeuft] = useState(false);
   const [bibliothek, setBibliothek] = useState<Vorhanden[]>([]);
   const [fehler, setFehler] = useState<string | null>(null);
+  const [hinweis, setHinweis] = useState<string | null>(null);
+  // Alles zu löschen ist nicht rückgängig zu machen. Deshalb zwei Klicks: Der
+  // erste stellt die Frage, der zweite beantwortet sie.
+  const [sicherheitsfrage, setSicherheitsfrage] = useState(false);
+  const [loescht, setLoescht] = useState<string | null>(null);
   const auswahl = useRef<HTMLInputElement>(null);
 
   const bibliothekLaden = useCallback(async () => {
@@ -199,6 +211,39 @@ export default function DjAufnahme() {
     setLaeuft(false);
   }
 
+  async function loeschen(was: { id: string; titel: string } | { alle: true }) {
+    const alle = "alle" in was;
+    setLoescht(alle ? "alle" : was.id);
+    setFehler(null);
+    setHinweis(null);
+    try {
+      const antwort = await fetch("/api/dj/track", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        // Die Anzahl geht mit: Hat sich die Bibliothek seit dem Laden dieser
+        // Seite geändert, bricht der Server ab, statt mehr zu löschen als hier
+        // zu sehen war.
+        body: JSON.stringify(alle ? { alle: true, anzahl: bibliothek.length } : { id: was.id }),
+      });
+      const daten = await alsJson(antwort);
+      if (!antwort.ok) {
+        throw new Error(hinweisZu(antwort.status, daten.fehler ?? daten.roh ?? ""));
+      }
+      setHinweis(
+        alle
+          ? `${daten.geloescht} Tracks und ${daten.dateien} Dateien gelöscht. Die Bibliothek ist leer.`
+          : `„${was.titel}" gelöscht.`,
+      );
+      if (daten.warnung) setFehler(daten.warnung);
+      await bibliothekLaden();
+    } catch (grund) {
+      setFehler(grund instanceof Error ? grund.message : String(grund));
+    } finally {
+      setLoescht(null);
+      setSicherheitsfrage(false);
+    }
+  }
+
   const offen = eintraege.filter((e) => e.zustand !== "fertig").length;
 
   return (
@@ -214,6 +259,10 @@ export default function DjAufnahme() {
 
       {fehler && (
         <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-800">{fehler}</p>
+      )}
+
+      {hinweis && (
+        <p className="rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900">{hinweis}</p>
       )}
 
       <section className="space-y-3">
@@ -324,10 +373,56 @@ export default function DjAufnahme() {
       )}
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold">
-          In der Bibliothek: {bibliothek.length}{" "}
-          {bibliothek.length === 1 ? "Track" : "Tracks"}
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold">
+            In der Bibliothek: {bibliothek.length}{" "}
+            {bibliothek.length === 1 ? "Track" : "Tracks"}
+          </h2>
+          {bibliothek.length > 0 &&
+            (sicherheitsfrage ? (
+              <span className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => loeschen({ alle: true })}
+                  disabled={loescht !== null}
+                >
+                  {loescht === "alle"
+                    ? "Löscht …"
+                    : `Ja, alle ${bibliothek.length} löschen`}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSicherheitsfrage(false)}
+                  disabled={loescht !== null}
+                >
+                  Abbrechen
+                </Button>
+              </span>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSicherheitsfrage(true)}
+                disabled={laeuft || loescht !== null}
+              >
+                Alle löschen
+              </Button>
+            ))}
+        </div>
+
+        {sicherheitsfrage && (
+          <p className="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Das löscht alle {bibliothek.length} Einträge <em>und</em> die
+            hochgeladenen Audiodateien. Das lässt sich nicht rückgängig machen –
+            die Dateien müssen danach neu hochgeladen werden.
+          </p>
+        )}
+
         {bibliothek.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Noch leer. Solange hier nichts steht, spielt die Bühne unter{" "}
@@ -336,12 +431,28 @@ export default function DjAufnahme() {
         ) : (
           <ul className="divide-y divide-border rounded-lg border border-border text-sm">
             {bibliothek.map((track) => (
-              <li key={track.id} className="flex justify-between gap-3 px-4 py-2">
+              <li key={track.id} className="flex items-center justify-between gap-3 px-4 py-2">
                 <span className="truncate">
                   {track.interpret} – {track.titel}
                 </span>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {track.bpm ? `${Math.round(track.bpm)} BPM` : "–"}
+                <span className="flex shrink-0 items-center gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    {track.ohneRaster
+                      ? "kein Raster"
+                      : track.bpm
+                        ? `${Math.round(track.bpm)} BPM`
+                        : "–"}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-muted-foreground hover:text-red-700"
+                    onClick={() => loeschen({ id: track.id, titel: track.titel })}
+                    disabled={loescht !== null || laeuft}
+                  >
+                    {loescht === track.id ? "…" : "Löschen"}
+                  </Button>
                 </span>
               </li>
             ))}
