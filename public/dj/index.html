@@ -525,6 +525,64 @@ header {
   letter-spacing: 0.12em;
 }
 
+/* --- Der Remix-Knopf und was die Maschine gerade tut --------------------- */
+
+.remix-knopf {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.78rem;
+  border: 1px solid rgba(255, 61, 127, 0.5);
+  background: rgba(255, 61, 127, 0.12);
+  color: var(--akzent);
+}
+
+.remix-knopf:hover {
+  background: rgba(255, 61, 127, 0.22);
+}
+
+/* Laeuft die Maschine, pulsiert der Knopf im Sekundentakt - das ist von
+   weitem der schnellste Weg zu sehen, dass etwas laeuft. */
+.remix-knopf.an {
+  background: var(--akzent);
+  border-color: var(--akzent);
+  color: #12000a;
+  animation: remixPuls 1s ease-in-out infinite;
+}
+
+@keyframes remixPuls {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 61, 127, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(255, 61, 127, 0);
+  }
+}
+
+.maschine-zeile {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  color: var(--leise);
+  font-variant-numeric: tabular-nums;
+}
+
+.maschine-zeile[hidden] {
+  display: none;
+}
+
+.maschine-zeile > span {
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.maschine-stimmen {
+  color: var(--akzent);
+}
+
 </style>
   </head>
   <body>
@@ -646,10 +704,26 @@ header {
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
         </label>
         <span class="stil" id="stil" title="Wie der DJ gerade spielt – haengt an der Zielenergie">–</span>
+        <!--
+          Der grosse Knopf. Er wirft das synthetische Schlagwerk an, das aus
+          jedem Material Techno macht - auch aus Aufnahmen, die gar keinen Beat
+          haben. Bewusst von Hand bedienbar: Man will hoeren koennen, was er
+          tut, ohne auf den richtigen Moment im Abend zu warten.
+        -->
+        <button id="remixJetzt" class="remix-knopf" title="Schlagwerk daruntersetzen – macht aus jedem Stueck Techno">
+          Remix starten
+        </button>
         <label class="schalter">
           <input type="checkbox" id="remixAn" checked />
-          Remix
+          Rolls
         </label>
+        <span class="maschine-zeile" id="maschineZeile" hidden>
+          <span id="maschineTempo">–</span>
+          <span id="maschineAbschnitt">–</span>
+          <span id="maschineTakt">–</span>
+          <span id="maschineStufe">–</span>
+          <span class="maschine-stimmen" id="maschineStimmen">–</span>
+        </span>
         <span class="fussnote" id="energieQuelle"></span>
         <label class="schalter">
           <input type="checkbox" id="angleichAn" checked />
@@ -1332,7 +1406,42 @@ class Mixer {
     this.verzoegerung.connect(this.rueckfuehrung).connect(this.verzoegerung);
     this.verzoegerung.connect(this.summe);
 
-    this.summe.connect(this.begrenzer).connect(this.ausgang);
+    // --- Der Weg fuer den Remix -------------------------------------------
+    //
+    // Zwischen Summe und Begrenzer haengen drei Knoten, die im Normalbetrieb
+    // nichts tun und erst gebraucht werden, wenn die Maschine laeuft:
+    //
+    //   musikHoch   nimmt der Quelle den Bass weg. Der Kick der Maschine soll
+    //               den Keller allein haben - dieselbe Regel wie zwischen zwei
+    //               Decks, nur eben zwischen Musik und Schlagwerk.
+    //   musikTief   fuer Filterfahrten ueber die ganze Musik.
+    //   pumpe       der Sidechain. Jeder Kick drueckt die Musik kurz herunter.
+    //
+    // Die Maschine haengt *hinter* der Pumpe: Sie darf sich nicht selbst
+    // ducken, sonst frisst der Kick seinen eigenen Anschlag weg.
+    this.musikHoch = ctx.createBiquadFilter();
+    this.musikHoch.type = 'highpass';
+    this.musikHoch.frequency.value = 20;
+    this.musikHoch.Q.value = 0.7071;
+
+    this.musikTief = ctx.createBiquadFilter();
+    this.musikTief.type = 'lowpass';
+    this.musikTief.frequency.value = 20000;
+    this.musikTief.Q.value = 0.7071;
+
+    this.pumpe = ctx.createGain();
+    this.pumpe.gain.value = 1;
+
+    this.maschinenBus = ctx.createGain();
+    this.maschinenBus.gain.value = 0;
+
+    this.summe
+      .connect(this.musikHoch)
+      .connect(this.musikTief)
+      .connect(this.pumpe)
+      .connect(this.begrenzer);
+    this.maschinenBus.connect(this.begrenzer);
+    this.begrenzer.connect(this.ausgang);
     this.ausgang.connect(this.messung);
     this.ausgang.connect(ctx.destination);
 
@@ -1532,6 +1641,63 @@ class Mixer {
     this.messung.getFloatTimeDomainData(ziel);
     return ziel;
   }
+
+  // --- Regler fuer den Remix ----------------------------------------------
+
+  /**
+   * Die Musik einmal ducken - der Sidechain.
+   *
+   * Von allen Produktionskniffen im Techno ist das der wirksamste: Der Kick
+   * drueckt alles andere kurz herunter und laesst es wieder hoch. Dadurch
+   * bekommt der Kick Platz, ohne lauter zu werden, und das Ganze atmet im
+   * Takt. Ohne ihn stehen Schlagwerk und Musik nur uebereinander.
+   *
+   * Wird im Voraus geplant und *niemals* mit cancelScheduledValues
+   * aufgeraeumt: Der Taktgeber plant 250 ms voraus, ein Abbruch wuerde die
+   * schon eingetragene naechste Kurve mitloeschen.
+   *
+   * @param {number} zeit   Kontextzeit des Kicks
+   * @param {number} tiefe  worauf heruntergedrueckt wird, 0..1
+   * @param {number} dauer  wie lange die Rueckkehr auf 1 braucht
+   */
+  ducken(zeit, tiefe, dauer) {
+    const g = this.pumpe.gain;
+    const ab = Math.min(0.99, Math.max(0.02, tiefe));
+    // Kein Sprung, sondern ein sehr kurzer Sturz: Ein harter Sprung im
+    // Verstaerkungsfaktor knackt hoerbar, weil die Wellenform an der Stelle
+    // eine Kante bekommt.
+    g.setValueAtTime(1, zeit);
+    g.linearRampToValueAtTime(ab, zeit + 0.006);
+    // Exponentiell zurueck - so hoert man das Nachgeben, nicht das Ende.
+    g.exponentialRampToValueAtTime(1, zeit + Math.max(0.03, dauer));
+  }
+
+  /**
+   * Der Musik den Bass wegnehmen, damit der Kick den Keller allein hat.
+   * Dieselbe Regel wie zwischen zwei Decks, nur zwischen Musik und Maschine.
+   */
+  musikHochpass(zeit, hertz, sekunden = 0.5) {
+    const p = this.musikHoch.frequency;
+    p.setValueAtTime(p.value, zeit);
+    p.exponentialRampToValueAtTime(Math.max(20, hertz), zeit + Math.max(0.01, sekunden));
+  }
+
+  /** Filterfahrt ueber die ganze Musik - fuer Aufbauten. */
+  musikTiefpass(zeit, hertz, sekunden = 0.5) {
+    const p = this.musikTief.frequency;
+    p.setValueAtTime(p.value, zeit);
+    p.exponentialRampToValueAtTime(
+      Math.min(20000, Math.max(120, hertz)),
+      zeit + Math.max(0.01, sekunden),
+    );
+  }
+
+  /** Das Schlagwerk als Ganzes ein- oder ausblenden. */
+  maschinenPegel(zeit, wert, sekunden = 1) {
+    const p = this.maschinenBus.gain;
+    p.setValueAtTime(p.value, zeit);
+    p.linearRampToValueAtTime(Math.max(0, wert), zeit + Math.max(0.01, sekunden));
+  }
 }
 
 function fortschritt(jetzt, uebergang) {
@@ -1619,10 +1785,10 @@ function erzeugeTrack(ctx, { nummer, bpm, energie, titel }) {
 
     // --- Bassdrum: das Rueckgrat, vier auf den Boden --------------------
     if (bass) {
-      kick(links, rechts, start, rate, (0.85 + energie * 0.15) * wucht);
+      demoKick(links, rechts, start, rate, (0.85 + energie * 0.15) * wucht);
     } else if (abschnitt === 'intro' && takt >= 4 && imTakt === 0) {
       // Im Intro nur die Eins - so hat der Mixer schon einen Anker.
-      kick(links, rechts, start, rate, 0.5);
+      demoKick(links, rechts, start, rate, 0.5);
     }
 
     // --- Clap auf zwei und vier -----------------------------------------
@@ -1719,7 +1885,7 @@ function demoBibliothek(ctx, beiFortschritt = () => {}) {
 
 // Bassdrum: Sinus, dessen Tonhoehe schnell nach unten faellt. Der Klick am
 // Anfang gibt ihr die Durchsetzungskraft.
-function kick(links, rechts, start, rate, staerke) {
+function demoKick(links, rechts, start, rate, staerke) {
   const laenge = Math.floor(0.4 * rate);
   let phase = 0;
   for (let i = 0; i < laenge; i++) {
@@ -3261,6 +3427,994 @@ class Visualisierung {
 }
 
 
+// ===== public/gemeinsam/stimmen.js =====
+// Synthetisierte Technostimmen fuer die Web Audio API.
+//
+// Nur Klangerzeugung. Kein Planer, kein Muster, kein Gedaechtnis zwischen zwei
+// Aufrufen - der Taktgeber ruft hier hinein und bekommt Geraeusch, sonst
+// nichts. Genau diese Trennung macht das Timing pruefbar: Jede Stimme haengt
+// ausschliesslich an der uebergebenen Zeit, nie an `currentTime`.
+//
+// Drei Regeln, die den Rest erklaeren:
+//
+// 1. Alles wird auf `zeit` geplant (`setValueAtTime`, `…AtTime`). Nichts
+//    passiert "jetzt". Der Aufrufer plant bis zu 200 ms im Voraus, und eine
+//    einzige `gain.value = …`-Zuweisung wuerde genau dort einen hoerbaren
+//    Fehler erzeugen, den kein Nachmessen mehr findet.
+// 2. Jede Quelle bekommt ein `stop()` mit fester Endzeit und raeumt sich beim
+//    `ended` selbst aus dem Graphen. Ueber einen Abend laufen davon
+//    Zehntausende durch; was liegen bleibt, bringt irgendwann das Tablet um.
+// 3. Nur Standardknoten. Kein AudioWorklet, kein ScriptProcessor - das hier
+//    muss auf iOS Safari laufen.
+//
+// Pegel: Bei `pegel: 1` zielt jede Stimme auf einen Spitzenwert um 0,6 bis
+// 0,75. Nicht auf 1,0 - es kommen andere Stimmen und die laufende Musik dazu,
+// und der Kopfraum dafuer muss hier schon eingeplant sein. Nachgemessen wird
+// das in `pruefungen/stimmen.mjs`, nicht geschaetzt.
+//
+// `abfall` bedeutet ueberall dasselbe: die Zeit von der Spitze bis −26 dB
+// (5 % der Spitze). Danach faellt die Huellkurve in einem kurzen linearen
+// Ausklang auf null, damit nichts knackt. Diese Festlegung ist der Grund,
+// warum die Abnahme die gemessene Laenge direkt gegen `abfall` halten kann.
+
+// --- Grundwerte -----------------------------------------------------------
+
+const STIMMEN_RAUSCH_SEKUNDEN = 2; // Laenge des gemeinsamen Rauschpuffers
+const STIMMEN_HUELLE_BODEN = 0.05; // −26 dB: hier endet der exponentielle Abfall
+const STIMMEN_AUSKLANG_ANTEIL = 0.25; // linearer Rest, als Anteil von `abfall`
+const STIMMEN_AUSKLANG_MAX = 0.02; // … aber hoechstens 20 ms
+const STIMMEN_NACHLAUF = 0.005; // Sicherheitsabstand vor dem stop()
+const STIMMEN_KURVE_PUNKTE = 1024;
+const STIMMEN_SAETTIGUNG_HAERTE = 3; // Kniewert der tanh-Kennlinie
+
+// --- Kick (909-artig) -----------------------------------------------------
+
+const STIMMEN_KICK_STARTTON = 120; // Hz, Anfang der Tonhoehenhuellkurve
+const STIMMEN_KICK_GRUNDTON = 48; // Hz, Ziel des Sturzes
+const STIMMEN_KICK_STURZ = 0.045; // s, Dauer des Sturzes
+const STIMMEN_KICK_ANSTIEG = 0.002; // s
+const STIMMEN_KICK_ABFALL = 0.34; // s
+const STIMMEN_KICK_SPITZE = 0.62; // Zielspitze des Koerpers bei pegel 1
+const STIMMEN_KICK_KLICK_DAUER = 0.005; // s
+const STIMMEN_KICK_KLICK_HOCHPASS = 1500; // Hz
+const STIMMEN_KICK_KLICK_SPITZE = 0.16;
+
+// --- Klatsch --------------------------------------------------------------
+
+const STIMMEN_KLATSCH_MITTE = 1200; // Hz
+const STIMMEN_KLATSCH_GUETE = 1.2;
+const STIMMEN_KLATSCH_KOERNER = 3;
+const STIMMEN_KLATSCH_ABSTAND = 0.009; // s zwischen den Koernern
+const STIMMEN_KLATSCH_KORN_ABFALL = 0.008; // s
+const STIMMEN_KLATSCH_KORN_ANSTIEG = 0.0006; // s
+const STIMMEN_KLATSCH_KORN_STAERKEN = [0.9, 1, 0.82]; // leicht ungleich, das lebt
+const STIMMEN_KLATSCH_FAHNE = 0.13; // s
+const STIMMEN_KLATSCH_FAHNE_ANTEIL = 0.5; // Hoehe der Fahne, bezogen auf die Spitze
+const STIMMEN_KLATSCH_SPITZE = 1.75;
+
+// --- Hi-Hats --------------------------------------------------------------
+
+const STIMMEN_HUT_HOCHPASS = 7000; // Hz, zweistufig = 24 dB pro Oktave
+const STIMMEN_HUT_ANSTIEG = 0.0006; // s
+const STIMMEN_HUT_ZU_ABFALL = 0.032; // s
+const STIMMEN_HUT_AUF_ABFALL = 0.3; // s
+const STIMMEN_HUT_SPITZE = 0.45; // nachgemessen: ergibt 0,55 zu / 0,71 auf
+
+// --- Becken ---------------------------------------------------------------
+
+const STIMMEN_BECKEN_HOCHPASS = 5000; // Hz
+const STIMMEN_BECKEN_GLANZ = 9000; // Hz, Peaking obendrauf
+const STIMMEN_BECKEN_GLANZ_DB = 6;
+const STIMMEN_BECKEN_GLANZ_GUETE = 0.8;
+const STIMMEN_BECKEN_ANSTIEG = 0.001; // s
+const STIMMEN_BECKEN_ABFALL = 1.4; // s
+const STIMMEN_BECKEN_SPITZE = 0.2; // nachgemessen: ergibt rund 0,6
+
+// --- Rauschanstieg --------------------------------------------------------
+
+const STIMMEN_SWEEP_TIEF = 400; // Hz
+const STIMMEN_SWEEP_HOCH = 8000; // Hz
+const STIMMEN_SWEEP_GUETE = 1.4;
+const STIMMEN_SWEEP_DAUER = 2; // s
+const STIMMEN_SWEEP_ABRISS = 0.04; // s, der Bruch am Ende
+const STIMMEN_SWEEP_START_ANTEIL = 0.004; // "fast nichts" am Anfang
+const STIMMEN_SWEEP_SPITZE = 0.8; // nachgemessen: ergibt rund 0,7
+
+// --- Stich ----------------------------------------------------------------
+
+const STIMMEN_STICH_HERTZ = 110;
+const STIMMEN_STICH_ABFALL = 0.22; // s
+const STIMMEN_STICH_OSZILLATOREN = 3;
+const STIMMEN_STICH_VERSTIMMUNG = 7; // Cent, aeussere Oszillatoren
+const STIMMEN_STICH_ANSTIEG = 0.003; // s
+const STIMMEN_STICH_OFFEN = 3000; // Hz, Tiefpass ganz auf
+const STIMMEN_STICH_SCHLIESSEN = 0.18; // s
+const STIMMEN_STICH_ZU_ANTEIL = 2.2; // Ziel des Tiefpasses als Vielfaches des Grundtons
+const STIMMEN_STICH_GUETE = 1.1;
+const STIMMEN_STICH_SPITZE = 0.42;
+
+// --- gemeinsame Werkstatt -------------------------------------------------
+
+// Pro AudioContext genau ein Rauschpuffer. Ein eigener Puffer je Stimme waere
+// bei zehntausend Stimmen am Abend zehntausend Mal zwei Sekunden Zufall - das
+// ist der teuerste denkbare Weg zu demselben Geraeusch.
+const STIMMEN_PUFFER_JE_CTX = new WeakMap();
+
+// Die Saettigungskennlinie haengt nur an der Mathematik, nicht am Context.
+// Deshalb genuegt eine einzige pro Seite - noch sparsamer als "einmal pro
+// ctx", und ein WaveShaper darf dieselbe Kurve mehrfach benutzen.
+let stimmenKennlinie = null;
+
+/**
+ * Der gemeinsame Mono-Rauschpuffer (2 s), pro AudioContext einmal erzeugt.
+ */
+function rauschpuffer(ctx) {
+  const vorhanden = STIMMEN_PUFFER_JE_CTX.get(ctx);
+  if (vorhanden) return vorhanden;
+
+  const laenge = Math.floor(STIMMEN_RAUSCH_SEKUNDEN * ctx.sampleRate);
+  const puffer = ctx.createBuffer(1, laenge, ctx.sampleRate);
+  const daten = puffer.getChannelData(0);
+  for (let i = 0; i < laenge; i++) daten[i] = Math.random() * 2 - 1;
+
+  STIMMEN_PUFFER_JE_CTX.set(ctx, puffer);
+  return puffer;
+}
+
+// Weiche Saettigung: tanh, auf ±1 normiert. Weil sie normiert ist, hebt sie
+// den Spitzenwert nicht an - sie fuellt nur den Bauch auf. Genau darum wird
+// der WaveShaper hier *vor* dem Pegelsteller eingehaengt, wo das Signal eine
+// Spitze von 1 hat.
+function stimmenSaettigungskurve() {
+  if (stimmenKennlinie) return stimmenKennlinie;
+
+  const kurve = new Float32Array(STIMMEN_KURVE_PUNKTE);
+  const k = STIMMEN_SAETTIGUNG_HAERTE;
+  const rand = Math.tanh(k);
+  for (let i = 0; i < STIMMEN_KURVE_PUNKTE; i++) {
+    const x = (i / (STIMMEN_KURVE_PUNKTE - 1)) * 2 - 1;
+    kurve[i] = Math.tanh(k * x) / rand;
+  }
+  stimmenKennlinie = kurve;
+  return kurve;
+}
+
+// Eine Rauschquelle aus dem gemeinsamen Puffer, an zufaelliger Stelle
+// angesetzt. Der Versatz ist wichtig: Ohne ihn klaenge jede Hi-Hat des Abends
+// exakt gleich, weil sie dieselben zweitausend Millisekunden Zufall liest.
+function stimmenRauschquelle(ctx, zeit, dauer, schleife = false) {
+  const puffer = rauschpuffer(ctx);
+  const quelle = ctx.createBufferSource();
+  quelle.buffer = puffer;
+  quelle.loop = schleife;
+  const spielraum = Math.max(0, puffer.duration - (schleife ? 0 : dauer));
+  quelle.start(zeit, Math.random() * spielraum);
+  return quelle;
+}
+
+// Die Standardhuellkurve: linearer Anstieg, exponentieller Abfall bis −26 dB,
+// dann linear auf null. Gibt die Zeit zurueck, zu der sie verstummt ist.
+//
+// Der Anstieg ist linear und nicht exponentiell, weil er bei null beginnen
+// soll - `exponentialRampToValueAtTime` kann das nicht, und ein Start bei
+// 0,0001 statt bei 0 verschiebt den hoerbaren Einsatz.
+function stimmenHuelle(param, zeit, anstieg, abfall, spitze) {
+  const ausklang = Math.min(STIMMEN_AUSKLANG_MAX, abfall * STIMMEN_AUSKLANG_ANTEIL);
+  param.setValueAtTime(0, zeit);
+  param.linearRampToValueAtTime(spitze, zeit + anstieg);
+  param.exponentialRampToValueAtTime(spitze * STIMMEN_HUELLE_BODEN, zeit + anstieg + abfall);
+  param.linearRampToValueAtTime(0, zeit + anstieg + abfall + ausklang);
+  return zeit + anstieg + abfall + ausklang;
+}
+
+// Beenden und abhaengen. Das `stop()` ist die Pflicht, das Abhaengen im
+// `ended` die Kuer - ohne beides waechst der Graph den ganzen Abend lang.
+function stimmenBeenden(quelle, knoten, endzeit) {
+  quelle.stop(endzeit + STIMMEN_NACHLAUF);
+  quelle.onended = () => {
+    quelle.disconnect();
+    for (const knoten1 of knoten) knoten1.disconnect();
+  };
+}
+
+// Kleine Helfer, damit die Stimmen unten lesbar bleiben.
+function stimmenFilter(ctx, art, hertz, zeit, guete = null, db = null) {
+  const filter = ctx.createBiquadFilter();
+  filter.type = art;
+  filter.frequency.setValueAtTime(hertz, zeit);
+  if (guete !== null) filter.Q.setValueAtTime(guete, zeit);
+  if (db !== null) filter.gain.setValueAtTime(db, zeit);
+  return filter;
+}
+
+function stimmenSteller(ctx, wert, zeit) {
+  const knoten = ctx.createGain();
+  knoten.gain.setValueAtTime(wert, zeit);
+  return knoten;
+}
+
+// --- die Stimmen ----------------------------------------------------------
+
+/**
+ * Bassdrum, 909-artig: Sinus mit steilem Tonhoehensturz, kurzer Rauschklick
+ * obendrauf, wahlweise weich gesaettigt.
+ */
+function kick(ctx, ziel, zeit, opt = {}) {
+  const {
+    pegel = 1,
+    abfall = STIMMEN_KICK_ABFALL,
+    tonhoehe = STIMMEN_KICK_GRUNDTON,
+    klick = 1,
+    saettigung = 0,
+  } = opt;
+
+  // --- Koerper ---
+  const oszillator = ctx.createOscillator();
+  oszillator.type = 'sine';
+  oszillator.frequency.setValueAtTime(STIMMEN_KICK_STARTTON, zeit);
+  oszillator.frequency.exponentialRampToValueAtTime(
+    Math.max(20, tonhoehe),
+    zeit + STIMMEN_KICK_STURZ,
+  );
+
+  // Die Huellkurve laeuft auf Spitze 1, damit die Kennlinie darunter immer
+  // dieselbe Aussteuerung sieht. Lautgemacht wird erst ganz am Ende.
+  const huelle = ctx.createGain();
+  const ende = stimmenHuelle(huelle.gain, zeit, STIMMEN_KICK_ANSTIEG, abfall, 1);
+
+  const anteil = Math.min(1, Math.max(0, saettigung));
+  const trocken = stimmenSteller(ctx, 1 - anteil, zeit);
+  const geformt = stimmenSteller(ctx, anteil, zeit);
+  const former = ctx.createWaveShaper();
+  former.curve = stimmenSaettigungskurve();
+  // 'none': Ueberabtastung wuerde den Einsatz um ein paar Abtastwerte
+  // verschmieren, und Timing ist hier wichtiger als die letzte Oberwelle.
+  former.oversample = 'none';
+
+  const aus = stimmenSteller(ctx, STIMMEN_KICK_SPITZE * pegel, zeit);
+
+  oszillator.connect(huelle);
+  huelle.connect(trocken).connect(aus);
+  huelle.connect(former).connect(geformt).connect(aus);
+  aus.connect(ziel);
+
+  oszillator.start(zeit);
+  stimmenBeenden(oszillator, [huelle, trocken, geformt, former, aus], ende);
+
+  // --- Anschlag ---
+  if (klick > 0) {
+    const quelle = stimmenRauschquelle(ctx, zeit, STIMMEN_KICK_KLICK_DAUER * 2);
+    const hoch = stimmenFilter(ctx, 'highpass', STIMMEN_KICK_KLICK_HOCHPASS, zeit);
+    const steller = ctx.createGain();
+    const klickEnde = stimmenHuelle(
+      steller.gain,
+      zeit,
+      0.0004,
+      STIMMEN_KICK_KLICK_DAUER,
+      STIMMEN_KICK_KLICK_SPITZE * klick * pegel,
+    );
+    quelle.connect(hoch).connect(steller).connect(ziel);
+    stimmenBeenden(quelle, [hoch, steller], klickEnde);
+  }
+}
+
+/**
+ * Klatsch: bandbegrenztes Rauschen in drei dicht aufeinanderfolgenden Koernern
+ * und einer Fahne. Die Koerner sind der ganze Punkt - ein einzelner Stoss
+ * derselben Laenge klingt nach Rauschen, nicht nach Haenden.
+ */
+function klatsch(ctx, ziel, zeit, opt = {}) {
+  const {
+    pegel = 1,
+    koerner = STIMMEN_KLATSCH_KOERNER,
+    abstand = STIMMEN_KLATSCH_ABSTAND,
+    fahne = STIMMEN_KLATSCH_FAHNE,
+    mitte = STIMMEN_KLATSCH_MITTE,
+  } = opt;
+
+  const spitze = STIMMEN_KLATSCH_SPITZE * pegel;
+  const fahneAb = zeit + koerner * abstand;
+  const ausklang = Math.min(STIMMEN_AUSKLANG_MAX, fahne * STIMMEN_AUSKLANG_ANTEIL);
+  const ende = fahneAb + fahne + ausklang;
+
+  const quelle = stimmenRauschquelle(ctx, zeit, ende - zeit + STIMMEN_NACHLAUF);
+  const band = stimmenFilter(ctx, 'bandpass', mitte, zeit, STIMMEN_KLATSCH_GUETE);
+  const steller = ctx.createGain();
+
+  const param = steller.gain;
+  param.setValueAtTime(0, zeit);
+  for (let i = 0; i < koerner; i++) {
+    const an = zeit + i * abstand;
+    const hoch =
+      spitze * (STIMMEN_KLATSCH_KORN_STAERKEN[i % STIMMEN_KLATSCH_KORN_STAERKEN.length] ?? 1);
+    param.setValueAtTime(0, an);
+    param.linearRampToValueAtTime(hoch, an + STIMMEN_KLATSCH_KORN_ANSTIEG);
+    // Bis auf einen Rest herunter, nicht bis null: der naechste Korn-Einsatz
+    // holt ihn ohnehin wieder hoch, und dazwischen soll eine hoerbare Kerbe
+    // stehen, kein Loch.
+    param.exponentialRampToValueAtTime(
+      hoch * STIMMEN_HUELLE_BODEN,
+      an + STIMMEN_KLATSCH_KORN_ABFALL,
+    );
+  }
+  param.setValueAtTime(0, fahneAb);
+  param.linearRampToValueAtTime(spitze * STIMMEN_KLATSCH_FAHNE_ANTEIL, fahneAb + 0.001);
+  param.exponentialRampToValueAtTime(
+    spitze * STIMMEN_KLATSCH_FAHNE_ANTEIL * STIMMEN_HUELLE_BODEN,
+    fahneAb + fahne,
+  );
+  param.linearRampToValueAtTime(0, ende);
+
+  quelle.connect(band).connect(steller).connect(ziel);
+  stimmenBeenden(quelle, [band, steller], ende);
+}
+
+// Hi-Hats und Becken teilen sich denselben Bau: Rauschen, Hochpass, Huelle.
+function stimmenRauschschlag(ctx, ziel, zeit, { hochpass, anstieg, abfall, spitze, glanz }) {
+  const ausklang = Math.min(STIMMEN_AUSKLANG_MAX, abfall * STIMMEN_AUSKLANG_ANTEIL);
+  const ende = zeit + anstieg + abfall + ausklang;
+
+  const quelle = stimmenRauschschlagQuelle(ctx, zeit, ende - zeit);
+  // Zwei Hochpaesse hintereinander: 24 dB pro Oktave. Mit nur einem bleibt zu
+  // viel Mitte stehen, und die Hi-Hat setzt sich dann mit der Snare in die
+  // Quere statt darueber zu sitzen.
+  const hoch1 = stimmenFilter(ctx, 'highpass', hochpass, zeit);
+  const hoch2 = stimmenFilter(ctx, 'highpass', hochpass, zeit);
+  const steller = ctx.createGain();
+  stimmenHuelle(steller.gain, zeit, anstieg, abfall, spitze);
+
+  const kette = [hoch1, hoch2, steller];
+  let letzter = quelle.connect(hoch1).connect(hoch2);
+  if (glanz) {
+    const spitzenfilter = stimmenFilter(
+      ctx,
+      'peaking',
+      glanz,
+      zeit,
+      STIMMEN_BECKEN_GLANZ_GUETE,
+      STIMMEN_BECKEN_GLANZ_DB,
+    );
+    kette.push(spitzenfilter);
+    letzter = letzter.connect(spitzenfilter);
+  }
+  letzter.connect(steller).connect(ziel);
+  stimmenBeenden(quelle, kette, ende);
+}
+
+// Eigener Name, damit der Helfer oben nicht mit `stimmenRauschquelle`
+// verwechselt wird - er tut dasselbe, ist aber die Stelle, an der eine
+// Hi-Hat spaeter einmal einen anderen Puffer bekommen koennte.
+function stimmenRauschschlagQuelle(ctx, zeit, dauer) {
+  return stimmenRauschquelle(ctx, zeit, dauer + STIMMEN_NACHLAUF);
+}
+
+/** Geschlossene Hi-Hat: sehr kurz. */
+function hutZu(ctx, ziel, zeit, opt = {}) {
+  const { pegel = 1, abfall = STIMMEN_HUT_ZU_ABFALL, hochpass = STIMMEN_HUT_HOCHPASS } = opt;
+  stimmenRauschschlag(ctx, ziel, zeit, {
+    hochpass,
+    anstieg: STIMMEN_HUT_ANSTIEG,
+    abfall,
+    spitze: STIMMEN_HUT_SPITZE * pegel,
+    glanz: 0,
+  });
+}
+
+/** Offene Hi-Hat: dasselbe Band, nur laenger. Gleicher Pegel - der Aufrufer regelt. */
+function hutAuf(ctx, ziel, zeit, opt = {}) {
+  const { pegel = 1, abfall = STIMMEN_HUT_AUF_ABFALL, hochpass = STIMMEN_HUT_HOCHPASS } = opt;
+  stimmenRauschschlag(ctx, ziel, zeit, {
+    hochpass,
+    anstieg: STIMMEN_HUT_ANSTIEG,
+    abfall,
+    spitze: STIMMEN_HUT_SPITZE * pegel,
+    glanz: 0,
+  });
+}
+
+/** Becken: tiefer angesetzter Hochpass, ein Glanz bei 9 kHz, langer Abfall. */
+function becken(ctx, ziel, zeit, opt = {}) {
+  const { pegel = 1, abfall = STIMMEN_BECKEN_ABFALL, hochpass = STIMMEN_BECKEN_HOCHPASS } = opt;
+  stimmenRauschschlag(ctx, ziel, zeit, {
+    hochpass,
+    anstieg: STIMMEN_BECKEN_ANSTIEG,
+    abfall,
+    spitze: STIMMEN_BECKEN_SPITZE * pegel,
+    glanz: STIMMEN_BECKEN_GLANZ,
+  });
+}
+
+/**
+ * Der Aufbau-Sweep: Rauschen durch ein wanderndes Band, Lautstaerke waechst
+ * mit. Am Ende bricht er ab statt auszuklingen - der Abriss ist die Stelle,
+ * an der im Club der Drop sitzt.
+ */
+function rausch(ctx, ziel, zeit, opt = {}) {
+  const {
+    pegel = 1,
+    dauer = STIMMEN_SWEEP_DAUER,
+    richtung = 'hoch',
+    tief = STIMMEN_SWEEP_TIEF,
+    hoch = STIMMEN_SWEEP_HOCH,
+    guete = STIMMEN_SWEEP_GUETE,
+    abriss = STIMMEN_SWEEP_ABRISS,
+  } = opt;
+
+  const aufwaerts = richtung !== 'runter';
+  const von = aufwaerts ? tief : hoch;
+  const bis = aufwaerts ? hoch : tief;
+  const ende = zeit + dauer + abriss;
+  const spitze = STIMMEN_SWEEP_SPITZE * pegel;
+
+  // Schleife an: `dauer` darf laenger sein als der Rauschpuffer.
+  const quelle = stimmenRauschquelle(ctx, zeit, dauer + abriss, true);
+  const band = stimmenFilter(ctx, 'bandpass', von, zeit, guete);
+  band.frequency.exponentialRampToValueAtTime(bis, zeit + dauer);
+
+  const steller = ctx.createGain();
+  // Die Lautstaerke folgt der Richtung. Aufwaerts ist der Aufbau: leise
+  // beginnen, bis zum Abriss anwachsen. Abwaerts ist der Einschlag danach -
+  // sofort voll da und wegfallend. Ein abwaertsfahrender Sweep, der dabei
+  // lauter wird, klaenge wie ein Aufbau, der rueckwaerts laeuft.
+  //
+  // Exponentiell in beiden Richtungen, weil das Ohr Lautstaerke so hoert: Ein
+  // linearer Aufbau steht die erste Haelfte lang scheinbar still und knallt
+  // dann.
+  if (aufwaerts) {
+    steller.gain.setValueAtTime(spitze * STIMMEN_SWEEP_START_ANTEIL, zeit);
+    steller.gain.exponentialRampToValueAtTime(spitze, zeit + dauer);
+    steller.gain.linearRampToValueAtTime(0, ende);
+  } else {
+    steller.gain.setValueAtTime(spitze, zeit);
+    steller.gain.exponentialRampToValueAtTime(spitze * STIMMEN_SWEEP_START_ANTEIL, zeit + dauer);
+    steller.gain.linearRampToValueAtTime(0, ende);
+  }
+
+  quelle.connect(band).connect(steller).connect(ziel);
+  stimmenBeenden(quelle, [band, steller], ende);
+}
+
+/**
+ * Stich: kurzer tonaler Akzent aus leicht verstimmten Saegezaehnen hinter
+ * einem Tiefpass mit eigener Huellkurve.
+ */
+function stich(ctx, ziel, zeit, opt = {}) {
+  const {
+    pegel = 1,
+    hertz = STIMMEN_STICH_HERTZ,
+    abfall = STIMMEN_STICH_ABFALL,
+    oszillatoren = STIMMEN_STICH_OSZILLATOREN,
+    verstimmung = STIMMEN_STICH_VERSTIMMUNG,
+    offen = STIMMEN_STICH_OFFEN,
+    schliessen = STIMMEN_STICH_SCHLIESSEN,
+  } = opt;
+
+  const anzahl = Math.max(1, Math.min(3, Math.round(oszillatoren)));
+  const summe = ctx.createGain();
+  summe.gain.setValueAtTime(1 / anzahl, zeit);
+
+  const tief = stimmenFilter(ctx, 'lowpass', offen, zeit, STIMMEN_STICH_GUETE);
+  // Der Tiefpass schliesst schneller, als die Lautstaerke faellt. Genau das
+  // macht aus einem Ton einen Stich: vorne Biss, hinten nur noch Grundton.
+  tief.frequency.exponentialRampToValueAtTime(
+    Math.max(60, hertz * STIMMEN_STICH_ZU_ANTEIL),
+    zeit + schliessen,
+  );
+
+  const steller = ctx.createGain();
+  const ende = stimmenHuelle(
+    steller.gain,
+    zeit,
+    STIMMEN_STICH_ANSTIEG,
+    abfall,
+    STIMMEN_STICH_SPITZE * pegel,
+  );
+
+  summe.connect(tief).connect(steller).connect(ziel);
+
+  // Cent-Werte um null herum: bei einem Oszillator genau null, sonst
+  // symmetrisch verstimmt.
+  for (let i = 0; i < anzahl; i++) {
+    const oszillator = ctx.createOscillator();
+    oszillator.type = 'sawtooth';
+    oszillator.frequency.setValueAtTime(hertz, zeit);
+    const versatz = anzahl === 1 ? 0 : (i / (anzahl - 1)) * 2 - 1;
+    oszillator.detune.setValueAtTime(versatz * verstimmung, zeit);
+    oszillator.connect(summe);
+    oszillator.start(zeit);
+    // Nur der erste haengt die geteilte Kette ab, die anderen sich selbst.
+    stimmenBeenden(oszillator, i === 0 ? [summe, tief, steller] : [], ende);
+  }
+}
+
+
+// ===== public/gemeinsam/maschine.js =====
+// Die Maschine: das Schlagwerk, das aus jedem Material Techno macht.
+//
+// Der Anlass war eine Feldaufnahme mit Meeresrauschen. Ein Beatmatcher kann
+// damit nichts anfangen - es gibt keinen Beat, auf den er matchen koennte, und
+// die Tempoerkennung meldete pflichtschuldig 161 BPM. Ein DJ wuerde so ein
+// Stueck nicht einmischen. Er wuerde eine Drum Machine daruntersetzen, dem
+// Rauschen den Bass wegnehmen und es als Flaeche benutzen.
+//
+// Genau das ist diese Datei. Sie erzeugt den Takt selbst, statt ihn zu suchen.
+//
+// Zwei Entscheidungen, die alles Weitere bestimmen:
+//
+//   1. Die Maschine hat eine *eigene* Uhr. Sie uebernimmt Tempo und Phase beim
+//      Start einmal vom laufenden Deck und laeuft dann selbstaendig weiter.
+//      Kein Nachregeln pro Bild, kein Zittern. Beide Uhren sind lineare
+//      Funktionen der Kontextzeit, also bleiben sie von allein zusammen -
+//      und bei rasterlosem Material gibt es ohnehin nichts, worauf man sich
+//      einrasten koennte.
+//
+//   2. Geplant wird im Voraus, nicht im Bild. Die Bildrate schwankt, die
+//      Audiouhr nicht. Jeder Aufruf von tick() plant alles, was in den
+//      naechsten 250 ms faellig wird, mit absoluten Zeiten. Selbst wenn ein
+//      Bild ausfaellt, sitzt der Kick.
+
+
+const SCHRITTE_PRO_TAKT = 16; // Sechzehntel
+const TAKTE_PRO_BLOCK = 32; // ein voller Durchlauf des Arrangements
+const MASCHINE_VORLAUF = 0.25; // Sekunden im Voraus planen
+
+// Sechzehntel-Swing. 0.5 ist gerade, 0.56 ist der uebliche Wert fuer Techno:
+// spuerbar, aber nicht nach Shuffle klingend.
+const MASCHINE_SWING = 0.56;
+
+// --- Muster ----------------------------------------------------------------
+//
+// Jedes Muster sind 16 Schritte mit Anschlagstaerke 0..1. Eine 0 heisst: hier
+// passiert nichts.
+//
+// Der Vierviertel-Kick ist nicht verhandelbar - er ist der Grund, warum das
+// Ganze als Techno durchgeht. Alles andere darf sich aendern.
+
+const KICK_GERADE = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
+// Ein zusaetzlicher Schlag kurz vor der Eins des naechsten Takts. Klassischer
+// Vorwaertsdruck, aber nur in den harten Stufen - sonst stolpert es.
+const KICK_SCHUB = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.8, 0];
+
+// Klatsch auf die Zwei und die Vier. Das ist der Backbeat; ohne ihn faellt der
+// Takt auseinander, weil der Vierviertel-Kick allein keine Eins markiert.
+const KLATSCH_ZWEI_VIER = [0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0];
+
+// Offene Hihat auf den Achtel-Offbeats - zwischen den Kicks. Der Puls, an dem
+// man House und Techno von allem anderen unterscheidet.
+const HUT_AUF_OFFBEAT = [0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0];
+
+// Geschlossene Hihats. Die Achtelfassung ist ruhig, die Sechzehntelfassung
+// treibt. Wo die offene Hihat sitzt, bleibt die geschlossene weg - sonst
+// klingen beide zusammen wie ein Fehler.
+const HUT_ZU_ACHTEL = [0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0, 0, 0, 0.7, 0, 0, 0];
+const HUT_ZU_SECHZEHNTEL = [
+  0.75, 0.4, 0, 0.45, 0.7, 0.4, 0, 0.45, 0.75, 0.4, 0, 0.45, 0.7, 0.4, 0, 0.5,
+];
+
+// Der tonale Stich. Synkopiert, damit er nicht auf dem Kick klebt.
+const STICH_MUSTER = [0, 0, 0, 0.7, 0, 0, 1, 0, 0, 0, 0, 0.6, 0, 0, 0, 0];
+// Eine Molltonleiter in Halbtonschritten ueber dem Grundton. Techno braucht
+// keine Akkorde, aber ein wiederkehrendes Motiv macht aus einem Beat ein
+// Stueck.
+const STICH_MOTIV = [0, 0, 7, 10, 0, 3, 7, 12];
+
+// --- Die Stufen ------------------------------------------------------------
+//
+// Wie hart es klingt, haengt an der Zielenergie des Abends - derselben Zahl,
+// die auch die Uebergaenge steuert. Frueh ein trockener Kick und Achtel-Hats,
+// spaeter Saettigung, Sechzehntel und Rumpeln.
+
+const MASCHINE_STUFEN = [
+  {
+    bis: 0.35,
+    name: 'Puls',
+    kick: { muster: KICK_GERADE, abfall: 0.3, saettigung: 0, tonhoehe: 50 },
+    hutZu: HUT_ZU_ACHTEL,
+    hutAufPegel: 0.35,
+    klatschPegel: 0.5,
+    rumpeln: 0,
+    stiche: false,
+    duckTiefe: 0.75,
+  },
+  {
+    bis: 0.6,
+    name: 'Groove',
+    kick: { muster: KICK_GERADE, abfall: 0.34, saettigung: 0.25, tonhoehe: 49 },
+    hutZu: HUT_ZU_SECHZEHNTEL,
+    hutAufPegel: 0.5,
+    klatschPegel: 0.7,
+    rumpeln: 0.35,
+    stiche: true,
+    duckTiefe: 0.6,
+  },
+  {
+    bis: 0.8,
+    name: 'Druck',
+    kick: { muster: KICK_GERADE, abfall: 0.4, saettigung: 0.55, tonhoehe: 48 },
+    hutZu: HUT_ZU_SECHZEHNTEL,
+    hutAufPegel: 0.6,
+    klatschPegel: 0.8,
+    rumpeln: 0.6,
+    stiche: true,
+    duckTiefe: 0.45,
+  },
+  {
+    bis: 1.01,
+    name: 'Brett',
+    kick: { muster: KICK_SCHUB, abfall: 0.46, saettigung: 0.85, tonhoehe: 46 },
+    hutZu: HUT_ZU_SECHZEHNTEL,
+    hutAufPegel: 0.7,
+    klatschPegel: 0.9,
+    rumpeln: 0.85,
+    stiche: true,
+    duckTiefe: 0.35,
+  },
+];
+
+function stufeFuer(zielenergie) {
+  const wert = Math.min(1, Math.max(0, zielenergie ?? 0.5));
+  return MASCHINE_STUFEN.find((s) => wert < s.bis) ?? MASCHINE_STUFEN[MASCHINE_STUFEN.length - 1];
+}
+
+// --- Das Arrangement -------------------------------------------------------
+//
+// Zweiunddreissig Takte, dann von vorn. Die Blockgrenzen liegen auf 4, 8 und
+// 16 - genau da, wo elektronische Musik ihre Kanten hat.
+//
+// Der entscheidende Zug steht bei Takt 24: Der Kick geht raus. Das ist im
+// Techno der staerkste Effekt ueberhaupt, und er kostet nichts. Vier Takte
+// lang hat der Koerper vier Schlaege pro Takt gelernt; nimmt man sie weg,
+// entsteht mehr Spannung als jeder Riser sie aufbauen kann. Wenn der Kick
+// bei Takt 0 zurueckkommt, springt die Energie eine ganze Stufe hoch, ohne
+// dass ein einziges neues Element dazugekommen waere.
+
+/**
+ * Was laeuft in Takt `takt` eines Blocks?
+ * @param {number} takt 0..31
+ * @returns {{kick:boolean, klatsch:boolean, hutZu:boolean, hutAuf:boolean,
+ *            rumpeln:boolean, stiche:boolean, aufbau:number, name:string}}
+ */
+function arrangementFuer(takt) {
+  const t = ((takt % TAKTE_PRO_BLOCK) + TAKTE_PRO_BLOCK) % TAKTE_PRO_BLOCK;
+
+  // Takt 24 bis 31: der Kick ist draussen und ein Rauschen faehrt hoch.
+  // aufbau laeuft von 0 auf 1 und steuert Rauschen, Filter und Hall.
+  if (t >= 24) {
+    return {
+      kick: false,
+      klatsch: t >= 28,
+      hutZu: true,
+      hutAuf: true,
+      rumpeln: false,
+      stiche: t < 28,
+      aufbau: (t - 24) / 8,
+      name: 'Sog',
+    };
+  }
+  if (t >= 16) {
+    return { kick: true, klatsch: true, hutZu: true, hutAuf: true, rumpeln: true, stiche: true, aufbau: 0, name: 'Hoehepunkt' };
+  }
+  if (t >= 8) {
+    return { kick: true, klatsch: true, hutZu: true, hutAuf: true, rumpeln: true, stiche: false, aufbau: 0, name: 'Groove' };
+  }
+  if (t >= 4) {
+    return { kick: true, klatsch: false, hutZu: true, hutAuf: true, rumpeln: false, stiche: false, aufbau: 0, name: 'Kick rein' };
+  }
+  return { kick: false, klatsch: false, hutZu: true, hutAuf: false, rumpeln: false, stiche: false, aufbau: 0, name: 'Einzug' };
+}
+
+// --- Die Maschine ----------------------------------------------------------
+
+class Maschine {
+  /**
+   * @param {AudioContext} ctx
+   * @param {AudioNode} ziel        wohin das Schlagwerk geht (hinter der Pumpe)
+   * @param {(zeit:number, tiefe:number, dauer:number)=>void} beiKick
+   *        wird fuer jeden geplanten Kick gerufen, damit die Musik ducken kann
+   */
+  constructor(ctx, ziel, beiKick = () => {}) {
+    this.ctx = ctx;
+    this.beiKick = beiKick;
+
+    this.laeuft = false;
+    this.bpm = 130;
+    this.ankerZeit = 0; // Kontextzeit von Schritt 0
+    this.naechsterSchritt = 0;
+    this.zielenergie = 0.5;
+    this.stiche = false;
+
+    // Ein eigener Bus, damit sich das ganze Schlagwerk in einem Zug ein- und
+    // ausblenden laesst.
+    //
+    // 0,68 und nicht 1. Der Grund liegt auf der Zwei und der Vier: Dort faellt
+    // der Klatsch mit dem Kick zusammen, und beide zusammen mit der Hi-Hat
+    // standen nachgemessen bei 1,10 - ueber Vollaussteuerung.
+    //
+    // Nachgemessen wurde auch, was *nicht* daran schuld ist: Ohne Rumpeln
+    // bleibt die Spitze gleich, ohne Stiche ebenfalls. Es ist wirklich nur
+    // das Zusammentreffen der drei lautesten Stimmen auf demselben Schritt.
+    //
+    // Der Begrenzer im Mixer wuerde das auffangen, aber dann arbeitet er auf
+    // jeder Zwei und jeder Vier - und dann atmet der ganze Abend im Backbeat.
+    this.bus = ctx.createGain();
+    this.bus.gain.value = 0.68;
+
+    // Der Rumpelweg. Kick -> langer Hall -> Verzerrung -> Tiefpass. Uebrig
+    // bleibt eine Basswolke, die zwischen den Schlaegen weiterrollt. Das ist
+    // der Klang, den moderner Techno unter dem Kick hat, und er entsteht nicht
+    // aus einem Sample, sondern genau so.
+    this.rumpelEingang = ctx.createGain();
+    this.rumpelEingang.gain.value = 0;
+    this.rumpelHall = ctx.createConvolver();
+    this.rumpelHall.buffer = hallfahne(ctx, 2.6);
+    this.rumpelForm = ctx.createWaveShaper();
+    this.rumpelForm.curve = saettigungsKurve(3.5);
+    this.rumpelTief = ctx.createBiquadFilter();
+    this.rumpelTief.type = 'lowpass';
+    this.rumpelTief.frequency.value = 150;
+    this.rumpelTief.Q.value = 0.7071;
+    this.rumpelPegel = ctx.createGain();
+    this.rumpelPegel.gain.value = 0.9;
+
+    this.rumpelEingang
+      .connect(this.rumpelHall)
+      .connect(this.rumpelForm)
+      .connect(this.rumpelTief)
+      .connect(this.rumpelPegel)
+      .connect(this.bus);
+
+    this.bus.connect(ziel);
+
+    // Nur fuer die Anzeige und die Abnahme: was zuletzt geplant wurde.
+    this.letzteEreignisse = [];
+    this.geplanteKicks = [];
+  }
+
+  get schrittDauer() {
+    return 60 / this.bpm / (SCHRITTE_PRO_TAKT / 4);
+  }
+
+  get stufe() {
+    return stufeFuer(this.zielenergie);
+  }
+
+  /**
+   * Uhr stellen und loslaufen.
+   * @param {number} bpm
+   * @param {number} ersterSchlag Kontextzeit eines Schlags, auf dem die Eins
+   *        sitzen soll. Muss nicht in der Zukunft liegen - es wird vorwaerts
+   *        gerechnet, bis der naechste Schritt hinter der Gegenwart liegt.
+   */
+  starten(bpm, ersterSchlag) {
+    this.bpm = bpm;
+    this.ankerZeit = ersterSchlag;
+    this.laeuft = true;
+    this.geplanteKicks = [];
+
+    // Auf den naechsten Taktanfang ab jetzt vorspulen. Mitten in einem Takt
+    // einzusteigen hoert sich nach Unfall an.
+    const jetzt = this.ctx.currentTime;
+    const proTakt = this.schrittDauer * SCHRITTE_PRO_TAKT;
+    const takteVoraus = Math.max(0, Math.ceil((jetzt + 0.05 - this.ankerZeit) / proTakt));
+    this.naechsterSchritt = takteVoraus * SCHRITTE_PRO_TAKT;
+  }
+
+  stoppen() {
+    this.laeuft = false;
+    this.geplanteKicks = [];
+  }
+
+  zeitFuerSchritt(schritt) {
+    const roh = this.ankerZeit + schritt * this.schrittDauer;
+    // Swing: die ungeraden Sechzehntel kommen etwas spaeter. Nur sie - die
+    // geraden bleiben, wo sie sind, sonst waere es kein Swing, sondern ein
+    // langsameres Tempo.
+    const imTakt = ((schritt % SCHRITTE_PRO_TAKT) + SCHRITTE_PRO_TAKT) % SCHRITTE_PRO_TAKT;
+    const versatz = imTakt % 2 === 1 ? (MASCHINE_SWING - 0.5) * 2 * this.schrittDauer : 0;
+    return roh + versatz;
+  }
+
+  /** Auf welchem Takt des Arrangements steht die Maschine gerade? */
+  taktJetzt() {
+    const vergangen = this.ctx.currentTime - this.ankerZeit;
+    return Math.floor(vergangen / (this.schrittDauer * SCHRITTE_PRO_TAKT));
+  }
+
+  /**
+   * Alles planen, was in den naechsten MASCHINE_VORLAUF Sekunden faellig ist.
+   * Jeden Bildaufbau einmal rufen. Mehrfaches Rufen schadet nicht - geplant
+   * wird nur, was noch nicht geplant war.
+   */
+  tick() {
+    if (!this.laeuft) return;
+    const grenze = this.ctx.currentTime + MASCHINE_VORLAUF;
+
+    // Deckel gegen eine Endlosschleife: Stand der Rechner still (Tabwechsel),
+    // liegen tausende Schritte in der Vergangenheit. Die werden nicht
+    // nachgeholt, sondern uebersprungen.
+    let sicherung = 0;
+    while (this.zeitFuerSchritt(this.naechsterSchritt) < grenze && sicherung++ < 256) {
+      const zeit = this.zeitFuerSchritt(this.naechsterSchritt);
+      if (zeit > this.ctx.currentTime - 0.05) this.schrittSpielen(this.naechsterSchritt, zeit);
+      this.naechsterSchritt++;
+    }
+
+    // Abgelaufene Kicks aus der Liste werfen.
+    const alt = this.ctx.currentTime - 1;
+    this.geplanteKicks = this.geplanteKicks.filter((k) => k > alt);
+  }
+
+  schrittSpielen(schritt, zeit) {
+    const stufe = this.stufe;
+    const imTakt = ((schritt % SCHRITTE_PRO_TAKT) + SCHRITTE_PRO_TAKT) % SCHRITTE_PRO_TAKT;
+    const takt = Math.floor(schritt / SCHRITTE_PRO_TAKT);
+    const plan = arrangementFuer(takt);
+    const ctx = this.ctx;
+    const ziel = this.bus;
+
+    // --- Kick, und mit ihm das Ducken der Musik ---------------------------
+    const kickStaerke = stufe.kick.muster[imTakt];
+    if (plan.kick && kickStaerke > 0) {
+      kick(ctx, ziel, zeit, {
+        pegel: kickStaerke,
+        abfall: stufe.kick.abfall,
+        tonhoehe: stufe.kick.tonhoehe,
+        saettigung: stufe.kick.saettigung,
+      });
+      if (plan.rumpeln && stufe.rumpeln > 0) {
+        // Der Rumpelweg bekommt denselben Kick, nur ohne Klick - der Hall
+        // soll den Bass verlaengern, nicht den Anschlag verschmieren.
+        kick(ctx, this.rumpelEingang, zeit, {
+          pegel: kickStaerke * stufe.rumpeln,
+          abfall: stufe.kick.abfall,
+          tonhoehe: stufe.kick.tonhoehe,
+          klick: 0,
+          saettigung: 0,
+        });
+        this.rumpelEingang.gain.setValueAtTime(1, zeit);
+      }
+      // Die Musik wird geduckt. Etwas frueher als der Kick selbst: Der
+      // Ohreindruck haengt am Einsetzen, und ein Sidechain, der erst mit dem
+      // Kick beginnt, laesst den Anschlag durch.
+      this.beiKick(zeit - 0.004, stufe.duckTiefe, this.schrittDauer * 2.4);
+      this.geplanteKicks.push(zeit);
+    }
+
+    // --- Klatsch ----------------------------------------------------------
+    if (plan.klatsch && KLATSCH_ZWEI_VIER[imTakt] > 0) {
+      klatsch(ctx, ziel, zeit, { pegel: KLATSCH_ZWEI_VIER[imTakt] * stufe.klatschPegel });
+    }
+
+    // --- Hihats -----------------------------------------------------------
+    const offen = HUT_AUF_OFFBEAT[imTakt] > 0;
+    if (plan.hutAuf && offen) {
+      hutAuf(ctx, ziel, zeit, { pegel: stufe.hutAufPegel, abfall: this.schrittDauer * 2.2 });
+    }
+    if (plan.hutZu && !offen) {
+      const staerke = stufe.hutZu[imTakt];
+      if (staerke > 0) hutZu(ctx, ziel, zeit, { pegel: staerke * 0.5 });
+    }
+
+    // --- Fuellsel am Taktende ---------------------------------------------
+    // Alle acht Takte ein Sechzehntel-Wirbel auf den letzten Schlag, alle
+    // sechzehn ein laengerer. Ohne so etwas klingt ein Muster nach zwei
+    // Minuten wie eine Schleife, weil es eine ist.
+    const taktImBlock = ((takt % TAKTE_PRO_BLOCK) + TAKTE_PRO_BLOCK) % TAKTE_PRO_BLOCK;
+    const wirbelTakt = taktImBlock % 8 === 7;
+    if (wirbelTakt && imTakt >= 12 && plan.hutZu) {
+      hutZu(ctx, ziel, zeit, { pegel: 0.25 + ((imTakt - 12) / 3) * 0.4, abfall: 0.028 });
+    }
+    if (taktImBlock % 16 === 15 && imTakt >= 8 && plan.klatsch) {
+      // Klatschwirbel vor dem Blockwechsel, dichter werdend.
+      const dichte = imTakt >= 12 ? 1 : 2;
+      if ((imTakt - 8) % dichte === 0) {
+        klatsch(ctx, ziel, zeit, { pegel: 0.3 + ((imTakt - 8) / 7) * 0.5 });
+      }
+    }
+
+    // --- Becken auf den Blockanfang ---------------------------------------
+    if (taktImBlock === 0 && imTakt === 0) {
+      becken(ctx, ziel, zeit, { pegel: 0.42, abfall: 1.8 });
+    }
+
+    // --- Der Sog: Rauschen faehrt hoch ------------------------------------
+    // Nur einmal je Takt anstossen, sonst ueberlagern sich acht Sweeps.
+    if (plan.aufbau > 0 && imTakt === 0) {
+      const proTakt = this.schrittDauer * SCHRITTE_PRO_TAKT;
+      rausch(ctx, ziel, zeit, {
+        pegel: 0.1 + plan.aufbau * 0.32,
+        dauer: proTakt,
+        richtung: 'hoch',
+      });
+    }
+    // Und der Schlag, mit dem der Kick zurueckkommt.
+    if (taktImBlock === 0 && imTakt === 0) {
+      rausch(ctx, ziel, zeit, { pegel: 0.3, dauer: 0.9, richtung: 'runter' });
+    }
+
+    // --- Stiche -----------------------------------------------------------
+    if (this.stiche && plan.stiche && stufe.stiche && STICH_MUSTER[imTakt] > 0) {
+      const halbton = STICH_MOTIV[(takt * 3 + imTakt) % STICH_MOTIV.length];
+      stich(ctx, ziel, zeit, {
+        pegel: STICH_MUSTER[imTakt] * 0.3,
+        hertz: 110 * Math.pow(2, halbton / 12),
+        abfall: this.schrittDauer * 1.6,
+      });
+    }
+
+    if (imTakt === 0) {
+      this.letzteEreignisse = [plan.name, stufe.name];
+    }
+  }
+
+  /** Momentaufnahme fuer Anzeige und Abnahme. */
+  zustand() {
+    const takt = this.taktJetzt();
+    const plan = arrangementFuer(takt);
+    return {
+      laeuft: this.laeuft,
+      bpm: Number(this.bpm.toFixed(2)),
+      takt,
+      taktImBlock: ((takt % TAKTE_PRO_BLOCK) + TAKTE_PRO_BLOCK) % TAKTE_PRO_BLOCK,
+      abschnitt: plan.name,
+      stufe: this.stufe.name,
+      aufbau: plan.aufbau,
+      stimmen: [
+        plan.kick && 'Kick',
+        plan.klatsch && 'Klatsch',
+        plan.hutZu && 'Hut',
+        plan.hutAuf && 'Offen',
+        plan.rumpeln && this.stufe.rumpeln > 0 && 'Rumpeln',
+        this.stiche && plan.stiche && this.stufe.stiche && 'Stiche',
+      ].filter(Boolean),
+    };
+  }
+}
+
+// --- Hilfsmittel -----------------------------------------------------------
+
+// Eine kurze Hallfahne als Rauschen mit abfallender Huellkurve. Kein echter
+// Raum, aber fuer den Rumpelweg geht es nicht um Raum, sondern nur darum, den
+// Kick zeitlich auszuschmieren, bevor er durch Verzerrung und Tiefpass geht.
+const hallfahnen = new WeakMap();
+
+function hallfahne(ctx, sekunden) {
+  const vorhanden = hallfahnen.get(ctx);
+  if (vorhanden) return vorhanden;
+
+  const laenge = Math.floor(ctx.sampleRate * sekunden);
+  const puffer = ctx.createBuffer(2, laenge, ctx.sampleRate);
+  for (let k = 0; k < 2; k++) {
+    const daten = puffer.getChannelData(k);
+    for (let i = 0; i < laenge; i++) {
+      const rest = 1 - i / laenge;
+      daten[i] = (Math.random() * 2 - 1) * Math.pow(rest, 2.5);
+    }
+  }
+  hallfahnen.set(ctx, puffer);
+  return puffer;
+}
+
+// tanh-artige Kennlinie. Bei kleinem Pegel fast gerade, bei grossem flach -
+// das ist der Unterschied zwischen Saettigung und Uebersteuerung.
+const kurven = new Map();
+
+function saettigungsKurve(staerke) {
+  const schluessel = staerke.toFixed(2);
+  const fertig = kurven.get(schluessel);
+  if (fertig) return fertig;
+
+  const n = 2048;
+  const kurve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    kurve[i] = Math.tanh(x * staerke) / Math.tanh(staerke);
+  }
+  kurven.set(schluessel, kurve);
+  return kurve;
+}
+
+
 // ===== public/buehne/buehne.js =====
 // Die Buehne: hier laeuft die Musik, hier sieht man beim Mischen zu, und hier
 // dreht man waehrend der Entwicklung an allem, was sich einstellen laesst.
@@ -3305,6 +4459,18 @@ const welt = {
   // Schon eingeplante Drops, damit derselbe nicht mehrfach bedient wird.
   bedienteDrops: new Set(),
   remixAn: true,
+  // Das Schlagwerk. Laeuft nur, wenn es jemand einschaltet oder ein Track
+  // ohne brauchbares Raster hochkommt.
+  maschine: null,
+  maschineLaeuft: false,
+  maschineGrund: null,
+  // Von Hand eingeschaltet? Dann bleibt sie an, auch wenn der naechste Track
+  // ein sauberes Raster mitbringt.
+  maschineVonHand: false,
+  // Und umgekehrt: Fuer welchen Track hat jemand sie ausdruecklich
+  // abgeschaltet? Ohne dieses Gedaechtnis wuerde die Nachfuehrung sie im
+  // naechsten Bild wieder anwerfen, und der Knopf waere wirkungslos.
+  maschineAbgelehnt: null,
 };
 
 // Zustand offenlegen. Zwei Gruende: Die Abnahme prueft damit die Engine statt
@@ -3532,6 +4698,8 @@ $('remixAn').addEventListener('change', (e) => {
   welt.remixAn = e.target.checked;
 });
 
+$('remixJetzt').addEventListener('click', () => maschineUmschalten());
+
 $('angleichAn').addEventListener('change', (e) => {
   welt.angleichAn = e.target.checked;
 });
@@ -3549,6 +4717,7 @@ document.addEventListener('keydown', (e) => {
   }
   const arten = { 1: 'blende', 2: 'aufzug', 3: 'echo', 4: 'schnitt' };
   if (arten[e.key]) ueberblenden(arten[e.key]);
+  if (e.key === 'r' || e.key === 'R') maschineUmschalten();
 });
 
 // --- Zustand vom Server ---------------------------------------------------
@@ -3630,6 +4799,7 @@ function schleife(jetzt = 0) {
     : '';
 
   tonZustandZeigen();
+  maschinePflegen();
   remixPruefen(zustand);
   nachschubPruefen();
   wachhund(zustand);
@@ -3640,6 +4810,169 @@ function schleife(jetzt = 0) {
 // Vor jedem Drop wird geprueft, ob ein Loop-Roll hineinpasst und ob die Regie
 // ihn gerade will. Die Regie haengt an der Zielenergie: frueh am Abend gar
 // nicht, spaeter oft und schaerfer.
+
+// --- Die Maschine ---------------------------------------------------------
+//
+// Der Grund, warum es sie gibt, stand eines Abends als Datei da: eine
+// fuenfminuetige Aufnahme von Meeresrauschen. Kein Beat, nichts zum Anlegen,
+// und die Tempoerkennung meldete pflichtbewusst 161 BPM. Ein Beatmatcher kann
+// damit nichts anfangen.
+//
+// Ein DJ schon. Er wuerde eine Drum Machine daruntersetzen, dem Rauschen den
+// Bass wegnehmen und es als Flaeche benutzen. Danach ist es Techno.
+
+// Wenn die Quelle kein eigenes Tempo mitbringt, laeuft die Maschine hier.
+// 128 ist die Mitte des Clubtempos und passt zu fast allem.
+const MASCHINE_STANDARDTEMPO = 128;
+// So weit wird der Musik der Bass weggenommen, solange die Maschine laeuft.
+const MASCHINE_HOCHPASS = 165;
+
+function maschineSichern() {
+  if (!welt.maschine && welt.mixer) {
+    welt.maschine = new Maschine(welt.ctx, welt.mixer.maschinenBus, (zeit, tiefe, dauer) =>
+      welt.mixer.ducken(zeit, tiefe, dauer),
+    );
+  }
+  return welt.maschine;
+}
+
+/**
+ * Das Schlagwerk anwerfen.
+ *
+ * Tempo und Phase kommen vom laufenden Deck, wenn dessen Raster etwas taugt -
+ * dann sitzt der Kick auf den Schlaegen der Musik. Taugt es nichts, setzt die
+ * Maschine ihr eigenes Tempo, und die Quelle wird zur Flaeche darunter.
+ */
+function maschineStarten(grund = 'von Hand') {
+  const maschine = maschineSichern();
+  if (!maschine || welt.maschineLaeuft) return null;
+
+  const deck = welt.mixer.laufendesDeck;
+  const track = deck?.track;
+  const traegt = deck?.laeuft && track && !track.ohneRaster && (track.bpmVertrauen ?? 1) >= 0.35;
+
+  let bpm = MASCHINE_STANDARDTEMPO;
+  let anker = welt.ctx.currentTime;
+  if (traegt) {
+    bpm = deck.effektivBpm() ?? MASCHINE_STANDARDTEMPO;
+    // Die Kontextzeit von Beat 0 der Datei. Von dort aus rechnet die Maschine
+    // selbst weiter - sie braucht das Deck danach nicht mehr.
+    anker = deck.startZeit + ((track.raster ?? 0) - deck.startInDatei) / deck.tempo;
+  }
+
+  // Bei rasterlosem Material darf die Maschine auch Toene beisteuern. Bei
+  // echter Musik nicht: Ein Stich in der falschen Tonart ist schlimmer als
+  // gar keiner, und die Tonart kennen wir nicht.
+  maschine.stiche = !traegt;
+  maschine.zielenergie = welt.zielenergie;
+  maschine.starten(bpm, anker);
+
+  const jetzt = welt.ctx.currentTime;
+  welt.mixer.maschinenPegel(jetzt, 1, 0.6);
+  // Der Musik den Keller wegnehmen. Zwei Bassdrums uebereinander sind Matsch -
+  // dieselbe Regel wie zwischen zwei Decks, hier zwischen Musik und Maschine.
+  welt.mixer.musikHochpass(jetzt, MASCHINE_HOCHPASS, 1.5);
+
+  welt.maschineLaeuft = true;
+  welt.maschineGrund = traegt ? `auf ${bpm.toFixed(1)} BPM des Tracks` : `eigenes Tempo, ${grund}`;
+  welt.verlauf.unshift({
+    zeit: new Date(),
+    art: 'Remix an',
+    nach: track?.titel ?? '—',
+    hinweis: welt.maschineGrund,
+  });
+  welt.verlauf = welt.verlauf.slice(0, 30);
+  zeichneVerlauf();
+  return maschine;
+}
+
+function maschineStoppen() {
+  if (!welt.maschineLaeuft) return;
+  const jetzt = welt.ctx.currentTime;
+  // Erst ausblenden, dann den Planer abstellen - sonst bricht der Kick mitten
+  // im Schlag ab.
+  welt.mixer.maschinenPegel(jetzt, 0, 0.8);
+  welt.mixer.musikHochpass(jetzt, 20, 1.2);
+  setTimeout(() => welt.maschine?.stoppen(), 900);
+
+  welt.maschineLaeuft = false;
+  welt.maschineGrund = null;
+  welt.verlauf.unshift({ zeit: new Date(), art: 'Remix aus', nach: '—', hinweis: '' });
+  welt.verlauf = welt.verlauf.slice(0, 30);
+  zeichneVerlauf();
+}
+
+function maschineUmschalten() {
+  if (welt.maschineLaeuft) {
+    welt.maschineVonHand = false;
+    // Merken, dass es fuer diesen Track ausdruecklich nicht gewollt ist.
+    welt.maschineAbgelehnt = welt.mixer?.laufendesDeck?.track?.id ?? null;
+    maschineStoppen();
+  } else {
+    welt.maschineVonHand = true;
+    welt.maschineAbgelehnt = null;
+    maschineStarten('Knopf');
+  }
+}
+
+/**
+ * Muss die Maschine von allein anspringen?
+ *
+ * Ja, sobald ein Track laeuft, dessen Raster nichts taugt. Ohne Raster kann
+ * der Mixer nicht mischen - er wuesste nicht, wo die Phrasengrenzen liegen -
+ * und ohne Schlagwerk waere so ein Stueck auf einer Party einfach eine Pause.
+ * Mit Schlagwerk ist es eine Flaeche, ueber der ein Beat laeuft.
+ *
+ * Umgekehrt: Hat der naechste Track wieder ein sauberes Raster, macht die
+ * Maschine Platz - aber nur, wenn sie von allein angesprungen ist. Wer sie von
+ * Hand eingeschaltet hat, will sie behalten.
+ */
+function maschineNachfuehren() {
+  const deck = welt.mixer?.laufendesDeck;
+  const track = deck?.track;
+  if (!deck?.laeuft || !track) return;
+
+  // Der Widerspruch gilt nur fuer den Track, bei dem er geaeussert wurde.
+  // Kommt der naechste, faengt die Nachfuehrung wieder bei null an.
+  if (welt.maschineAbgelehnt && welt.maschineAbgelehnt !== track.id) {
+    welt.maschineAbgelehnt = null;
+  }
+
+  const braucht = track.ohneRaster === true || (track.bpmVertrauen ?? 1) < 0.35;
+
+  if (braucht && !welt.maschineLaeuft && welt.maschineAbgelehnt !== track.id) {
+    maschineStarten('kein Raster im Track');
+    welt.maschineVonHand = false;
+  } else if (!braucht && welt.maschineLaeuft && !welt.maschineVonHand) {
+    maschineStoppen();
+  }
+}
+
+// Jedes Bild: planen, was faellig ist, und die Anzeige nachziehen.
+function maschinePflegen() {
+  maschineNachfuehren();
+  if (!welt.maschine) return;
+  welt.maschine.zielenergie = welt.zielenergie;
+  welt.maschine.tick();
+
+  const knopf = $('remixJetzt');
+  if (!knopf) return;
+  if (welt.maschineLaeuft) {
+    const m = welt.maschine.zustand();
+    knopf.textContent = 'Remix stoppen';
+    knopf.classList.add('an');
+    $('maschineZeile').hidden = false;
+    $('maschineTakt').textContent = `${m.taktImBlock + 1}/32`;
+    $('maschineAbschnitt').textContent = m.abschnitt;
+    $('maschineStufe').textContent = m.stufe;
+    $('maschineStimmen').textContent = m.stimmen.join(' · ') || '—';
+    $('maschineTempo').textContent = `${m.bpm.toFixed(1)} BPM`;
+  } else {
+    knopf.textContent = 'Remix starten';
+    knopf.classList.remove('an');
+    $('maschineZeile').hidden = true;
+  }
+}
 
 function remixPruefen(zustand) {
   if (!welt.remixAn || welt.wechselLaeuft) return;

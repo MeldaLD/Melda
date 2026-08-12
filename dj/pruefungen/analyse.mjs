@@ -73,13 +73,16 @@ try {
     const ab = Math.abs(m.bpm - m.echtBpm);
     console.log(`    ${m.titel}: ${m.echtBpm} BPM  ->  gemessen ${m.bpm}  (${ab.toFixed(2)} daneben)`);
 
-    // BEKANNTE LUECKE: Ueber 160 BPM greift die Tempoerkennung daneben. Der
-    // Bereich ist Drum and Bass; im Clubtempo zwischen 110 und 140, um das es
-    // hier geht, sitzt sie exakt. Wird angegangen, sobald der Rest steht -
-    // solange steht es hier als Warnung und nicht als Fehlschlag, damit die
-    // Abnahme nicht dauerhaft rot ist und niemand mehr hinsieht.
+    // Oberhalb 160 BPM greift die Tempoerkennung daneben - der Bereich ist
+    // Drum and Bass, im Clubtempo zwischen 110 und 140 sitzt sie exakt.
+    //
+    // Frueher stand hier eine Warnung und sonst nichts. Inzwischen ist der
+    // Fall behandelt: Die Vermessung merkt selbst, dass ihr Raster nicht
+    // traegt, und meldet ohneRaster. Der DJ mischt dann nicht darauf, sondern
+    // setzt sein eigenes Schlagwerk darunter. Das wird unten geprueft - eine
+    // erkannte Luecke ist etwas anderes als eine offene.
     if (m.echtBpm > 160) {
-      console.log(`    ^ bekannte Luecke oberhalb 160 BPM, siehe PLAN.md`);
+      console.log(`    ^ Tempo daneben, aber als solches erkannt (Vertrauen ${(m.bpmVertrauen * 100).toFixed(0)} %)`);
       continue;
     }
     pruefe(`${m.echtBpm} BPM auf 0,3 genau`, ab < 0.3);
@@ -114,13 +117,32 @@ try {
   // die Spanne oben die richtige Frage.
   pruefe('jeder Track landet auf dem Ziel', angeglichen.every((l) => Math.abs(l - -9) < 0.3));
 
+  console.log('\nVertrauen ins Raster – die Messung weiss, wann sie danebenliegt:');
+  for (const m of gemessen) {
+    console.log(
+      `    ${m.titel}: ${(m.bpmVertrauen * 100).toFixed(0)} %` +
+        `${m.ohneRaster ? '  -> wird als Flaeche gespielt, Schlagwerk gibt den Takt' : ''}`,
+    );
+  }
+  for (const m of gemessen) {
+    if (m.echtBpm > 160) {
+      // Genau der Fall, der frueher stumm falsch durchlief.
+      pruefe(`${m.titel}: das falsche Tempo wird als unbrauchbar erkannt`, m.ohneRaster === true);
+    } else {
+      pruefe(`${m.titel}: dem Raster wird vertraut`, m.bpmVertrauen > 0.9 && !m.ohneRaster,
+        `${(m.bpmVertrauen * 100).toFixed(0)} %`);
+    }
+  }
+
   console.log('\nAufbau:');
   for (const m of gemessen) {
     const namen = m.marken.map((k) => k.name);
     console.log(`    ${m.titel}: Einstieg bei Beat ${m.einstiegBeat}, Marken: ${namen.join(', ') || 'keine'}`);
     // Die Aufbauerkennung rechnet in Takten und haengt damit am Tempo - bei E
     // faellt sie mit derselben Luecke aus.
-    if (m.echtBpm > 160) continue;
+    // Ohne brauchbares Raster gibt es keine Marken - Takte lassen sich nicht
+    // zaehlen, wenn man nicht weiss, wo sie anfangen. Das ist gewollt.
+    if (m.ohneRaster) continue;
     pruefe(`${m.titel}: Breakdown gefunden`, namen.includes('breakdown'));
     pruefe(`${m.titel}: Drop gefunden`, namen.includes('drop'));
     pruefe(`${m.titel}: Einstieg liegt nach dem Intro`, m.einstiegBeat >= 8 && m.einstiegBeat <= 64);

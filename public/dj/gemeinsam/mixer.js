@@ -325,7 +325,42 @@ export class Mixer {
     this.verzoegerung.connect(this.rueckfuehrung).connect(this.verzoegerung);
     this.verzoegerung.connect(this.summe);
 
-    this.summe.connect(this.begrenzer).connect(this.ausgang);
+    // --- Der Weg fuer den Remix -------------------------------------------
+    //
+    // Zwischen Summe und Begrenzer haengen drei Knoten, die im Normalbetrieb
+    // nichts tun und erst gebraucht werden, wenn die Maschine laeuft:
+    //
+    //   musikHoch   nimmt der Quelle den Bass weg. Der Kick der Maschine soll
+    //               den Keller allein haben - dieselbe Regel wie zwischen zwei
+    //               Decks, nur eben zwischen Musik und Schlagwerk.
+    //   musikTief   fuer Filterfahrten ueber die ganze Musik.
+    //   pumpe       der Sidechain. Jeder Kick drueckt die Musik kurz herunter.
+    //
+    // Die Maschine haengt *hinter* der Pumpe: Sie darf sich nicht selbst
+    // ducken, sonst frisst der Kick seinen eigenen Anschlag weg.
+    this.musikHoch = ctx.createBiquadFilter();
+    this.musikHoch.type = 'highpass';
+    this.musikHoch.frequency.value = 20;
+    this.musikHoch.Q.value = 0.7071;
+
+    this.musikTief = ctx.createBiquadFilter();
+    this.musikTief.type = 'lowpass';
+    this.musikTief.frequency.value = 20000;
+    this.musikTief.Q.value = 0.7071;
+
+    this.pumpe = ctx.createGain();
+    this.pumpe.gain.value = 1;
+
+    this.maschinenBus = ctx.createGain();
+    this.maschinenBus.gain.value = 0;
+
+    this.summe
+      .connect(this.musikHoch)
+      .connect(this.musikTief)
+      .connect(this.pumpe)
+      .connect(this.begrenzer);
+    this.maschinenBus.connect(this.begrenzer);
+    this.begrenzer.connect(this.ausgang);
     this.ausgang.connect(this.messung);
     this.ausgang.connect(ctx.destination);
 
@@ -524,6 +559,63 @@ export class Mixer {
   wellenform(ziel) {
     this.messung.getFloatTimeDomainData(ziel);
     return ziel;
+  }
+
+  // --- Regler fuer den Remix ----------------------------------------------
+
+  /**
+   * Die Musik einmal ducken - der Sidechain.
+   *
+   * Von allen Produktionskniffen im Techno ist das der wirksamste: Der Kick
+   * drueckt alles andere kurz herunter und laesst es wieder hoch. Dadurch
+   * bekommt der Kick Platz, ohne lauter zu werden, und das Ganze atmet im
+   * Takt. Ohne ihn stehen Schlagwerk und Musik nur uebereinander.
+   *
+   * Wird im Voraus geplant und *niemals* mit cancelScheduledValues
+   * aufgeraeumt: Der Taktgeber plant 250 ms voraus, ein Abbruch wuerde die
+   * schon eingetragene naechste Kurve mitloeschen.
+   *
+   * @param {number} zeit   Kontextzeit des Kicks
+   * @param {number} tiefe  worauf heruntergedrueckt wird, 0..1
+   * @param {number} dauer  wie lange die Rueckkehr auf 1 braucht
+   */
+  ducken(zeit, tiefe, dauer) {
+    const g = this.pumpe.gain;
+    const ab = Math.min(0.99, Math.max(0.02, tiefe));
+    // Kein Sprung, sondern ein sehr kurzer Sturz: Ein harter Sprung im
+    // Verstaerkungsfaktor knackt hoerbar, weil die Wellenform an der Stelle
+    // eine Kante bekommt.
+    g.setValueAtTime(1, zeit);
+    g.linearRampToValueAtTime(ab, zeit + 0.006);
+    // Exponentiell zurueck - so hoert man das Nachgeben, nicht das Ende.
+    g.exponentialRampToValueAtTime(1, zeit + Math.max(0.03, dauer));
+  }
+
+  /**
+   * Der Musik den Bass wegnehmen, damit der Kick den Keller allein hat.
+   * Dieselbe Regel wie zwischen zwei Decks, nur zwischen Musik und Maschine.
+   */
+  musikHochpass(zeit, hertz, sekunden = 0.5) {
+    const p = this.musikHoch.frequency;
+    p.setValueAtTime(p.value, zeit);
+    p.exponentialRampToValueAtTime(Math.max(20, hertz), zeit + Math.max(0.01, sekunden));
+  }
+
+  /** Filterfahrt ueber die ganze Musik - fuer Aufbauten. */
+  musikTiefpass(zeit, hertz, sekunden = 0.5) {
+    const p = this.musikTief.frequency;
+    p.setValueAtTime(p.value, zeit);
+    p.exponentialRampToValueAtTime(
+      Math.min(20000, Math.max(120, hertz)),
+      zeit + Math.max(0.01, sekunden),
+    );
+  }
+
+  /** Das Schlagwerk als Ganzes ein- oder ausblenden. */
+  maschinenPegel(zeit, wert, sekunden = 1) {
+    const p = this.maschinenBus.gain;
+    p.setValueAtTime(p.value, zeit);
+    p.linearRampToValueAtTime(Math.max(0, wert), zeit + Math.max(0.01, sekunden));
   }
 }
 

@@ -54,6 +54,12 @@ export async function GET() {
     angleichDb: zeile.angleich_db,
     note: zeile.note,
     marken: zeile.marken,
+    // Wie belastbar Tempo und Raster sind. Bestandszeilen ohne diese Spalten
+    // gelten als vertrauenswürdig – sie wurden vermessen, als es das Maß noch
+    // nicht gab, und ihr Tempo blind zu verwerfen wäre schlechter als es zu
+    // benutzen.
+    bpmVertrauen: zeile.bpm_vertrauen ?? 1,
+    ohneRaster: zeile.ohne_raster ?? false,
   }));
 
   return NextResponse.json(
@@ -106,6 +112,8 @@ export async function POST(anfrage: Request) {
     angleich_db: zahl("angleichDb"),
     note: zahl("note", 1),
     marken: Array.isArray(koerper.marken) ? koerper.marken : [],
+    bpm_vertrauen: zahl("bpmVertrauen", 1),
+    ohne_raster: koerper.ohneRaster === true,
   };
 
   const { error } = await supabaseAdmin()

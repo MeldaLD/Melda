@@ -21,7 +21,12 @@
     "dj:bildpruefen": "node dj/pruefungen/gebaut.mjs",
     "dj:analysepruefen": "node dj/pruefungen/analyse.mjs",
     "dj:remixpruefen": "node dj/pruefungen/remix.mjs",
-    "dj:modibilder": "node dj/werkzeuge/modibilder.mjs"
+    "dj:modibilder": "node dj/werkzeuge/modibilder.mjs",
+    "dj:stimmenpruefen": "node dj/pruefungen/stimmen.mjs",
+    "dj:maschinenpruefen": "node dj/pruefungen/maschine.mjs",
+    "dj:rasterpruefen": "node dj/pruefungen/ohneraster.mjs",
+    "dj:vermessen": "node dj/werkzeuge/vermessen.mjs",
+    "dj:alles": "npm run dj && npm run dj:pruefen && npm run dj:analysepruefen && npm run dj:stimmenpruefen && npm run dj:maschinenpruefen && npm run dj:mischpruefen && npm run dj:remixpruefen && npm run dj:rasterpruefen && npm run dj:bildpruefen"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",

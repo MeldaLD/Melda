@@ -27,6 +27,10 @@ type Befund = {
   angleichDb: number;
   energie: number;
   marken: { name: string; beat: number; sekunde: number }[];
+  /** Wie belastbar Tempo und Raster sind, 0 bis 1. */
+  bpmVertrauen: number;
+  /** true = kein brauchbares Raster; der Track wird zur Fläche unter dem Schlagwerk. */
+  ohneRaster: boolean;
 };
 
 type Vorhanden = { id: string; titel: string; interpret: string; bpm: number | null };
@@ -280,12 +284,34 @@ export default function DjAufnahme() {
                 )}
                 {eintrag.befund && (
                   <p className="text-xs text-muted-foreground">
-                    {eintrag.befund.bpm} BPM · Raster {eintrag.befund.raster.toFixed(3)} s ·{" "}
-                    {eintrag.befund.lufs} LUFS → Angleich{" "}
-                    {eintrag.befund.angleichDb > 0 ? "+" : ""}
-                    {eintrag.befund.angleichDb} dB · Einstieg Beat{" "}
-                    {eintrag.befund.einstiegBeat} ·{" "}
-                    {eintrag.befund.marken.filter((m) => m.name === "drop").length} Drop(s)
+                    {eintrag.befund.ohneRaster ? (
+                      /*
+                       * Kein brauchbares Raster. Das ist keine Fehlermeldung,
+                       * sondern eine Ansage: Der Track wird nicht beatgematcht,
+                       * sondern läuft als Fläche unter dem eigenen Schlagwerk.
+                       * Genau das täte ein DJ mit so einer Aufnahme auch.
+                       */
+                      <>
+                        <strong>Kein Beat erkennbar</strong> – wird als Fläche
+                        gespielt, das Schlagwerk gibt den Takt vor ·{" "}
+                        {eintrag.befund.lufs} LUFS → Angleich{" "}
+                        {eintrag.befund.angleichDb > 0 ? "+" : ""}
+                        {eintrag.befund.angleichDb} dB
+                      </>
+                    ) : (
+                      <>
+                        {eintrag.befund.bpm} BPM
+                        {eintrag.befund.bpmVertrauen < 0.7
+                          ? ` (nur ${Math.round(eintrag.befund.bpmVertrauen * 100)} % sicher)`
+                          : ""}{" "}
+                        · Raster {eintrag.befund.raster.toFixed(3)} s ·{" "}
+                        {eintrag.befund.lufs} LUFS → Angleich{" "}
+                        {eintrag.befund.angleichDb > 0 ? "+" : ""}
+                        {eintrag.befund.angleichDb} dB · Einstieg Beat{" "}
+                        {eintrag.befund.einstiegBeat} ·{" "}
+                        {eintrag.befund.marken.filter((m) => m.name === "drop").length} Drop(s)
+                      </>
+                    )}
                   </p>
                 )}
                 {eintrag.meldung && (

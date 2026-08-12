@@ -76,10 +76,10 @@ export function erzeugeTrack(ctx, { nummer, bpm, energie, titel }) {
 
     // --- Bassdrum: das Rueckgrat, vier auf den Boden --------------------
     if (bass) {
-      kick(links, rechts, start, rate, (0.85 + energie * 0.15) * wucht);
+      demoKick(links, rechts, start, rate, (0.85 + energie * 0.15) * wucht);
     } else if (abschnitt === 'intro' && takt >= 4 && imTakt === 0) {
       // Im Intro nur die Eins - so hat der Mixer schon einen Anker.
-      kick(links, rechts, start, rate, 0.5);
+      demoKick(links, rechts, start, rate, 0.5);
     }
 
     // --- Clap auf zwei und vier -----------------------------------------
@@ -176,7 +176,7 @@ export function demoBibliothek(ctx, beiFortschritt = () => {}) {
 
 // Bassdrum: Sinus, dessen Tonhoehe schnell nach unten faellt. Der Klick am
 // Anfang gibt ihr die Durchsetzungskraft.
-function kick(links, rechts, start, rate, staerke) {
+function demoKick(links, rechts, start, rate, staerke) {
   const laenge = Math.floor(0.4 * rate);
   let phase = 0;
   for (let i = 0; i < laenge; i++) {

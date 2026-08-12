@@ -51,25 +51,116 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
   const grobesRaster = rasterFinden(anschlaege, grobesTempo.bpm, grobesTempo.phase, hops);
   const { bpm, raster } = ausgleichen(anschlaege, grobesTempo.bpm, grobesRaster, hops);
 
+  // Erst jetzt, mit dem fertigen Raster, laesst sich die wichtigste Frage
+  // beantworten: Stimmt das ueberhaupt? Alles Weitere haengt daran.
+  const vertrauen = rasterVertrauen(anschlaege, bpm, raster, hops);
+  const ohneRaster = vertrauen < VERTRAUENSSCHWELLE;
+
   beiSchritt('Aufbau');
   const takte = taktEnergien(bass, puffer.sampleRate, bpm, raster);
-  const einstiegBeat = einstiegFinden(takte);
-  const marken = aufbauErkennen(takte, bpm, raster, einstiegBeat);
+  const einstiegBeat = ohneRaster ? 0 : einstiegFinden(takte);
+  const marken = ohneRaster ? [] : aufbauErkennen(takte, bpm, raster, einstiegBeat);
 
   beiSchritt('Energie');
   const hoehen = await bandRendern(puffer, 'highpass', 3000);
-  const energie = energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops);
+  const energie = energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops, vertrauen);
 
   return {
     dauer,
     bpm: Number(bpm.toFixed(2)),
     raster: Number(raster.toFixed(4)),
+    // Wie sehr das Raster zu glauben ist, von 0 bis 1. Ohne diesen Wert meldet
+    // die Messung bei Meeresrauschen 161 BPM - als Zahl nicht von einem echten
+    // Tempo zu unterscheiden, und der Mixer wuerde blind darauf mischen.
+    bpmVertrauen: Number(vertrauen.toFixed(3)),
+    ohneRaster,
     einstiegBeat,
     lufs: Number(lufs.toFixed(1)),
-    angleichDb: Number((ZIEL_LUFS - lufs).toFixed(2)),
+    angleichDb: Number(angleichBegrenzen(ZIEL_LUFS - lufs).toFixed(2)),
     energie: Number(energie.toFixed(3)),
     marken,
   };
+}
+
+// Leises Material laesst sich nicht beliebig hochziehen. Eine Feldaufnahme bei
+// -26 LUFS braeuchte +17 dB auf Clubpegel; damit kaeme das Rauschen der
+// Aufnahme mit hoch und der Begrenzer haette dauernd zu tun. Ein DJ wuerde so
+// ein Stueck leiser laufen lassen und es als Flaeche benutzen - genau das
+// macht dieser Deckel.
+const ANGLEICH_HOCH = 12;
+const ANGLEICH_RUNTER = -12;
+
+function angleichBegrenzen(db) {
+  return Math.min(ANGLEICH_HOCH, Math.max(ANGLEICH_RUNTER, db));
+}
+
+// --- Wie sehr ist dem Raster zu trauen? -----------------------------------
+//
+// Gefragt wird genau das, worauf es ankommt: Faengt das gefundene Raster die
+// Anschlaege wirklich ein? Dazu wird abgezaehlt, wie viel Anschlagsenergie auf
+// den Beats liegt, und das mit sechs absichtlich verschobenen Rastern
+// verglichen. Die liefern den Zufallspegel.
+//
+// Ein Mass, das zwei ganz verschiedene Fehler faengt: Material ohne Beat, und
+// Material mit Beat, bei dem die Tempoerkennung danebenlag. In beiden Faellen
+// ist das Raster unbrauchbar, und in beiden Faellen ist es besser, das
+// zuzugeben, als darauf zu mischen.
+//
+// Nachgemessen an sechs Stuecken - die Trennung ist deutlich:
+//
+//   Meeresrauschen (kein Beat)            0.94
+//   weisses Rauschen                      1.01
+//   174er-Track, Tempo falsch als 71 BPM  1.02
+//   ---------------------------------------------- Grenze
+//   Pruefstandmusik 118 BPM               3.37
+//   Pruefstandmusik 124 BPM               4.30
+//   Pruefstandmusik 128 BPM               4.46
+//   Pruefstandmusik 132 BPM               4.48
+//
+// Ein zweites Mass war zwischenzeitlich mit drin: wie hoch die Spitze der
+// Autokorrelation ueber ihrem Mittel steht. Es ist wieder heraus, weil die
+// Messung es widerlegt hat - ausgerechnet der 174er-Track mit dem falsch
+// erkannten Tempo hatte davon am meisten (4.89), waehrend der saubere
+// 118er-Track am wenigsten hatte (1.98). Das Mass beantwortet eben eine
+// andere Frage: ob sich *irgendein* Puls abhebt, nicht ob *dieses* Raster
+// stimmt. Als Minimum verrechnet hat es vier von fuenf richtig erkannten
+// Tracks faelschlich abgestempelt.
+const VERTRAUENSSCHWELLE = 0.35;
+const RASTER_ZUFALL = [0.17, 0.31, 0.43, 0.57, 0.69, 0.83];
+// Unter so vielen Anschlaegen ist die Stichprobe zu klein fuer eine Aussage.
+const RASTER_MINDESTANSCHLAEGE = 16;
+
+function rasterVertrauen(kurve, bpm, raster, hops) {
+  const periode = (hops * 60) / bpm;
+  if (!Number.isFinite(periode) || periode < 2) return 0;
+
+  let anschlaege = 0;
+  for (const wert of kurve) if (wert > 0) anschlaege++;
+  if (anschlaege < RASTER_MINDESTANSCHLAEGE) return 0;
+
+  const einsammeln = (versatzBeats) => {
+    let summe = 0;
+    const start = raster * hops + versatzBeats * periode;
+    for (let stelle = start; stelle < kurve.length; stelle += periode) {
+      const mitte = Math.round(stelle);
+      // Zwei Stuetzstellen Toleranz nach jeder Seite, also rund +-10 ms. Das
+      // deckt die Restunschaerfe der Spitzenfindung ab, ohne so breit zu sein,
+      // dass am Ende jedes Raster alles einsammelt.
+      for (let d = -2; d <= 2; d++) summe += kurve[mitte + d] ?? 0;
+    }
+    return summe;
+  };
+
+  const aufDemRaster = einsammeln(0);
+  let zufall = 0;
+  for (const versatz of RASTER_ZUFALL) zufall += einsammeln(versatz);
+  zufall /= RASTER_ZUFALL.length;
+  if (zufall <= 0) return 0;
+
+  // 1.3 bis 3.2 auf 0 bis 1. Die Schwelle von 0,35 liegt damit bei einer
+  // Trefferquote von rund 1.97 - mitten in der Luecke zwischen 1.02 und 3.37.
+  const trefferquote = aufDemRaster / zufall;
+  return Math.min(1, Math.max(0, (trefferquote - 1.3) / 1.9));
 }
 
 // --- Lautheit nach EBU R128 -----------------------------------------------
@@ -648,7 +739,7 @@ function einstiegFinden(takte) {
 // allein** aussagekraeftig ist: Frueher wurde er hinterher durch den Rang in
 // der Bibliothek ersetzt, und bei zwei Tracks kamen dabei zwangslaeufig 0 und
 // 100 Prozent heraus. Der Rang darf nachjustieren, nicht bestimmen.
-function energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops) {
+function energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops, vertrauen = 1) {
   const daten = puffer.getChannelData(0);
 
   let summe = 0;
@@ -693,8 +784,20 @@ function energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops) {
   const bassAnteil = gesamt > 0 ? effektiv(bass) / gesamt : 0;
   const fundament = spanne(bassAnteil, 0.3, 0.9);
 
+  // Tempo und Dichte haengen beide am erkannten Raster. Ist dem nicht zu
+  // trauen, sind es zwei erfundene Zahlen - und weil sie zusammen ueber die
+  // Haelfte des Gewichts tragen, haben sie Meeresrauschen auf 0,60 gehoben.
+  // Also faellt bei niedrigem Vertrauen ihr Anteil weg und die drei Masse,
+  // die ohne Raster auskommen, tragen allein.
+  const rasterGewicht = Math.min(1, Math.max(0, vertrauen / VERTRAUENSSCHWELLE));
+  const mitRaster = 0.3 * tempo + 0.25 * dichte;
+  const ohneRasterAnteil = 0.2 * helligkeit + 0.15 * druck + 0.1 * fundament;
+  // Ohne Raster tragen nur noch drei Masse mit zusammen 0,45 Gewicht. Geteilt
+  // durch 0,45 fuellen sie wieder die volle Skala aus - sonst kaeme jedes
+  // rasterlose Stueck allein durch die fehlenden Summanden nach unten.
   const roh =
-    0.3 * tempo + 0.25 * dichte + 0.2 * helligkeit + 0.15 * druck + 0.1 * fundament;
+    rasterGewicht * (mitRaster + ohneRasterAnteil) +
+    (1 - rasterGewicht) * (ohneRasterAnteil / 0.45);
 
   // Kontrast nachziehen. Fuenf gemittelte Anteile landen fast immer in der
   // Mitte - selbst zwischen einem ruhigen und einem harten Track lagen nur
@@ -708,7 +811,12 @@ function energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops) {
   const gedehnt = (roh - 0.28) / 0.4;
   const mitRand = gedehnt < 0 ? gedehnt * 0.25 : gedehnt > 1 ? 1 + (gedehnt - 1) * 0.25 : gedehnt;
 
-  return Math.min(1, Math.max(0, mitRand));
+  // Nicht ganz bis an die Anschlaege: Genau 0 hiesse "ohne jede Energie" und
+  // genau 1 "haerter geht nicht", und beides ist keine Messaussage, sondern
+  // ein Ende der Skala. Die Auswahl braucht ausserdem Luft nach unten und
+  // oben, sonst laesst sich der ruhigste Track des Abends nicht mehr vom
+  // zweitruhigsten unterscheiden.
+  return Math.min(0.98, Math.max(0.02, mitRand));
 }
 
 // Einen Messwert auf 0 bis 1 abbilden, mit Deckel an beiden Enden.
