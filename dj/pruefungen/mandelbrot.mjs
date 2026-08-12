@@ -579,6 +579,60 @@ try {
     `${zaehler.size} von 5 verschiedenen`);
   pruefe('und keines haeuft sich', haeufigste <= 3, `haeufigstes ${haeufigste}-mal`);
 
+  // --- 5d. Die Schrittzahl wird gezaehlt, nicht geschaetzt -----------------
+
+  /*
+   * Der Fehler, der das noetig gemacht hat: Die Fahrt zoomte in ein schwarzes
+   * Nichts. Die Obergrenze der Iteration kam aus einer Formel in der Tiefe -
+   * und die kann es nicht treffen, weil der Bedarf nicht an der Tiefe haengt,
+   * sondern daran, *wo* man ist. Nachgemessen brauchte dieselbe Bahn bei Tiefe
+   * 3 nur 231 Schritte und bei Tiefe 16 ganze 13254; die Formel gab dort 4660.
+   * Reicht die Grenze nicht, entkommt kein Punkt mehr, alles gilt als innen,
+   * und das Bild wird schwarz.
+   *
+   * Geprueft wird deshalb die Stichprobe selbst - sie laeuft auch ohne
+   * Grafikkarte, weil sie auf dem Hauptprozessor rechnet.
+   */
+  console.log('\nDie Schrittzahl wird gezaehlt, nicht geschaetzt:');
+  const bedarf = await seite.evaluate(async (adresse) => {
+    const m = await import(`${adresse}/gemeinsam/mandelgpu.js`);
+    if (!m.gpuBereit()) return null;
+    const zeilen = [];
+    for (const tiefe of [1.1, 3, 6, 9, 12, 16]) {
+      const p = m.gpuProbe(tiefe, 0.3);
+      if (p) zeilen.push({ tiefe, ...p });
+    }
+    return zeilen;
+  }, ADRESSE);
+
+  if (!bedarf) {
+    console.log('    (kein WebGL2 – die Stichprobe braucht die Bezugsbahn)');
+  } else {
+    // Dieselbe Regel wie im Betrieb.
+    const deckel = (b) => Math.min(15000, Math.max(700, b.schritteNoetig * 1.35, 500 + b.tiefe * 120));
+    const alteFormel = (t) => Math.min(4600, 420 + t * 150);
+    let zuKnapp = 0;
+    let frueherZuKnapp = 0;
+    for (const b of bedarf) {
+      const jetzt = deckel(b);
+      const frueher = alteFormel(b.tiefe);
+      console.log(
+        `    Tiefe ${String(b.tiefe).padEnd(4)} braucht ${String(b.schritteNoetig).padStart(6)}, ` +
+          `bekommt ${String(Math.round(jetzt)).padStart(6)} (alte Formel: ${Math.round(frueher)})`,
+      );
+      if (jetzt < b.schritteNoetig) zuKnapp++;
+      if (frueher < b.schritteNoetig) frueherZuKnapp++;
+    }
+    pruefe('die Grenze deckt ueberall den gemessenen Bedarf', zuKnapp === 0, `${zuKnapp} zu knapp`);
+    // Ohne diese Zeile koennte die Pruefung gruen sein, weil der Bedarf
+    // ueberall niedrig ist - dann haette sie nichts gezeigt.
+    pruefe(
+      'und der Fehler waere hier aufgefallen',
+      frueherZuKnapp > 0,
+      `die alte Formel war an ${frueherZuKnapp} von ${bedarf.length} Stellen zu knapp`,
+    );
+  }
+
   // --- 6. Die Bildguete laesst sich wirklich senken ------------------------
 
   /*

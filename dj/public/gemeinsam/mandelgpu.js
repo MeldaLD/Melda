@@ -229,6 +229,9 @@ let farbTextur = null;
 let bahnBreite = 0;
 let bahnSchritte = 0;
 let bahnZiel = null;
+// Die Bahn bleibt auch auf dem Hauptprozessor liegen - die Stichprobe unten
+// rechnet damit.
+let bahnDaten = null;
 let versucht = false;
 let feldBreite = 0;
 let feldHoehe = 0;
@@ -340,6 +343,7 @@ function bahnSichern(ziel, gebraucht) {
   gl.bindTexture(gl.TEXTURE_2D, bahnTextur);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, bahnBreite, hoehe, 0, gl.RGBA, gl.FLOAT, voll);
   bahnSchritte = schritte;
+  bahnDaten = voll;
   bahnZiel = ziel.name;
 }
 
@@ -401,4 +405,96 @@ export function gpuZeichnen(lage) {
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   return { leinwand, breite: b, hoehe: h, bahnSchritte };
+}
+
+/**
+ * Eine Stichprobe auf dem Hauptprozessor - die Diagnose fuer die Fahrt.
+ *
+ * Warum das noetig ist: Bisher wurde am Bild abgelesen, ob noch etwas
+ * darauf zu sehen ist, naemlich an der Streuung der Helligkeit. Dieses Mass
+ * ist zweimal falsch, und zwar in beide Richtungen. Eine schoene tiefe Szene
+ * hat zu Recht grosse dunkle Flaechen und wenig Streuung - sie wurde
+ * abgebrochen, obwohl sie gut war. Ein entartetes Bild dagegen hat weiche
+ * Baender und genug Streuung - es blieb stehen, obwohl nichts mehr da war.
+ *
+ * Das echte Kennzeichen ist ein anderes: Wenn die Schrittzahl nicht mehr
+ * reicht, entkommt kein Punkt mehr, und *jeder* gilt als innen liegend.
+ * Genau das laesst sich zaehlen, statt es aus Farben zu erraten.
+ *
+ * Gerechnet wird auf wenigen hundert Punkten und mit derselben
+ * Stoerungsrechnung wie im Schattierer, nur in doppelter statt einfacher
+ * Genauigkeit und mit einer sehr grosszuegigen Obergrenze. Das kostet ein
+ * paar Millisekunden und laeuft deshalb nur alle paar Sekunden - dafuer
+ * liefert es zwei Antworten, die keine Schaetzung sind:
+ *
+ *   innenAnteil     Wieviel des Bildes wirklich in der Menge liegt.
+ *   schritteNoetig  Wieviele Schritte die Punkte tatsaechlich brauchen. Damit
+ *                   laesst sich die Obergrenze *fuehren*, statt sie zu raten -
+ *                   und die Ursache des schwarzen Bildes verschwindet, statt
+ *                   nachtraeglich behandelt zu werden.
+ */
+export function gpuProbe(tiefe, dreh, deckel = 16000) {
+  if (!bahnDaten || !bahnSchritte) return null;
+  const spanne = 1.6 / Math.pow(10, tiefe);
+  const sd = Math.sin(dreh);
+  const cd = Math.cos(dreh);
+  // Wenige Punkte, dafuer oft genug. 77 Stueck kosten im schlimmsten Fall
+  // rund zwanzig Millisekunden - ein ausgelassenes Bild alle drei Sekunden.
+  const breit = 11;
+  const hoch = 7;
+  let innen = 0;
+  let hoechstes = 0;
+  const gesehen = [];
+
+  for (let py = 0; py < hoch; py++) {
+    // Der Rand des Bildes zaehlt mit, nicht nur die Mitte.
+    const by = ((py + 0.5) / hoch) * 2 - 1;
+    for (let px = 0; px < breit; px++) {
+      const bx = ((px + 0.5) / breit) * 2 - 1;
+      const vx = (bx * cd - by * 0.625 * sd) * spanne;
+      const vy = (bx * sd + by * 0.625 * cd) * spanne;
+
+      let dx = 0;
+      let dy = 0;
+      let m = 0;
+      let n = 0;
+      let entkommen = 0;
+      while (n < deckel) {
+        const gx = bahnDaten[m * 4] + bahnDaten[m * 4 + 1];
+        const gy = bahnDaten[m * 4 + 2] + bahnDaten[m * 4 + 3];
+        const ax = gx * dx - gy * dy;
+        const ay = gx * dy + gy * dx;
+        const cx2 = dx * dx - dy * dy;
+        const cy2 = 2 * dx * dy;
+        dx = 2 * ax + cx2 + vx;
+        dy = 2 * ay + cy2 + vy;
+        m++;
+        n++;
+        const nx = bahnDaten[m * 4] + bahnDaten[m * 4 + 1] + dx;
+        const ny = bahnDaten[m * 4 + 2] + bahnDaten[m * 4 + 3] + dy;
+        const r2 = nx * nx + ny * ny;
+        if (r2 > 65536) { entkommen = n; break; }
+        if (r2 < dx * dx + dy * dy || m >= bahnSchritte - 1) { dx = nx; dy = ny; m = 0; }
+      }
+      if (entkommen) {
+        gesehen.push(entkommen);
+        if (entkommen > hoechstes) hoechstes = entkommen;
+      } else {
+        innen++;
+      }
+    }
+  }
+
+  gesehen.sort((a, b) => a - b);
+  // Nicht der hoechste Wert, sondern das obere Zwanzigstel: Ein einzelner
+  // Punkt, der zufaellig genau auf dem Rand sitzt, braucht beliebig viele
+  // Schritte und wuerde die Obergrenze in die Hoehe treiben, ohne dass man
+  // von ihm etwas saehe.
+  const rand = gesehen.length ? gesehen[Math.floor(gesehen.length * 0.95)] : 0;
+  return {
+    innenAnteil: innen / (breit * hoch),
+    schritteNoetig: rand,
+    hoechstes,
+    punkte: breit * hoch,
+  };
 }

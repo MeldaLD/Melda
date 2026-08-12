@@ -13,7 +13,7 @@
 // auf Positionen ab - Oktaven liegen dadurch immer gleich weit auseinander,
 // egal welcher Track laeuft.
 
-import { gpuBereit, gpuFarben, gpuZeichnen } from './mandelgpu.js';
+import { gpuBereit, gpuFarben, gpuZeichnen, gpuProbe } from './mandelgpu.js';
 
 export const TAU = Math.PI * 2;
 
@@ -453,6 +453,7 @@ export function gueteZuruecksetzen() {
    * Notfassung deutlich ueberlegen, weil nur sie die Tiefe traegt.
    */
   mandelAufGpu = null;
+  mandelSeitGpu = 0;
   mandelStreuung = 40;
   mandelTotzeit = 0;
   mandelLeinwand = null;
@@ -546,13 +547,13 @@ let mandelGpuZaeh = 0;
  * fuer die Ueberblendung ohnehin gibt. Das gilt fuer beide Fassungen und ist
  * genau die Frage, die zaehlt - steht da noch eine Zeichnung?
  *
- * Und er antwortet zweistufig. Ein flaches Bild heisst meistens "zu wenig
- * Schritte", nicht "langweilige Stelle". Also wird zuerst die Schrittzahl
- * erhoeht; erst wenn auch das nichts hilft, wird weitergezogen.
+ * Fuer die Fassung auf dem Hauptprozessor ist die Helligkeitsstreuung immer
+ * noch das Mass - dort gibt es keine Bezugsbahn, mit der sich eine Stichprobe
+ * rechnen liesse, und die Tiefe bleibt so gering, dass die Schrittzahl nie
+ * knapp wird. Auf der Grafikkarte zaehlt stattdessen die Stichprobe.
  */
 let mandelStreuung = 40;
 let mandelTotzeit = 0;
-let mandelSchrittZugabe = 1;
 let mandelWacheZaehler = 0;
 /*
  * Seit wann laeuft die aktuelle Stelle?
@@ -571,6 +572,13 @@ let mandelWacheZaehler = 0;
  *                gleich wie er sich irrt.
  */
 let mandelSeitWechsel = 99;
+// Ergebnis der letzten Stichprobe und wann sie zuletzt lief.
+let mandelSeitProbe = 99;
+let mandelInnen = 0;
+let mandelSchritteNoetig = 0;
+let mandelProbeMs = 0;
+// Wie lange die Grafikkarte schon laeuft, seit sie zuletzt gewaehlt wurde.
+let mandelSeitGpu = 0;
 const MANDEL_SCHONZEIT = 5;
 const MANDEL_SPERRFRIST = 20;
 // Unter dieser Streuung der Helligkeit ist das Bild eine Flaeche.
@@ -799,7 +807,6 @@ function mandelNeuAnsetzen() {
   // Der Wertespeicher zeigt jetzt auf die falsche Stelle im Bild.
   mandelGrundierenNoetig = true;
   mandelPhase = 0;
-  mandelSchrittZugabe = 1;
   mandelTotzeit = 0;
   mandelStreuung = 40;
 }
@@ -1147,19 +1154,30 @@ function mandelbrotZeichnen(stift, lage) {
    * und erst danach weitergezogen. Waehrend einer Ueberblendung wird nicht
    * geurteilt - da liegen zwei Bilder uebereinander, und das Mass gilt nicht.
    */
+  /*
+   * Der Wachdienst - jetzt an der Stichprobe, nicht mehr an der Helligkeit.
+   *
+   * Das alte Mass war die Streuung der Helligkeit, und es hat sich in *beide*
+   * Richtungen geirrt: Eine schoene tiefe Szene hat zu Recht grosse dunkle
+   * Flaechen und wenig Streuung - sie wurde abgebrochen, obwohl sie gut war.
+   * Ein entartetes Bild hat weiche Baender und genug Streuung - es blieb
+   * stehen, obwohl nichts mehr da war. Beides ist auf dem iPad genau so
+   * passiert.
+   *
+   * Der Anteil, der wirklich in der Menge liegt, irrt sich in keine der beiden
+   * Richtungen. Und weil die Schrittzahl jetzt aus derselben Stichprobe
+   * gefuehrt wird, ist der haeufigste Grund fuer einen hohen Anteil - zu wenig
+   * Schritte - schon vorher behoben. Was hier noch ankommt, ist eine Stelle,
+   * die wirklich in der Menge versinkt.
+   */
   mandelSeitWechsel += sekunden;
+  const versunken = mandelAufGpu ? mandelInnen > 0.94 : mandelStreuung < MANDEL_STREUUNG_MIN;
   if (mandelUeberblendung > 0 || mandelSeitWechsel < MANDEL_SCHONZEIT) mandelTotzeit = 0;
-  else if (mandelStreuung < MANDEL_STREUUNG_MIN) mandelTotzeit += sekunden;
+  else if (versunken) mandelTotzeit += sekunden;
   else mandelTotzeit = Math.max(0, mandelTotzeit - sekunden * 2);
-  if (mandelTotzeit > 0.8) {
+  if (mandelTotzeit > 2.5 && mandelSeitWechsel > MANDEL_SPERRFRIST) {
     mandelTotzeit = 0;
-    if (mandelSchrittZugabe < 4) {
-      // Ein flaches Bild heisst meistens "zu wenig Schritte".
-      mandelSchrittZugabe = Math.min(4, mandelSchrittZugabe * 1.7);
-      mandelStreuung = 40; // dem naechsten Bild eine Chance geben
-    } else if (mandelSeitWechsel > MANDEL_SPERRFRIST) {
-      mandelNeuAnsetzen();
-    }
+    mandelNeuAnsetzen();
   }
 
   // Die Genauigkeit ist am Ende. Auf der Grafikkarte passiert das selten
@@ -1193,6 +1211,7 @@ function mandelbrotZeichnen(stift, lage) {
 
   if (mandelAufGpu === null) mandelAufGpu = gpuBereit();
   if (mandelAufGpu) {
+    mandelSeitGpu += sekunden;
     const begonnenGpu = performance.now();
     const zielGpu = MANDEL_ZIELE[mandelZiel];
     /*
@@ -1200,8 +1219,36 @@ function mandelbrotZeichnen(stift, lage) {
      * gibt es hier keine Obergrenze aus Genauigkeitsgruenden - nur eine aus
      * Zeitgruenden, und die regelt der Guetefaktor mit.
      */
+    /*
+     * Alle zwei Sekunden nachsehen, was die Stelle wirklich braucht.
+     *
+     * Die Obergrenze aus einer Formel in der Tiefe zu schaetzen war der Fehler
+     * hinter dem schwarzen Bild: Wieviele Schritte noetig sind, haengt nicht
+     * an der Tiefe allein, sondern daran, wo man ist - zwischen zwei Stellen
+     * derselben Tiefe liegt leicht der Faktor zehn. Jetzt wird gezaehlt statt
+     * geschaetzt, mit einer sehr grosszuegigen Obergrenze auf ein paar hundert
+     * Punkten. Die Ursache verschwindet damit, statt behandelt zu werden.
+     */
+    mandelSeitProbe += sekunden;
+    if (mandelSeitProbe > 3) {
+      mandelSeitProbe = 0;
+      const begonnenProbe = performance.now();
+      const probe = gpuProbe(mandelTiefe, mandelDrehung);
+      mandelProbeMs = performance.now() - begonnenProbe;
+      if (probe) {
+        mandelInnen = probe.innenAnteil;
+        mandelSchritteNoetig = probe.schritteNoetig;
+      }
+    }
+
+    // Ein Drittel Reserve auf das, was die Stichprobe gesehen hat - und ein
+    // Boden, damit ein Bild, das fast ganz innen liegt, trotzdem genug
+    // Schritte bekommt, um wieder herauszufinden.
     const schritteGpu = Math.round(
-      Math.min(11000, (500 + mandelTiefe * 260 + spannung * 220) * mandelSchrittZugabe),
+      Math.min(
+        15000,
+        Math.max(700, mandelSchritteNoetig * 1.35, 500 + mandelTiefe * 120),
+      ),
     );
     gpuFarben(mandelFarbtabelle);
     const bild = gpuZeichnen({
@@ -1297,7 +1344,17 @@ function mandelbrotZeichnen(stift, lage) {
      * Beratung. Kein Regler der Welt macht daraus 12 ms - vier Mal weniger
      * Aufloesung waeren immer noch 300. Zwei solche Bilder genuegen.
      */
-    if (mandelDauer > 250) mandelGpuZaeh += 3;
+    /*
+     * Der kurze Weg gilt nur am Anfang.
+     *
+     * "Ein Bild ueber 250 ms" beantwortet die Frage, *ob* eine Grafikkarte da
+     * ist - die stellt sich in den ersten Sekunden. Spaeter kann dasselbe Bild
+     * auch daher kommen, dass eine Stelle sehr viele Schritte braucht; dann
+     * ist die Antwort weniger Aufloesung und nicht der Rueckzug. Ohne diese
+     * Frist haette eine anspruchsvolle Stelle mitten im Abend die Fassung auf
+     * den Hauptprozessor geworfen und die Tiefe gleich mit verloren.
+     */
+    if (mandelDauer > 250 && mandelSeitGpu < 10) mandelGpuZaeh += 3;
     else if (mandelDauer > stufe.budget * 4 + 12 && mandelGuete <= MANDEL_GUETE_MIN * 1.05) {
       mandelGpuZaeh++;
     } else mandelGpuZaeh = 0;
@@ -1561,7 +1618,6 @@ function mandelbrotZeichnen(stift, lage) {
       // nichts und nicht etwa eine Null, die eine Drehung vortaeuschte.
       dreh: null,
       streuung: mandelStreuung,
-      schrittZugabe: mandelSchrittZugabe,
       kunststueck: mandelLetztesKunststueck,
       versatz: mandelFarbe - Math.floor(mandelFarbe),
       muSpanne: mandelMuSpanne,
