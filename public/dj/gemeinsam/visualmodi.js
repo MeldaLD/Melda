@@ -442,6 +442,8 @@ export function gueteZuruecksetzen() {
    * Notfassung deutlich ueberlegen, weil nur sie die Tiefe traegt.
    */
   mandelAufGpu = null;
+  mandelStreuung = 40;
+  mandelTotzeit = 0;
   mandelLeinwand = null;
   mandelWerte = null;
   mandelWerteAlt = null;
@@ -486,6 +488,24 @@ let mandelTiefeGezeichnet = 0.6;
 // erst der haelt den Blick laenger als ein paar Sekunden fest.
 let mandelDrehung = 0;
 let mandelDrehTempo = 0;
+/*
+ * Was beim Drop passiert, ist jedes Mal etwas anderes.
+ *
+ * Immer dasselbe Kunststueck ist nach dem dritten Mal keines mehr - beim
+ * vierten wartet niemand mehr darauf. Deshalb liegen fuenf verschiedene in
+ * einem Beutel, und es wird gezogen *ohne* Zuruecklegen: Erst wenn alle fuenf
+ * dran waren, wird neu gemischt. Reiner Zufall wuerde dasselbe Kunststueck
+ * gelegentlich dreimal hintereinander ziehen, und genau das soll nicht
+ * passieren.
+ */
+const DROP_KUNSTSTUECKE = ['wirbel', 'welle', 'kippen', 'enge', 'sog'];
+let mandelBeutel = [];
+let mandelLetztesKunststueck = '';
+// Die Nachwirkungen, alle klingen von selbst ab.
+let mandelTonDreh = 0;      // Farbkreis verdreht
+let mandelEnge = 0;         // Baender zusammengezogen
+let mandelWelle = 0;        // Welle, die durch die Baender laeuft
+let mandelWelleZeit = 0;
 // Ueberblendung statt Blitz beim Stellenwechsel.
 let mandelSchnappschuss = null;
 let mandelSchnappStift = null;
@@ -498,6 +518,33 @@ let mandelGuete = 1;
 let mandelAufGpu = null;
 // Zaehlt aufeinanderfolgende zu langsame Bilder auf der Grafikkarte.
 let mandelGpuZaeh = 0;
+/*
+ * Der Wachdienst gegen das tote Bild.
+ *
+ * Der Fehler, den er verhindert: Die Fahrt zoomte irgendwann in ein
+ * unendliches Schwarz und kam nicht wieder heraus. Die Ursache ist die
+ * Schrittzahl. Je tiefer die Fahrt, desto laenger braucht ein Punkt am Rand,
+ * bis er entkommt; reicht die Obergrenze nicht mehr, gilt *jeder* Punkt als
+ * innen liegend, und die ganze Flaeche bekommt dieselbe Farbe. Der bisherige
+ * Schutz sass in der Fassung auf dem Hauptprozessor und pruefte den
+ * Wertespeicher - die Fassung auf der Grafikkarte kommt dort nie vorbei und
+ * hatte also gar keinen.
+ *
+ * Der neue Wachdienst schaut deshalb auf das *gezeigte* Bild, nicht auf
+ * Zwischenwerte: die Streuung der Helligkeit im kleinen Schnappschuss, den es
+ * fuer die Ueberblendung ohnehin gibt. Das gilt fuer beide Fassungen und ist
+ * genau die Frage, die zaehlt - steht da noch eine Zeichnung?
+ *
+ * Und er antwortet zweistufig. Ein flaches Bild heisst meistens "zu wenig
+ * Schritte", nicht "langweilige Stelle". Also wird zuerst die Schrittzahl
+ * erhoeht; erst wenn auch das nichts hilft, wird weitergezogen.
+ */
+let mandelStreuung = 40;
+let mandelTotzeit = 0;
+let mandelSchrittZugabe = 1;
+let mandelWacheZaehler = 0;
+// Unter dieser Streuung der Helligkeit ist das Bild eine Flaeche.
+const MANDEL_STREUUNG_MIN = 4;
 let mandelPunkte = 0;
 let mandelTiefe = 0.6;
 let mandelSchwung = 0;
@@ -622,15 +669,35 @@ const MANDEL_KANTEN_MIN = 3;
  * falsch: Die untere Oktave belegt dann ein Prozent der Tabelle, obwohl im
  * Techno dort das halbe Stueck stattfindet.
  */
-function mandelTabelleBauen(grundton, spektrum, glanz) {
+function mandelTabelleBauen(grundton, akzent, spektrum, glanz) {
   const n = 512;
   const tabelle = new Uint8Array(n * 3);
   const baender = spektrum ? spektrum.length : 0;
   for (let i = 0; i < n; i++) {
     const t = i / n;
-    // Eng um den Grundton herum. Ein weiter Bereich wird bunt statt stimmig -
-    // mit +-55 Grad standen Orange und Gruen nebeneinander im selben Bild.
-    const ton = (grundton + Math.sin(t * Math.PI * 6) * 26 + t * 18) % 360;
+    /*
+     * Zwischen Grundton und Gegenton hin und her, nicht rund um den Kreis.
+     *
+     * Der Weg wird auf dem *kuerzeren* Bogen genommen - sonst laeuft eine
+     * Palette von Violett nach Magenta einmal quer durch Gruen und Gelb, und
+     * genau die Toene sollten ja draussen bleiben. Der Gegenton liegt bei der
+     * Haelfte des Durchlaufs und trifft damit die hellsten Baender: Er ist der
+     * Akzent, nicht die zweite Hauptfarbe.
+     */
+    const bogen = ((akzent - grundton + 540) % 360) - 180;
+    /*
+     * Der Gegenton ist eine schmale Spitze, keine zweite Haelfte.
+     *
+     * Mit einem glatten Hin und Her belegte er die halbe Tabelle, und das
+     * Ergebnis war genau das Bunte, das vermieden werden sollte - bei der
+     * Palette aus Blau und Bernstein standen beide Toene gleich gross im Bild
+     * und stritten sich. Hoch drei genommen bleibt der Weg lange beim
+     * Grundton und erreicht den Gegenton nur auf den letzten paar Prozent des
+     * Durchlaufs. Damit ist er das, was ein Akzent sein soll: selten, kurz,
+     * und deshalb wirksam.
+     */
+    const naehe = 0.5 - 0.5 * Math.cos(t * Math.PI * 2);
+    const ton = (grundton + bogen * naehe * naehe * naehe + 360) % 360;
     // Helligkeit schwingt, damit Baender aus Licht und Dunkel entstehen.
     let helligkeit = 4 + 34 * (0.5 - 0.5 * Math.cos(t * Math.PI * 6)) + t * 12;
 
@@ -698,6 +765,9 @@ function mandelNeuAnsetzen() {
   // Der Wertespeicher zeigt jetzt auf die falsche Stelle im Bild.
   mandelGrundierenNoetig = true;
   mandelPhase = 0;
+  mandelSchrittZugabe = 1;
+  mandelTotzeit = 0;
+  mandelStreuung = 40;
 }
 
 /*
@@ -962,10 +1032,39 @@ function mandelbrotZeichnen(stift, lage) {
   mandelSchwung *= Math.pow(0.08, sekunden);
 
   if (drop) {
+    // Der gemeinsame Teil - den bekommt jeder Drop.
     mandelSchwung += 12;
     mandelDrehTempo += 1.6;
     mandelFarbSprung += 0.3;
+
+    if (!mandelBeutel.length) {
+      mandelBeutel = DROP_KUNSTSTUECKE.slice();
+      // Mischen, und dabei verhindern, dass der neue Beutel mit demselben
+      // Kunststueck anfaengt, mit dem der alte aufgehoert hat.
+      for (let i = mandelBeutel.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [mandelBeutel[i], mandelBeutel[j]] = [mandelBeutel[j], mandelBeutel[i]];
+      }
+      if (mandelBeutel[mandelBeutel.length - 1] === mandelLetztesKunststueck) {
+        [mandelBeutel[0], mandelBeutel[mandelBeutel.length - 1]] =
+          [mandelBeutel[mandelBeutel.length - 1], mandelBeutel[0]];
+      }
+    }
+    const kunststueck = mandelBeutel.pop();
+    mandelLetztesKunststueck = kunststueck;
+    if (kunststueck === 'wirbel') mandelDrehTempo += 5;
+    else if (kunststueck === 'welle') { mandelWelle = 1; mandelWelleZeit = 0; }
+    else if (kunststueck === 'kippen') mandelTonDreh += 128;
+    else if (kunststueck === 'enge') mandelEnge = 1;
+    else if (kunststueck === 'sog') mandelSchwung += 20;
   }
+
+  // Alle Nachwirkungen klingen ab - unterschiedlich schnell, damit sie sich
+  // nicht wie ein einziger Effekt anfuehlen.
+  mandelTonDreh *= Math.pow(0.32, sekunden);
+  mandelEnge *= Math.pow(0.2, sekunden);
+  mandelWelle *= Math.pow(0.12, sekunden);
+  mandelWelleZeit += sekunden;
 
   /*
    * Vor dem Drop zieht es an. Die Spannung kommt aus der Analyse und steigt,
@@ -1009,6 +1108,24 @@ function mandelbrotZeichnen(stift, lage) {
     mandelFarbe -= sekunden * 0.12;
   }
 
+  /*
+   * Steht eine Flaeche statt einer Zeichnung da, wird zuerst mehr gerechnet
+   * und erst danach weitergezogen. Waehrend einer Ueberblendung wird nicht
+   * geurteilt - da liegen zwei Bilder uebereinander, und das Mass gilt nicht.
+   */
+  if (mandelUeberblendung > 0) mandelTotzeit = 0;
+  else if (mandelStreuung < MANDEL_STREUUNG_MIN) mandelTotzeit += sekunden;
+  else mandelTotzeit = Math.max(0, mandelTotzeit - sekunden * 2);
+  if (mandelTotzeit > 0.8) {
+    mandelTotzeit = 0;
+    if (mandelSchrittZugabe < 4) {
+      mandelSchrittZugabe = Math.min(4, mandelSchrittZugabe * 1.7);
+      mandelStreuung = 40; // dem naechsten Bild eine Chance geben
+    } else {
+      mandelNeuAnsetzen();
+    }
+  }
+
   // Die Genauigkeit ist am Ende. Auf der Grafikkarte passiert das selten
   // genug, dass eine ruhige Ueberblendung reicht; ohne sie waere hier ein
   // Sprung.
@@ -1021,14 +1138,20 @@ function mandelbrotZeichnen(stift, lage) {
   const grundton = paletteB && anteilB > 0.5 ? paletteB.grundton : paletteA.grundton;
   // Jedes Bild neu: Sie traegt jetzt das Spektrum, und das aendert sich mit
   // jedem Bild. 512 Stufen kosten weniger als ein Zehntel einer Millisekunde.
-  mandelFarbtabelle = mandelTabelleBauen(grundton, spektrum, 0.6 + wucht * 0.6);
+  const akzent = paletteB && anteilB > 0.5 ? paletteB.akzent : paletteA.akzent;
+  mandelFarbtabelle = mandelTabelleBauen(
+    grundton + mandelTonDreh,
+    akzent + mandelTonDreh,
+    spektrum,
+    0.6 + wucht * 0.6,
+  );
   mandelFarbtonZuletzt = grundton;
 
   const stufe = GUETESTUFEN[lage.guetestufe] ?? GUETESTUFEN.hoch;
   const versatzJetzt = mandelFarbe - Math.floor(mandelFarbe);
   // Enger werdende Ringe, je naeher der Drop. Das ist die zweite Haelfte der
   // Vorbereitung - die erste ist die Drehung.
-  const dichte = 0.85 + spannung * 0.85;
+  const dichte = (0.85 + spannung * 0.85) * (1 + mandelEnge * 1.6);
 
   // --- Der schnelle Weg: Grafikkarte --------------------------------------
 
@@ -1041,7 +1164,9 @@ function mandelbrotZeichnen(stift, lage) {
      * gibt es hier keine Obergrenze aus Genauigkeitsgruenden - nur eine aus
      * Zeitgruenden, und die regelt der Guetefaktor mit.
      */
-    const schritteGpu = Math.round(Math.min(4600, 420 + mandelTiefe * 150 + spannung * 220));
+    const schritteGpu = Math.round(
+      Math.min(11000, (500 + mandelTiefe * 260 + spannung * 220) * mandelSchrittZugabe),
+    );
     gpuFarben(mandelFarbtabelle);
     const bild = gpuZeichnen({
       breite, hoehe,
@@ -1052,6 +1177,8 @@ function mandelbrotZeichnen(stift, lage) {
       versatz: versatzJetzt,
       dichte,
       innenHell: 0.4 + wucht * 0.35,
+      welle: mandelWelle,
+      welleZeit: mandelWelleZeit,
       guete: Math.min(mandelGuete, stufe.fraktal),
     });
     mandelPunkte = bild.breite * bild.hoehe;
@@ -1070,6 +1197,7 @@ function mandelbrotZeichnen(stift, lage) {
         dreh: mandelDrehung,
         dichte,
         versatz: versatzJetzt,
+        kunststueck: mandelLetztesKunststueck,
         aufGpu: true,
         dauerMs: mandelDauer,
         schwung: mandelSchwung,
@@ -1381,6 +1509,9 @@ function mandelbrotZeichnen(stift, lage) {
       // Wertespeichers setzt einen reinen Zoom voraus. Hier steht deshalb
       // nichts und nicht etwa eine Null, die eine Drehung vortaeuschte.
       dreh: null,
+      streuung: mandelStreuung,
+      schrittZugabe: mandelSchrittZugabe,
+      kunststueck: mandelLetztesKunststueck,
       versatz: mandelFarbe - Math.floor(mandelFarbe),
       muSpanne: mandelMuSpanne,
       vielfalt: mandelVielfalt,
@@ -1448,6 +1579,24 @@ function mandelAufsBild(stift, quelle, qb, qh, breite, hoehe, wucht, sekunden) {
     }
     mandelSchnappStift.drawImage(quelle, 0, 0, qb, qh, 0, 0, 480, 300);
     mandelSchnappschussNehmen = false;
+
+    // Jedes sechste Bild in den Schnappschuss hineinsehen. Er liegt ohnehin
+    // schon da und ist klein - ein Blick darauf kostet fast nichts, und er
+    // zeigt genau das, was auch der Gast sieht.
+    if (++mandelWacheZaehler % 6 === 0) {
+      const feld = mandelSchnappStift.getImageData(60, 60, 360, 180).data;
+      let summe = 0;
+      let summeQuadrat = 0;
+      let proben = 0;
+      for (let i = 0; i < feld.length; i += 32) {
+        const w = (feld[i] + feld[i + 1] + feld[i + 2]) / 3;
+        summe += w;
+        summeQuadrat += w * w;
+        proben++;
+      }
+      const mittel = summe / proben;
+      mandelStreuung = Math.sqrt(Math.max(0, summeQuadrat / proben - mittel * mittel));
+    }
   }
 
   // Oben und unten abdunkeln. Dort stehen Titel, Uhr und Pegel, und ein

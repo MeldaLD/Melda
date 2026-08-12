@@ -145,6 +145,7 @@ try {
           muSpanne: m.muSpanne,
           vielfalt: m.vielfalt,
           kanten: m.kanten,
+          streuung: m.streuung,
           frisch: m.frischePunkte,
           schritte: m.schritte,
           hell,
@@ -474,14 +475,109 @@ try {
     dropMessung.farbSprung > 0.15,
     `${dropMessung.farbSprung.toFixed(2)} Durchlaeufe`,
   );
+  /*
+   * Absolute Schranke statt Verhaeltnis.
+   *
+   * Das Verhaeltnis "dreimal so viel wie vorher" flatterte: Im Demolauf kommen
+   * echte Drops aus der Analyse, und faellt einer in die Ruhemessung, steht
+   * der Ausgangswert schon bei 6,8 statt bei 0,3 - dann waere das Dreifache
+   * unerreichbar, obwohl der Drop genau das tat, was er soll.
+   *
+   * Ein Drop legt einen festen Betrag drauf, mindestens 12. Ein Schlag legt
+   * hoechstens gut 1 drauf und klingt in einer halben Sekunde ab. Also wird
+   * gefordert, was tatsaechlich gilt: ein Zuwachs, der ueber allem liegt, was
+   * Schlaege je erreichen.
+   */
   pruefe(
     'und der Zoom bekommt einen Schub',
-    dropMessung.schwungNachher > Math.max(0.5, dropMessung.schwungVorher * 3),
+    dropMessung.schwungNachher > Math.max(8, dropMessung.schwungVorher + 6),
     `${dropMessung.schwungVorher.toFixed(2)} -> ${dropMessung.schwungNachher.toFixed(2)}`,
   );
   // Der Drop darf alles - nur nicht wieder blitzen.
   pruefe('auch der Drop blitzt nicht', dropMessung.hellste < 170,
     `hellstes Bild ${dropMessung.hellste.toFixed(1)}`);
+
+  // --- 5b. Es bleibt nie im Schwarzen haengen ------------------------------
+
+  /*
+   * Der Fehler, der das noetig gemacht hat: Die Fahrt zoomte irgendwann in
+   * ein unendliches Schwarz und kam nicht wieder heraus.
+   *
+   * Die Ursache war nicht die Stelle, sondern die Schrittzahl. Je tiefer die
+   * Fahrt, desto laenger braucht ein Punkt am Rand, bis er entkommt; reicht
+   * die Obergrenze nicht mehr, gilt jeder Punkt als innen liegend und die
+   * ganze Flaeche bekommt dieselbe Farbe. Der alte Schutz sass in der Fassung
+   * auf dem Hauptprozessor - die Fassung auf der Grafikkarte kam dort nie
+   * vorbei und hatte gar keinen.
+   *
+   * Geprueft wird deshalb die Eigenschaft, die der Gast gesehen hat: Eine
+   * flache Flaeche darf vorkommen, aber sie darf nicht stehenbleiben.
+   */
+  console.log('\nEs bleibt nie im Schwarzen haengen:');
+  const streuungen2 = verlauf.map((p) => p.streuung).filter((x) => typeof x === 'number');
+  let laengsteFlaute = 0;
+  let flaute = 0;
+  for (let i = 1; i < verlauf.length; i++) {
+    if (typeof verlauf[i].streuung !== 'number') continue;
+    if (verlauf[i].streuung < 4) flaute += (verlauf[i].t - verlauf[i - 1].t) / 1000;
+    else flaute = 0;
+    laengsteFlaute = Math.max(laengsteFlaute, flaute);
+  }
+  console.log(
+    `    Streuung im Bild: im Mittel ${(streuungen2.reduce((a, b) => a + b, 0) / Math.max(1, streuungen2.length)).toFixed(1)}, ` +
+      `am flachsten ${Math.min(...streuungen2).toFixed(1)}`,
+  );
+  pruefe(
+    'keine Flaeche bleibt laenger als anderthalb Sekunden stehen',
+    laengsteFlaute < 1.5,
+    `laengste Flaute ${laengsteFlaute.toFixed(1)} s`,
+  );
+
+  // --- 5c. Der Drop macht jedes Mal etwas anderes --------------------------
+
+  /*
+   * Gezogen wird ohne Zuruecklegen: Erst wenn alle fuenf Kunststuecke dran
+   * waren, wird neu gemischt. Geprueft wird genau das - je fuenf
+   * aufeinanderfolgende Drops muessen fuenf verschiedene sein. Reiner Zufall
+   * wuerde hier durchfallen, und das ist der Sinn der Sache: Ein Kunststueck,
+   * das dreimal hintereinander kommt, ist keines mehr.
+   */
+  console.log('\nDer Drop macht jedes Mal etwas anderes:');
+  const gezogen = await seite.evaluate(async () => {
+    const liste = [];
+    for (let i = 0; i < 10; i++) {
+      window.__dj.bild.dropAusloesen();
+      await new Promise((f) => setTimeout(f, 700));
+      liste.push(window.__mandel.kunststueck);
+    }
+    return liste;
+  });
+  console.log(`    ${gezogen.join(' ')}`);
+  let wiederholt = 0;
+  for (let i = 1; i < gezogen.length; i++) if (gezogen[i] === gezogen[i - 1]) wiederholt++;
+  const zaehler = new Map();
+  for (const k of gezogen) zaehler.set(k, (zaehler.get(k) ?? 0) + 1);
+  const haeufigste = Math.max(...zaehler.values());
+
+  /*
+   * Warum nicht "je fuenf aufeinanderfolgende sind fuenf verschiedene":
+   *
+   * Das war mein erster Versuch, und er ist an der eigenen Annahme
+   * gescheitert. Die Pruefung des Drops weiter oben zieht selbst schon aus dem
+   * Beutel - die zehn Zuege hier fangen also mitten drin an, nicht an einer
+   * Beutelgrenze. Ein Fenster von fuenf liegt dann ueber zwei Beuteln und darf
+   * sehr wohl eine Wiederholung enthalten.
+   *
+   * Was auch ohne Ausrichtung gilt: Zehn Zuege decken immer einen *ganzen*
+   * Beutel ab, also kommt jedes Kunststueck mindestens einmal vor; und mehr
+   * als dreimal kann keines vorkommen, weil zehn Zuege hoechstens drei Beutel
+   * beruehren. Reiner Zufall haelt beides nicht ein - er laesst mit gut vierzig
+   * Prozent eines ganz aus.
+   */
+  pruefe('nie zweimal dasselbe hintereinander', wiederholt === 0, `${wiederholt} Wiederholungen`);
+  pruefe('in zehn Drops kommt jedes Kunststueck vor', zaehler.size === 5,
+    `${zaehler.size} von 5 verschiedenen`);
+  pruefe('und keines haeuft sich', haeufigste <= 3, `haeufigstes ${haeufigste}-mal`);
 
   // --- 6. Die Bildguete laesst sich wirklich senken ------------------------
 

@@ -98,25 +98,68 @@ function rauschen(startwert) {
 
 // --- Farben ---------------------------------------------------------------
 
-// Jeder Track bekommt seine eigene Palette, aber keine zufaellige: Der
-// Grundton kommt aus der Kennung, die uebrigen Toene stehen in festen
-// Abstaenden dazu. So sieht jeder Track anders aus und trotzdem nie schlecht.
+/*
+ * Sechs Paletten statt eines beliebigen Grundtons.
+ *
+ * Vorher wuerfelte jeder Track einen Farbton zwischen 0 und 360 aus. Das ist
+ * bequem und geht regelmaessig schief: Im Bereich zwischen Gelb und Oliv wird
+ * jede gesaettigte Flaeche schmutzig statt leuchtend, und ueber eine ganze
+ * Nacht kommt dieser Bereich sicher mehrmals dran.
+ *
+ * Was in dieser Musik funktioniert, folgt drei Regeln, und alle drei haben
+ * einen Grund, der nichts mit Geschmack zu tun hat:
+ *
+ *   1. Ein *enger* Tonbereich plus genau ein Gegenton. Nicht der Regenbogen.
+ *      Ein Bild aus zwei benachbarten Toenen wirkt wie ein Raum mit einer
+ *      Lichtquelle; ein Bild aus sechs Toenen wirkt wie ein Aufkleberbogen.
+ *      Der Gegenton kommt nur in den hellsten Baendern vor - er ist der
+ *      Akzent, nicht der zweite Hauptdarsteller.
+ *   2. Dunkler Grund. Auf einem Beamer in einem dunklen Raum leuchtet eine
+ *      gesaettigte Farbe nur, wenn ringsum fast nichts ist. Dieselbe Farbe auf
+ *      mittelhellem Grund ist einfach nur bunt. Deshalb traegt hier die
+ *      *Helligkeit* den Kontrast und nicht der Farbton.
+ *   3. Keine mittelhellen warmen Toene. Blau, Violett, Magenta, Tuerkis und
+ *      Saeuregruen bleiben auch stark gesaettigt sauber. Gelb, Orange und
+ *      Olivgruen kippen dort ins Schmutzige - Bernstein kommt deshalb nur als
+ *      Akzent vor, nie als Grundton grosser Flaechen.
+ *
+ * Jede Palette ist ein Paar aus Grundton und Gegenton. Welche ein Track
+ * bekommt, entscheidet seine Kennung - also immer dieselbe fuer denselben
+ * Track, aber ueber den Abend verteilt.
+ */
+const PALETTEN = [
+  { name: 'Nachtviolett', grundton: 268, akzent: 322 },
+  { name: 'Tiefsee', grundton: 196, akzent: 268 },
+  { name: 'Giftgruen', grundton: 132, akzent: 196 },
+  { name: 'Magenta', grundton: 318, akzent: 258 },
+  { name: 'Polarlicht', grundton: 168, akzent: 128 },
+  { name: 'Bernstein', grundton: 214, akzent: 32 },
+];
+
 function palette(kennung, energie = 0.5) {
   const wuerfel = streuung(ausText(kennung || 'ohne'));
-  const grundton = Math.floor(wuerfel() * 360);
-  // Mit steigender Energie waermer und gesaettigter.
-  const saettigung = 62 + energie * 30;
-  const helligkeit = 48 + energie * 12;
+  const gewaehlt = PALETTEN[Math.floor(wuerfel() * PALETTEN.length) % PALETTEN.length];
+  // Ein kleiner Versatz, damit zwei Tracks derselben Palette nicht identisch
+  // aussehen. Klein genug, dass der Charakter bleibt.
+  const versatz = Math.round((wuerfel() - 0.5) * 16);
+  const grundton = (gewaehlt.grundton + versatz + 360) % 360;
+  const akzent = (gewaehlt.akzent + versatz + 360) % 360;
+  // Mit steigender Energie gesaettigter, aber nicht heller: Helligkeit ist auf
+  // einer Leinwand im Dunkeln das knappe Gut.
+  const saettigung = 64 + energie * 26;
+  const helligkeit = 46 + energie * 8;
 
   return {
+    name: gewaehlt.name,
     grundton,
+    akzent,
     toene: [
       `hsl(${grundton} ${saettigung}% ${helligkeit}%)`,
-      `hsl(${(grundton + 42) % 360} ${saettigung}% ${helligkeit - 6}%)`,
-      `hsl(${(grundton + 318) % 360} ${saettigung - 8}% ${helligkeit + 6}%)`,
-      `hsl(${(grundton + 180) % 360} ${saettigung - 14}% ${helligkeit}%)`,
+      `hsl(${(grundton + 20) % 360} ${saettigung}% ${helligkeit - 8}%)`,
+      `hsl(${akzent} ${saettigung - 6}% ${helligkeit + 8}%)`,
+      `hsl(${(grundton + 340) % 360} ${saettigung - 12}% ${helligkeit - 4}%)`,
     ],
-    hell: `hsl(${grundton} 90% 72%)`,
+    hell: `hsl(${akzent} 88% 70%)`,
   };
 }
 

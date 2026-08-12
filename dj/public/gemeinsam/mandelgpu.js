@@ -135,6 +135,8 @@ uniform float versatz;       // Farbverschiebung, 0 bis 1
 uniform float dichte;        // wie eng die Farbbaender liegen
 uniform float innenHell;     // Helligkeit der Innenflaeche
 uniform vec3  mittelFarbe;   // Mittelwert der Farbtabelle
+uniform float welle;         // Staerke der Drop-Welle
+uniform float welleZeit;     // wie lange sie schon laeuft
 
 out vec4 ergebnis;
 
@@ -186,6 +188,10 @@ void main() {
     // Die Wurzelkennlinie: Ohne sie liegen die Baender in der Tiefe so dicht,
     // dass das Bild flimmert, und im Flachen so weit, dass es einfarbig wird.
     float p = pow(max(mu, 1.0), 0.45) * dichte;
+    // Die Drop-Welle: eine Stauchung, die von innen nach aussen durch die
+    // Baender laeuft. Weil sie auf p wirkt und nicht auf die Helligkeit,
+    // *bewegt* sie das Bild, statt es nur aufzuhellen.
+    p += welle * 0.9 * sin(p * 2.2 - welleZeit * 7.0);
     farbe = texture(farben, vec2(fract(p + versatz), 0.5)).rgb;
     /*
      * Glaetten, wo die Baender feiner werden als ein Bildpunkt.
@@ -286,6 +292,7 @@ export function gpuBereit() {
     for (const name of [
       'bahn', 'farben', 'feld', 'spanne', 'seite', 'dreh',
       'schritte', 'bahnBreite', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
+      'welle', 'welleZeit',
     ]) {
       orte[name] = gl.getUniformLocation(programm, name);
     }
@@ -322,7 +329,7 @@ function bahnSichern(ziel, gebraucht) {
   if (bahnZiel === ziel.name && bahnSchritte >= gebraucht) return;
   // Mit Vorlauf rechnen, damit nicht bei jedem tieferen Bild neu gerechnet
   // werden muss - die Bahn kostet Millisekunden, nicht Mikrosekunden.
-  const schritte = Math.min(BAHN_BREITE * 8, Math.ceil(gebraucht * 1.6));
+  const schritte = Math.min(BAHN_BREITE * 16, Math.ceil(gebraucht * 1.6));
   const { daten } = bahnRechnen(ziel.x, ziel.y, schritte);
   bahnBreite = BAHN_BREITE;
   const hoehe = Math.ceil(schritte / BAHN_BREITE);
@@ -366,7 +373,7 @@ export function gpuFarben(tabelle) {
  * derselben Stelle stehen.
  */
 export function gpuZeichnen(lage) {
-  const { breite, hoehe, ziel, tiefe, dreh, schritte, versatz, dichte, innenHell, guete } = lage;
+  const { breite, hoehe, ziel, tiefe, dreh, schritte, versatz, dichte, innenHell, guete, welle, welleZeit } = lage;
   const b = Math.max(64, Math.round(breite * guete));
   const h = Math.max(48, Math.round(hoehe * guete));
   if (b !== feldBreite || h !== feldHoehe) {
@@ -389,6 +396,8 @@ export function gpuZeichnen(lage) {
   gl.uniform1f(orte.versatz, versatz);
   gl.uniform1f(orte.dichte, dichte);
   gl.uniform1f(orte.innenHell, innenHell);
+  gl.uniform1f(orte.welle, welle ?? 0);
+  gl.uniform1f(orte.welleZeit, welleZeit ?? 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
   return { leinwand, breite: b, hoehe: h, bahnSchritte };
