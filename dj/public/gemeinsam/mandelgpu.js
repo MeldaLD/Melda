@@ -538,9 +538,34 @@ export function gpuProbe(tiefe, dreh, deckel = 16000) {
   // Schritte und wuerde die Obergrenze in die Hoehe treiben, ohne dass man
   // von ihm etwas saehe.
   const rand = gesehen.length ? gesehen[Math.floor(gesehen.length * 0.95)] : 0;
+
+  /*
+   * Wie weit die Ausstiegszeiten auseinanderliegen - das Mass fuer "steht hier
+   * ueberhaupt Zeichnung".
+   *
+   * Der Innenanteil allein reicht nicht. Er faengt den Fall, dass das Bild in
+   * der Menge versinkt, aber nicht den umgekehrten: ein Ausschnitt weit
+   * draussen, wo alle Punkte nach fast derselben Zahl von Schritten
+   * entkommen. Dann steht ein glattes Feld mit ein paar breiten Ringen da -
+   * genau das Bild, das auf dem iPad haengenblieb, und der Innenanteil war
+   * dabei null.
+   *
+   * Verglichen wird das obere mit dem unteren Zehntel, bezogen auf die Mitte.
+   * Ein Ausschnitt am Rand der Menge streut um ein Vielfaches; ein glattes
+   * Feld liegt bei wenigen Prozent.
+   */
+  let spreizung = 0;
+  if (gesehen.length >= 8) {
+    const unten = gesehen[Math.floor(gesehen.length * 0.1)];
+    const oben = gesehen[Math.floor(gesehen.length * 0.9)];
+    const mitte = gesehen[Math.floor(gesehen.length * 0.5)];
+    spreizung = (oben - unten) / Math.max(1, mitte);
+  }
+
   return {
     innenAnteil: innen / (breit * hoch),
     schritteNoetig: rand,
+    spreizung,
     hoechstes,
     punkte: breit * hoch,
   };

@@ -591,11 +591,27 @@ let mandelSeitWechsel = 99;
 let mandelSeitProbe = 99;
 let mandelInnen = 0;
 let mandelSchritteNoetig = 0;
+let mandelSpreizung = 1;
 let mandelProbeMs = 0;
 // Wie lange die Grafikkarte schon laeuft, seit sie zuletzt gewaehlt wurde.
 let mandelSeitGpu = 0;
 const MANDEL_SCHONZEIT = 5;
-const MANDEL_SPERRFRIST = 20;
+/*
+ * Die Sperrfrist war zwanzig Sekunden lang, weil das Mass unzuverlaessig war
+ * und eine Schleife drohte. Mit der Spreizung ist das Mass verlaesslich, also
+ * darf die Frist kurz sein - sonst steht ein erkanntermassen totes Bild noch
+ * eine Viertelminute da.
+ */
+const MANDEL_SPERRFRIST = 6;
+/*
+ * Unter dieser Spreizung der Ausstiegszeiten ist keine Zeichnung mehr da.
+ *
+ * Der Wert kommt aus der Messung: Auf dem Ziel "Miniatur" liegt die Spreizung
+ * ab Tiefe 6 bei 0,009 bis 0,017 - ein glattes Feld mit ein paar breiten
+ * Ringen, und der Innenanteil dabei null. Lebendige Ausschnitte messen 0,12
+ * bis 8. Dazwischen ist reichlich Platz.
+ */
+const MANDEL_SPREIZUNG_MIN = 0.06;
 // Unter dieser Streuung der Helligkeit ist das Bild eine Flaeche.
 const MANDEL_STREUUNG_MIN = 4;
 let mandelPunkte = 0;
@@ -841,6 +857,11 @@ function mandelNeuAnsetzen() {
   // "Miniatur". Eine feste Zahl fuer alle war falsch.
   mandelTiefe = MANDEL_ZIELE[mandelZiel].start ?? 1;
   mandelSeitWechsel = 0;
+  // Der neuen Stelle wird zunaechst Gesundheit unterstellt, bis die erste
+  // Stichprobe dort gelaufen ist.
+  mandelSpreizung = 1;
+  mandelInnen = 0;
+  mandelSeitProbe = 9;
   mandelNeuangesetzt++;
   /*
    * Frueher blitzte hier das Bild weiss auf, um den Sprung zu decken. Das war
@@ -1304,11 +1325,23 @@ function mandelbrotZeichnen(stift, lage) {
    * die wirklich in der Menge versinkt.
    */
   mandelSeitWechsel += sekunden;
-  const versunken = mandelAufGpu ? mandelInnen > 0.94 : mandelStreuung < MANDEL_STREUUNG_MIN;
+  /*
+   * Tot ist ein Bild auf *zwei* Arten, und die letzte Fassung kannte nur eine.
+   *
+   * Sie fragte nur nach dem Anteil, der in der Menge liegt. Das faengt den
+   * Fall, dass die Fahrt in der Menge versinkt - aber nicht den umgekehrten,
+   * und genau der ist auf dem iPad aufgetreten: ein Ausschnitt weit draussen,
+   * wo alle Punkte nach fast derselben Zahl von Schritten entkommen. Da steht
+   * ein glattes Feld mit ein paar Ringen, und der Innenanteil ist dabei null -
+   * der Wachdienst hat es also nie gesehen und ist nie eingeschritten.
+   */
+  const versunken = mandelAufGpu
+    ? mandelInnen > 0.94 || mandelSpreizung < MANDEL_SPREIZUNG_MIN
+    : mandelStreuung < MANDEL_STREUUNG_MIN;
   if (mandelUeberblendung > 0 || mandelSeitWechsel < MANDEL_SCHONZEIT) mandelTotzeit = 0;
   else if (versunken) mandelTotzeit += sekunden;
   else mandelTotzeit = Math.max(0, mandelTotzeit - sekunden * 2);
-  if (mandelTotzeit > 2.5 && mandelSeitWechsel > MANDEL_SPERRFRIST) {
+  if (mandelTotzeit > 1.2 && mandelSeitWechsel > MANDEL_SPERRFRIST) {
     mandelTotzeit = 0;
     mandelNeuAnsetzen();
   }
@@ -1364,7 +1397,9 @@ function mandelbrotZeichnen(stift, lage) {
      * Punkten. Die Ursache verschwindet damit, statt behandelt zu werden.
      */
     mandelSeitProbe += sekunden;
-    if (mandelSeitProbe > 3) {
+    // Sieht es knapp aus, wird oefter nachgesehen. Ein totes Bild soll nicht
+    // drei Sekunden lang unbemerkt dastehen.
+    if (mandelSeitProbe > (mandelSpreizung < 0.12 ? 1 : 3)) {
       mandelSeitProbe = 0;
       const begonnenProbe = performance.now();
       const probe = gpuProbe(mandelTiefe, mandelDrehung);
@@ -1372,6 +1407,7 @@ function mandelbrotZeichnen(stift, lage) {
       if (probe) {
         mandelInnen = probe.innenAnteil;
         mandelSchritteNoetig = probe.schritteNoetig;
+        mandelSpreizung = probe.spreizung;
       }
     }
 

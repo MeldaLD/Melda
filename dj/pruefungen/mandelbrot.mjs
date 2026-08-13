@@ -627,12 +627,62 @@ try {
       if (frueher < b.schritteNoetig) frueherZuKnapp++;
     }
     pruefe('die Grenze deckt ueberall den gemessenen Bedarf', zuKnapp === 0, `${zuKnapp} zu knapp`);
-    // Ohne diese Zeile koennte die Pruefung gruen sein, weil der Bedarf
-    // ueberall niedrig ist - dann haette sie nichts gezeigt.
+
+    /*
+     * Und der Fall, der zuletzt haengengeblieben ist.
+     *
+     * Der Wachdienst fragte nur nach dem Anteil, der *in* der Menge liegt.
+     * Damit sieht er nicht, wenn der Ausschnitt weit draussen in einem glatten
+     * Feld steht: Dort entkommen alle Punkte nach fast derselben Zahl von
+     * Schritten, der Innenanteil ist null, und das Bild bleibt trotzdem leer.
+     *
+     * Geprueft wird die *Trennung*: Ein bekannt lebendiger Ausschnitt muss
+     * ueber der Schwelle liegen, ein bekannt toter darunter. Nur eine Seite zu
+     * pruefen wuerde nichts zeigen - eine Schwelle von null bestuende den
+     * halben Test, und eine von unendlich die andere Haelfte.
+     */
+    const gegenprobe = await seite.evaluate(async (adresse) => {
+      const m = await import(`${adresse}/gemeinsam/mandelgpu.js`);
+      const messen = (ziel, tiefe) => {
+        // Die Bahn dieses Ziels laden, indem einmal klein gezeichnet wird.
+        m.gpuZeichnen({
+          breite: 64, hoehe: 40, ziel, tiefe, dreh: 0, schritte: 6000, versatz: 0,
+          dichte: 1, innenHell: 0.4, guete: 1, welle: 0, welleZeit: 0,
+          mandala: 0, sterne: 6, fangAnteil: 0,
+        });
+        return m.gpuProbe(tiefe, 0.3).spreizung;
+      };
+      // "Miniatur" liegt auf der Antenne der Menge. Ab Tiefe 6 ist dort nichts
+      // mehr - das ist der Ausschnitt, der auf dem iPad haengenblieb.
+      const totesZiel = {
+        name: 'Miniatur',
+        x: '-1.768610930672608212890774771462666',
+        y: '0.001645580646883195878428974839603',
+      };
+      return { tot: messen(totesZiel, 10), lebendig: messen(totesZiel, 3.4) };
+    }, ADRESSE);
+
+    console.log(
+      `    Spreizung auf der Fahrt: ${bedarf.map((b) => `${b.tiefe}→${b.spreizung.toFixed(2)}`).join(', ')}`,
+    );
+    console.log(
+      `    Gegenprobe "Miniatur": Tiefe 3,4 → ${gegenprobe.lebendig.toFixed(3)} (lebendig), ` +
+        `Tiefe 10 → ${gegenprobe.tot.toFixed(3)} (tot)`,
+    );
     pruefe(
-      'und der Fehler waere hier aufgefallen',
-      frueherZuKnapp > 0,
-      `die alte Formel war an ${frueherZuKnapp} von ${bedarf.length} Stellen zu knapp`,
+      'der tote Ausschnitt faellt unter die Schwelle',
+      gegenprobe.tot < 0.06,
+      `${gegenprobe.tot.toFixed(3)}`,
+    );
+    pruefe(
+      'der lebendige bleibt klar darueber',
+      gegenprobe.lebendig > 0.3,
+      `${gegenprobe.lebendig.toFixed(3)}`,
+    );
+    pruefe(
+      'und die Fahrt selbst gilt nirgends als tot',
+      Math.min(...bedarf.map((b) => b.spreizung)) >= 0.06,
+      `niedrigster Wert ${Math.min(...bedarf.map((b) => b.spreizung)).toFixed(3)}`,
     );
   }
 
