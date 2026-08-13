@@ -661,7 +661,14 @@ try {
     if (!m.gpuBereit()) return null;
     const zeilen = [];
     for (const tiefe of [1.1, 3, 6, 9, 12, 16]) {
-      const p = m.gpuProbe(tiefe, 0.3);
+      /*
+       * Der Ring der Stichprobe sammelt ueber mehrere Aufrufe - im Betrieb
+       * ueber Sekunden, hier eben in einer Schleife. Vorher leeren, damit die
+       * vorige Tiefe nicht hineinspricht.
+       */
+      m.gpuProbeVergessen();
+      let p = null;
+      for (let i = 0; i < 16; i++) p = m.gpuProbe(tiefe, 0.3, 12000, 40000);
       if (p) zeilen.push({ tiefe, ...p });
     }
     return zeilen;
@@ -695,6 +702,13 @@ try {
      * Feld steht: Dort entkommen alle Punkte nach fast derselben Zahl von
      * Schritten, der Innenanteil ist null, und das Bild bleibt trotzdem leer.
      *
+     * Gemessen wird hier mit grosszuegiger Schrittgrenze, nicht mit der des
+     * laufenden Bildes. Das ist Absicht: Geprueft wird, ob die *Kennzahl*
+     * lebendig von tot trennt, und dafuer muessen genug Punkte ueberhaupt
+     * entkommen koennen. Im Betrieb urteilt sie nur, wenn das der Fall ist -
+     * sonst gilt sie als unbekannt, und die Schrittzahl wird erst einmal
+     * angehoben.
+     *
      * Geprueft wird die *Trennung*: Ein bekannt lebendiger Ausschnitt muss
      * ueber der Schwelle liegen, ein bekannt toter darunter. Nur eine Seite zu
      * pruefen wuerde nichts zeigen - eine Schwelle von null bestuende den
@@ -709,7 +723,10 @@ try {
           dichte: 1, innenHell: 0.4, guete: 1, welle: 0, welleZeit: 0,
           mandala: 0, sterne: 6, fangAnteil: 0,
         });
-        return m.gpuProbe(tiefe, 0.3).spreizung;
+        m.gpuProbeVergessen();
+        let p = null;
+        for (let i = 0; i < 16; i++) p = m.gpuProbe(tiefe, 0.3, 12000, 40000);
+        return p.spreizung;
       };
       // "Miniatur" liegt auf der Antenne der Menge. Ab Tiefe 6 ist dort nichts
       // mehr - das ist der Ausschnitt, der auf dem iPad haengenblieb.
@@ -730,7 +747,7 @@ try {
     );
     pruefe(
       'der tote Ausschnitt faellt unter die Schwelle',
-      gegenprobe.tot < 0.06,
+      gegenprobe.tot < 0.02,
       `${gegenprobe.tot.toFixed(3)}`,
     );
     pruefe(
@@ -740,7 +757,7 @@ try {
     );
     pruefe(
       'und die Fahrt selbst gilt nirgends als tot',
-      Math.min(...bedarf.map((b) => b.spreizung)) >= 0.06,
+      Math.min(...bedarf.map((b) => b.spreizung)) >= 0.02,
       `niedrigster Wert ${Math.min(...bedarf.map((b) => b.spreizung)).toFixed(3)}`,
     );
   }

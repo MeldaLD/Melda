@@ -3392,7 +3392,43 @@ function gpuZeichnen(lage) {
  *                   und die Ursache des schwarzen Bildes verschwindet, statt
  *                   nachtraeglich behandelt zu werden.
  */
-function gpuProbe(tiefe, dreh, deckel = 9000) {
+/*
+ * Die Stichprobe hat ein festes Arbeitsbudget.
+ *
+ * Ihre Kosten hingen bisher am Bildinhalt, und zwar falsch herum: Punkte im
+ * Inneren entkommen nie und laufen bis zur Obergrenze, Punkte draussen sind
+ * nach ein paar Dutzend Schritten fertig. Nachgemessen 6,3 ms bei zwei
+ * Prozent Innenanteil und 13,9 ms bei zweiundsechzig - und weil bei einem
+ * dunklen Bild zusaetzlich haeufiger nachgesehen wurde, traf die teuerste
+ * Messung genau auf den unguenstigsten Moment. Auf einem Tablet wurde daraus
+ * ein deutliches Haken, und zwar immer dann, wenn "ploetzlich neuer Inhalt
+ * entsteht" - also genau dann, wenn der Wachdienst anspringt.
+ *
+ * Jetzt bekommt sie ein Budget an Schritten, das sie nicht ueberziehen darf.
+ * Reicht es nicht fuer alle Punkte, werden eben weniger gemessen - und beim
+ * naechsten Mal die anderen, reihum. Ueber ein paar Aufrufe ist die Flaeche
+ * genauso abgedeckt, aber kein einzelner Aufruf kostet mehr als das Budget.
+ */
+let probeStart = 0;
+/*
+ * Die letzten Messwerte, ueber Aufrufe hinweg.
+ *
+ * Mit dem Arbeitsbudget schafft ein einzelner Aufruf nur noch eine Handvoll
+ * Punkte - zu wenige fuer eine Aussage ueber die Verteilung. Da die Punkte
+ * aber reihum drankommen, ergaenzen sich die Aufrufe: Ein Ring der letzten
+ * achtzig Messungen deckt die Flaeche ab und ist nach ein paar Sekunden
+ * vollstaendig. Beim Stellenwechsel wird er geleert, sonst spraeche die alte
+ * Stelle in die neue hinein.
+ */
+const PROBE_RING = 80;
+let probeWerte = [];
+
+function gpuProbeVergessen() {
+  probeWerte = [];
+  probeStart = 0;
+}
+
+function gpuProbe(tiefe, dreh, deckel = 9000, arbeitsbudget = 20000) {
   if (!bahnDaten || !bahnSchritte) return null;
   const spanne = 1.6 / Math.pow(10, tiefe);
   const sd = Math.sin(dreh);
@@ -3403,12 +3439,20 @@ function gpuProbe(tiefe, dreh, deckel = 9000) {
   const hoch = 5;
   let innen = 0;
   let hoechstes = 0;
+  let gemessen = 0;
   const gesehen = [];
+  let uebrig = arbeitsbudget;
+  const anzahl = breit * hoch;
 
-  for (let py = 0; py < hoch; py++) {
-    // Der Rand des Bildes zaehlt mit, nicht nur die Mitte.
-    const by = ((py + 0.5) / hoch) * 2 - 1;
-    for (let px = 0; px < breit; px++) {
+  for (let k = 0; k < anzahl; k++) {
+    // Reihum, damit ueber mehrere Aufrufe die ganze Flaeche drankommt.
+    const nr = (probeStart + k) % anzahl;
+    const py = Math.floor(nr / breit);
+    const px = nr % breit;
+    const grenze = Math.min(deckel, uebrig);
+    if (grenze < 120) break;
+    {
+      const by = ((py + 0.5) / hoch) * 2 - 1;
       const bx = ((px + 0.5) / breit) * 2 - 1;
       const vx = (bx * cd - by * 0.625 * sd) * spanne;
       const vy = (bx * sd + by * 0.625 * cd) * spanne;
@@ -3418,7 +3462,7 @@ function gpuProbe(tiefe, dreh, deckel = 9000) {
       let m = 0;
       let n = 0;
       let entkommen = 0;
-      while (n < deckel) {
+      while (n < grenze) {
         const gx = bahnDaten[m * 4] + bahnDaten[m * 4 + 1];
         const gy = bahnDaten[m * 4 + 2] + bahnDaten[m * 4 + 3];
         const ax = gx * dx - gy * dy;
@@ -3435,12 +3479,22 @@ function gpuProbe(tiefe, dreh, deckel = 9000) {
         if (r2 > 65536) { entkommen = n; break; }
         if (r2 < dx * dx + dy * dy || m >= bahnSchritte - 1) { dx = nx; dy = ny; m = 0; }
       }
-      if (entkommen) {
-        gesehen.push(entkommen);
-        if (entkommen > hoechstes) hoechstes = entkommen;
-      } else {
-        innen++;
-      }
+      uebrig -= n;
+      gemessen++;
+      probeStart = (nr + 1) % anzahl;
+      probeWerte.push(entkommen);
+      if (probeWerte.length > PROBE_RING) probeWerte.shift();
+    }
+  }
+  if (!gemessen || !probeWerte.length) return null;
+
+  // Ausgewertet wird der Ring, nicht nur dieser Aufruf.
+  for (const w of probeWerte) {
+    if (w) {
+      gesehen.push(w);
+      if (w > hoechstes) hoechstes = w;
+    } else {
+      innen++;
     }
   }
 
@@ -3468,8 +3522,8 @@ function gpuProbe(tiefe, dreh, deckel = 9000) {
    * Ein Ausschnitt am Rand der Menge streut um ein Vielfaches; ein glattes
    * Feld liegt bei wenigen Prozent.
    */
-  let spreizung = 0;
-  if (gesehen.length >= 8) {
+  let spreizung = -1; // -1 heisst: nicht beurteilbar
+  if (gesehen.length >= 15) {
     const unten = gesehen[Math.floor(gesehen.length * 0.1)];
     const oben = gesehen[Math.floor(gesehen.length * 0.9)];
     const mitte = gesehen[Math.floor(gesehen.length * 0.5)];
@@ -3477,11 +3531,15 @@ function gpuProbe(tiefe, dreh, deckel = 9000) {
   }
 
   return {
-    innenAnteil: innen / (breit * hoch),
+    innenAnteil: innen / probeWerte.length,
     schritteNoetig: rand,
     spreizung,
+    // Wieviele Punkte ueberhaupt entkommen sind. Unter einer Handvoll sagt die
+    // Spreizung nichts - dann ist sie nicht null, sondern unbekannt.
+    entkommene: gesehen.length,
     hoechstes,
-    punkte: breit * hoch,
+    punkte: probeWerte.length,
+    frisch: gemessen,
   };
 }
 
@@ -4110,7 +4168,10 @@ let mandelSeitWechsel = 99;
 let mandelSeitProbe = 99;
 let mandelInnen = 0;
 let mandelSchritteNoetig = 0;
+// Die Schrittzahl des zuletzt gezeichneten Bildes - die Stichprobe misst mit ihr.
+let mandelSchritteJetzt = 800;
 let mandelSpreizung = 1;
+let mandelEntkommene = 0;
 let mandelProbeMs = 0;
 // Wie lange die Grafikkarte schon laeuft, seit sie zuletzt gewaehlt wurde.
 let mandelSeitGpu = 0;
@@ -4136,12 +4197,15 @@ const MANDEL_SPERRFRIST = 6;
 /*
  * Unter dieser Spreizung der Ausstiegszeiten ist keine Zeichnung mehr da.
  *
- * Der Wert kommt aus der Messung: Auf dem Ziel "Miniatur" liegt die Spreizung
- * ab Tiefe 6 bei 0,009 bis 0,017 - ein glattes Feld mit ein paar breiten
- * Ringen, und der Innenanteil dabei null. Lebendige Ausschnitte messen 0,12
- * bis 8. Dazwischen ist reichlich Platz.
+ * Der Wert kommt aus der Messung, und er ist nach der Umstellung auf den Ring
+ * neu bestimmt worden: Ein toter Ausschnitt ("Miniatur" ab Tiefe 6) liest
+ * exakt 0,000 - dort entkommen zwar Punkte, aber alle nach derselben Zahl von
+ * Schritten. Der niedrigste Wert auf einer gesunden Fahrt lag bei 0,037. Die
+ * alte Schwelle von 0,06 lag *ueber* diesem Wert und haette gesunde Stellen
+ * abgeraeumt - genau der Fehler, der schon einmal eine gute Szene abgebrochen
+ * hat. 0,02 liegt zwischen beiden.
  */
-const MANDEL_SPREIZUNG_MIN = 0.06;
+const MANDEL_SPREIZUNG_MIN = 0.02;
 // Unter dieser Streuung der Helligkeit ist das Bild eine Flaeche.
 const MANDEL_STREUUNG_MIN = 4;
 let mandelPunkte = 0;
@@ -4392,6 +4456,8 @@ function mandelNeuAnsetzen() {
   mandelSpreizung = 1;
   mandelInnen = 0;
   mandelSeitProbe = 9;
+  // Die alte Stelle darf nicht in die neue hineinsprechen.
+  gpuProbeVergessen();
   mandelNeuangesetzt++;
   /*
    * Frueher blitzte hier das Bild weiss auf, um den Sprung zu decken. Das war
@@ -4865,8 +4931,24 @@ function mandelbrotZeichnen(stift, lage) {
    * ein glattes Feld mit ein paar Ringen, und der Innenanteil ist dabei null -
    * der Wachdienst hat es also nie gesehen und ist nie eingeschritten.
    */
+  /*
+   * Tot ist ein Bild auf zwei Arten - aber "ganz innen" heisst zweierlei.
+   *
+   * Seit die Stichprobe mit *der* Schrittzahl misst, die auch gezeichnet wird,
+   * sieht ein gesunder tiefer Ausschnitt bei knapper Grenze genauso "ganz
+   * innen" aus wie ein wirklich toter. Der Unterschied ist, ob mehr Schritte
+   * helfen wuerden. Also wird zuerst erhoeht - das tut die Rueckkopplung bei
+   * der Schrittzahl - und erst wenn die Grenze am Budget anschlaegt und es
+   * *immer noch* keine Zeichnung gibt, gilt die Stelle als tot.
+   *
+   * Und die Spreizung urteilt nur, wenn genug Punkte entkommen sind. Sonst ist
+   * sie nicht null, sondern unbekannt - das ist ein Unterschied, den die
+   * vorige Fassung verwischt hat.
+   */
+  const grenzeAmAnschlag = mandelSchritteNoetig >= mandelSchritteJetzt * 0.95;
   const versunken = mandelAufGpu
-    ? mandelInnen > 0.94 || mandelSpreizung < MANDEL_SPREIZUNG_MIN
+    ? (mandelInnen > 0.94 && grenzeAmAnschlag) ||
+      (mandelSpreizung >= 0 && mandelSpreizung < MANDEL_SPREIZUNG_MIN)
     : mandelStreuung < MANDEL_STREUUNG_MIN;
   if (mandelUeberblendung > 0 || mandelSeitWechsel < MANDEL_SCHONZEIT) mandelTotzeit = 0;
   else if (versunken) mandelTotzeit += sekunden;
@@ -4948,15 +5030,37 @@ function mandelbrotZeichnen(stift, lage) {
      * genauso gueltig.
      */
     const imSchub = mandelSchwung > 1.5;
-    if (!imSchub && mandelSeitProbe > (mandelSpreizung < 0.12 ? 1.5 : 4)) {
+    /*
+     * Immer derselbe Abstand. Frueher wurde bei knappem Befund *haeufiger*
+     * nachgesehen - das war genau falsch herum, denn ein knapper Befund heisst
+     * dunkles Bild, und dort ist die Stichprobe am teuersten.
+     */
+    if (!imSchub && mandelSeitProbe > 3) {
       mandelSeitProbe = 0;
       const begonnenProbe = performance.now();
-      const probe = gpuProbe(mandelTiefe, mandelDrehung);
+      /*
+       * Gemessen wird mit *der* Schrittzahl, die auch gezeichnet wird. Vorher
+       * lief die Stichprobe bis 9000, waehrend das Bild bei 800 abbrach - sie
+       * beantwortete also eine Frage, die auf dem Schirm gar nicht gestellt
+       * wurde, und bezahlte den Unterschied in Rechenzeit.
+       */
+      const probe = gpuProbe(mandelTiefe, mandelDrehung, mandelSchritteJetzt);
       mandelProbeMs = performance.now() - begonnenProbe;
       if (probe) {
         mandelInnen = probe.innenAnteil;
-        mandelSchritteNoetig = probe.schritteNoetig;
+        /*
+         * Die Schrittzahl folgt jetzt einer Rueckkopplung statt einer teuren
+         * Vorausmessung: Bleiben viele Punkte bis zum Anschlag gefangen, war
+         * die Grenze zu niedrig und wird angehoben; entkommen fast alle frueh,
+         * darf sie sinken. Das kostet nichts extra und pendelt sich in ein
+         * paar Sekunden ein.
+         */
+        const zuKnapp = probe.innenAnteil > 0.25;
+        mandelSchritteNoetig = zuKnapp
+          ? Math.min(15000, Math.max(probe.schritteNoetig, mandelSchritteJetzt * 1.6))
+          : Math.max(400, Math.min(mandelSchritteNoetig, probe.schritteNoetig * 1.1));
         mandelSpreizung = probe.spreizung;
+        mandelEntkommene = probe.entkommene;
       }
     }
 
@@ -5075,6 +5179,7 @@ function mandelbrotZeichnen(stift, lage) {
      * Das Kostenmodell ist diesmal zulaessig, weil es sich am Ergebnis
      * kalibriert: Vorhergesagt und gemessen wird dieselbe Groesse.
      */
+    mandelSchritteJetzt = schritteGpu;
     const bezahlbar = arbeitBudget / Math.max(1, schritteGpu);
     const gueteWunsch = Math.sqrt(bezahlbar / flaecheGpu);
     // Traege nach oben, zuegig nach unten - ein zu grosses Bild kostet sofort,

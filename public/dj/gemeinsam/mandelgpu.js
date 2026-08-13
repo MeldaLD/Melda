@@ -547,7 +547,43 @@ export function gpuZeichnen(lage) {
  *                   und die Ursache des schwarzen Bildes verschwindet, statt
  *                   nachtraeglich behandelt zu werden.
  */
-export function gpuProbe(tiefe, dreh, deckel = 9000) {
+/*
+ * Die Stichprobe hat ein festes Arbeitsbudget.
+ *
+ * Ihre Kosten hingen bisher am Bildinhalt, und zwar falsch herum: Punkte im
+ * Inneren entkommen nie und laufen bis zur Obergrenze, Punkte draussen sind
+ * nach ein paar Dutzend Schritten fertig. Nachgemessen 6,3 ms bei zwei
+ * Prozent Innenanteil und 13,9 ms bei zweiundsechzig - und weil bei einem
+ * dunklen Bild zusaetzlich haeufiger nachgesehen wurde, traf die teuerste
+ * Messung genau auf den unguenstigsten Moment. Auf einem Tablet wurde daraus
+ * ein deutliches Haken, und zwar immer dann, wenn "ploetzlich neuer Inhalt
+ * entsteht" - also genau dann, wenn der Wachdienst anspringt.
+ *
+ * Jetzt bekommt sie ein Budget an Schritten, das sie nicht ueberziehen darf.
+ * Reicht es nicht fuer alle Punkte, werden eben weniger gemessen - und beim
+ * naechsten Mal die anderen, reihum. Ueber ein paar Aufrufe ist die Flaeche
+ * genauso abgedeckt, aber kein einzelner Aufruf kostet mehr als das Budget.
+ */
+let probeStart = 0;
+/*
+ * Die letzten Messwerte, ueber Aufrufe hinweg.
+ *
+ * Mit dem Arbeitsbudget schafft ein einzelner Aufruf nur noch eine Handvoll
+ * Punkte - zu wenige fuer eine Aussage ueber die Verteilung. Da die Punkte
+ * aber reihum drankommen, ergaenzen sich die Aufrufe: Ein Ring der letzten
+ * achtzig Messungen deckt die Flaeche ab und ist nach ein paar Sekunden
+ * vollstaendig. Beim Stellenwechsel wird er geleert, sonst spraeche die alte
+ * Stelle in die neue hinein.
+ */
+const PROBE_RING = 80;
+let probeWerte = [];
+
+export function gpuProbeVergessen() {
+  probeWerte = [];
+  probeStart = 0;
+}
+
+export function gpuProbe(tiefe, dreh, deckel = 9000, arbeitsbudget = 20000) {
   if (!bahnDaten || !bahnSchritte) return null;
   const spanne = 1.6 / Math.pow(10, tiefe);
   const sd = Math.sin(dreh);
@@ -558,12 +594,20 @@ export function gpuProbe(tiefe, dreh, deckel = 9000) {
   const hoch = 5;
   let innen = 0;
   let hoechstes = 0;
+  let gemessen = 0;
   const gesehen = [];
+  let uebrig = arbeitsbudget;
+  const anzahl = breit * hoch;
 
-  for (let py = 0; py < hoch; py++) {
-    // Der Rand des Bildes zaehlt mit, nicht nur die Mitte.
-    const by = ((py + 0.5) / hoch) * 2 - 1;
-    for (let px = 0; px < breit; px++) {
+  for (let k = 0; k < anzahl; k++) {
+    // Reihum, damit ueber mehrere Aufrufe die ganze Flaeche drankommt.
+    const nr = (probeStart + k) % anzahl;
+    const py = Math.floor(nr / breit);
+    const px = nr % breit;
+    const grenze = Math.min(deckel, uebrig);
+    if (grenze < 120) break;
+    {
+      const by = ((py + 0.5) / hoch) * 2 - 1;
       const bx = ((px + 0.5) / breit) * 2 - 1;
       const vx = (bx * cd - by * 0.625 * sd) * spanne;
       const vy = (bx * sd + by * 0.625 * cd) * spanne;
@@ -573,7 +617,7 @@ export function gpuProbe(tiefe, dreh, deckel = 9000) {
       let m = 0;
       let n = 0;
       let entkommen = 0;
-      while (n < deckel) {
+      while (n < grenze) {
         const gx = bahnDaten[m * 4] + bahnDaten[m * 4 + 1];
         const gy = bahnDaten[m * 4 + 2] + bahnDaten[m * 4 + 3];
         const ax = gx * dx - gy * dy;
@@ -590,12 +634,22 @@ export function gpuProbe(tiefe, dreh, deckel = 9000) {
         if (r2 > 65536) { entkommen = n; break; }
         if (r2 < dx * dx + dy * dy || m >= bahnSchritte - 1) { dx = nx; dy = ny; m = 0; }
       }
-      if (entkommen) {
-        gesehen.push(entkommen);
-        if (entkommen > hoechstes) hoechstes = entkommen;
-      } else {
-        innen++;
-      }
+      uebrig -= n;
+      gemessen++;
+      probeStart = (nr + 1) % anzahl;
+      probeWerte.push(entkommen);
+      if (probeWerte.length > PROBE_RING) probeWerte.shift();
+    }
+  }
+  if (!gemessen || !probeWerte.length) return null;
+
+  // Ausgewertet wird der Ring, nicht nur dieser Aufruf.
+  for (const w of probeWerte) {
+    if (w) {
+      gesehen.push(w);
+      if (w > hoechstes) hoechstes = w;
+    } else {
+      innen++;
     }
   }
 
@@ -623,8 +677,8 @@ export function gpuProbe(tiefe, dreh, deckel = 9000) {
    * Ein Ausschnitt am Rand der Menge streut um ein Vielfaches; ein glattes
    * Feld liegt bei wenigen Prozent.
    */
-  let spreizung = 0;
-  if (gesehen.length >= 8) {
+  let spreizung = -1; // -1 heisst: nicht beurteilbar
+  if (gesehen.length >= 15) {
     const unten = gesehen[Math.floor(gesehen.length * 0.1)];
     const oben = gesehen[Math.floor(gesehen.length * 0.9)];
     const mitte = gesehen[Math.floor(gesehen.length * 0.5)];
@@ -632,10 +686,14 @@ export function gpuProbe(tiefe, dreh, deckel = 9000) {
   }
 
   return {
-    innenAnteil: innen / (breit * hoch),
+    innenAnteil: innen / probeWerte.length,
     schritteNoetig: rand,
     spreizung,
+    // Wieviele Punkte ueberhaupt entkommen sind. Unter einer Handvoll sagt die
+    // Spreizung nichts - dann ist sie nicht null, sondern unbekannt.
+    entkommene: gesehen.length,
     hoechstes,
-    punkte: breit * hoch,
+    punkte: probeWerte.length,
+    frisch: gemessen,
   };
 }
