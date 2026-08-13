@@ -13,6 +13,7 @@ import { Mixer, UEBERGAENGE } from '../gemeinsam/mixer.js';
 import { demoBibliothek } from '../gemeinsam/demomusik.js';
 import { leitungSuchen } from '../gemeinsam/leitung.js';
 import { Visualisierung } from '../gemeinsam/visual.js';
+import { technikSammeln, technikAlsText } from '../gemeinsam/technik.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -336,6 +337,76 @@ document.addEventListener('keydown', (e) => {
   }
   const arten = { 1: 'blende', 2: 'aufzug', 3: 'echo', 4: 'schnitt' };
   if (arten[e.key]) ueberblenden(arten[e.key]);
+  if (e.key === 't' || e.key === 'T') technikUmschalten();
+  if (e.key === 'Escape' && !$('technik').hidden) technikUmschalten();
+});
+
+/* --- Wer rechnet hier? ----------------------------------------------------
+ *
+ * Auf einem fremden Geraet - dem iPad, dem Telefon, dem Rechner eines Kumpels -
+ * laesst sich die wichtigste Frage nicht aus der Ferne beantworten: Rechnet
+ * ueberhaupt die Grafikeinheit, und wenn ja, welche? Man sieht es dem Bild
+ * nicht an. Ein zugedrehter Regler macht auch aus einer Nachbildung in
+ * Software ein fluessiges Bild - nur eben ein grobes.
+ *
+ * Die Anzeige wird bei jedem Aufklappen frisch gesammelt und danach im
+ * Sekundentakt nachgezogen, solange sie offen ist. Zu ist sie kostenlos.
+ */
+let technikTakt = null;
+
+async function technikZeichnen() {
+  const auskunft = await technikSammeln(window.__mandel ?? null, bild ?? null);
+  const zeichen = { gut: '✓', schlecht: '✗', offen: '·' };
+  $('technikUrteil').innerHTML = '';
+  for (const [art, satz] of auskunft.urteil) {
+    const zeile = document.createElement('div');
+    zeile.className = `satz ${art}`;
+    const marke = document.createElement('b');
+    marke.textContent = zeichen[art] ?? '·';
+    const text = document.createElement('span');
+    text.textContent = satz;
+    zeile.append(marke, text);
+    $('technikUrteil').append(zeile);
+  }
+  $('technikText').textContent = technikAlsText(auskunft);
+}
+
+function technikUmschalten() {
+  const kasten = $('technik');
+  kasten.hidden = !kasten.hidden;
+  clearInterval(technikTakt);
+  technikTakt = null;
+  if (!kasten.hidden) {
+    void technikZeichnen();
+    technikTakt = setInterval(() => void technikZeichnen(), 1000);
+  }
+}
+
+$('technikKnopf').addEventListener('click', technikUmschalten);
+$('technikZu').addEventListener('click', technikUmschalten);
+$('technikKopieren').addEventListener('click', async () => {
+  const knopf = $('technikKopieren');
+  const text = $('technikText').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    knopf.textContent = 'Kopiert';
+  } catch {
+    /*
+     * Ohne sicheren Kontext oder ohne Erlaubnis gibt es keine Zwischenablage -
+     * auf einem Telefon im lokalen WLAN ueber http ist das der Normalfall.
+     * Dann wird der Text stattdessen markiert, und Antippen-Halten-Kopieren
+     * tut es auch.
+     */
+    const bereich = document.createRange();
+    bereich.selectNodeContents($('technikText'));
+    const auswahl = window.getSelection();
+    auswahl.removeAllRanges();
+    auswahl.addRange(bereich);
+    knopf.textContent = 'markiert – von Hand kopieren';
+  }
+  setTimeout(() => {
+    knopf.textContent = 'Kopieren';
+  }, 2500);
 });
 
 // --- Zustand vom Server ---------------------------------------------------

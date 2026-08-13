@@ -478,6 +478,49 @@ export function gpuLeinwand() {
   return leinwand;
 }
 
+/**
+ * Alles, was sich ueber diese Grafikkarte herausfinden laesst.
+ *
+ * Fuer die Nerd-Anzeige: Auf einem fremden Geraet ist die erste Frage, ob
+ * ueberhaupt die Grafikkarte rechnet - und die zweite, welche. Beides laesst
+ * sich aus der Ferne nicht raten.
+ */
+export function gpuAuskunft() {
+  if (!gl) return { da: false };
+  const debug = gl.getExtension('WEBGL_debug_renderer_info');
+  const zahl = (name) => {
+    try {
+      return gl.getParameter(gl[name]);
+    } catch {
+      return null;
+    }
+  };
+  return {
+    da: true,
+    // Was der Treiber ueber sich sagt. Ohne die Erweiterung nennt der Browser
+    // nur "WebKit WebGL" - Safari gibt sie aus Datenschutzgruenden nicht heraus.
+    hersteller: debug ? String(gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) || '') : null,
+    karte: debug ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) || '') : null,
+    herstellerRoh: String(gl.getParameter(gl.VENDOR) || ''),
+    karteRoh: String(gl.getParameter(gl.RENDERER) || ''),
+    fassung: String(gl.getParameter(gl.VERSION) || ''),
+    schattierer: String(gl.getParameter(gl.SHADING_LANGUAGE_VERSION) || ''),
+    grenzen: {
+      textur: zahl('MAX_TEXTURE_SIZE'),
+      zeichenpuffer: zahl('MAX_RENDERBUFFER_SIZE'),
+      texturenJeSchritt: zahl('MAX_TEXTURE_IMAGE_UNITS'),
+      gleitkommaTextur: Boolean(gl.getExtension('EXT_color_buffer_float')),
+      // Genau die beiden, an denen unser Fraktal haengt: Die Bezugsbahn liegt
+      // in einer RGBA32F-Textur, und ohne lineares Filtern darauf muesste der
+      // Schattierer selbst interpolieren.
+      gleitkommaGlatt: Boolean(gl.getExtension('OES_texture_float_linear')),
+    },
+    zeitmessung: Boolean(uhrExt),
+    gpuMs: letzteGpuMs,
+    messungen: uhrGemessen,
+  };
+}
+
 export function gpuFarben(tabelle) {
   if (!gl) return;
   const n = tabelle.length / 3;
@@ -559,9 +602,80 @@ export function gpuZeichnen(lage) {
   gl.uniform1f(orte.mandala, mandala ?? 0);
   gl.uniform1f(orte.sterne, sterne ?? 6);
   gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
+  uhrStarten();
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+  uhrStoppen();
 
-  return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs };
+  return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs };
+}
+
+/*
+ * Wie lange rechnet die Grafikkarte wirklich an einem Bild?
+ *
+ * Eine Stoppuhr um drawArrays beantwortet das nicht - der Befehl kehrt zurueck,
+ * sobald er in der Warteschlange steht, nicht wenn die Karte fertig ist. Genau
+ * daran ist hier schon einmal ein Regler gescheitert.
+ *
+ * EXT_disjoint_timer_query_webgl2 fragt die Karte selbst: Sie stempelt den
+ * Anfang und das Ende der Arbeit und liefert die Dauer in Nanosekunden. Das
+ * Ergebnis steht ein paar Bilder spaeter bereit, deshalb wird es abgeholt statt
+ * abgewartet - eine Abfrage laeuft, die vorige wird eingesammelt.
+ *
+ * Nicht jeder Browser gibt die Erweiterung heraus: Sie erlaubt sehr genaue
+ * Zeitmessung, und daraus lassen sich Seitenkanaele bauen. Safari hat sie
+ * bisher nicht. Fehlt sie, bleibt gpuMs null - und die Anzeige sagt das, statt
+ * eine Zahl zu erfinden.
+ */
+let uhrExt = null;
+let uhrFrage = null;
+// Abfrage abgeschickt, Ergebnis noch nicht abgeholt. Eine neue darf erst
+// starten, wenn die vorige eingesammelt ist - sonst verwirft WebGL sie.
+let uhrOffen = false;
+let uhrLaeuft = false;
+let letzteGpuMs = null;
+let uhrGemessen = 0;
+
+function uhrStarten() {
+  if (uhrExt === null) {
+    uhrExt = gl.getExtension('EXT_disjoint_timer_query_webgl2') ?? false;
+  }
+  if (!uhrExt) return;
+  if (uhrOffen) uhrAbholen();
+  // Steht das Ergebnis noch aus, wird dieses Bild eben nicht gemessen. Die
+  // Karte laeuft der Abfrage naturgemaess hinterher; jedes zweite oder dritte
+  // Bild zu messen reicht fuer eine Anzeige vollkommen.
+  if (uhrOffen) return;
+  if (!uhrFrage) uhrFrage = gl.createQuery();
+  gl.beginQuery(uhrExt.TIME_ELAPSED_EXT, uhrFrage);
+  uhrLaeuft = true;
+}
+
+function uhrStoppen() {
+  if (!uhrLaeuft) return;
+  gl.endQuery(uhrExt.TIME_ELAPSED_EXT);
+  uhrLaeuft = false;
+  uhrOffen = true;
+}
+
+function uhrAbholen() {
+  if (!uhrOffen) return;
+  // Ein "disjoint" heisst: Die Karte hat zwischendurch etwas anderes gerechnet
+  // oder ihren Takt geaendert. Dann ist die Messung wertlos.
+  if (gl.getParameter(uhrExt.GPU_DISJOINT_EXT)) {
+    uhrOffen = false;
+    return;
+  }
+  if (!gl.getQueryParameter(uhrFrage, gl.QUERY_RESULT_AVAILABLE)) return;
+  const ms = Number(gl.getQueryParameter(uhrFrage, gl.QUERY_RESULT)) / 1e6;
+  uhrOffen = false;
+  uhrGemessen++;
+  // Traege glaetten, sonst zappelt die Anzeige unlesbar.
+  letzteGpuMs = letzteGpuMs === null ? ms : letzteGpuMs * 0.8 + ms * 0.2;
+}
+
+/** Die zuletzt gemessene reine Rechenzeit der Grafikkarte, oder null. */
+export function gpuZeitMs() {
+  return letzteGpuMs;
 }
 
 /**

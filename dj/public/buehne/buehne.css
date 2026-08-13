@@ -517,3 +517,95 @@ header {
   letter-spacing: 0.12em;
 }
 
+
+/* --- Die Technikanzeige ---------------------------------------------------
+ *
+ * Beantwortet eine Frage, die man einem laufenden Bild nicht ansieht: Rechnet
+ * hier wirklich die Grafikeinheit, und wie ausgelastet ist sie? Der
+ * Unterschied zwischen echter Karte und Nachbildung in Software sind zwei
+ * Groessenordnungen - aber ein zugedrehter Regler macht auch aus der
+ * Notloesung ein fluessiges, nur eben grobes Bild.
+ *
+ * Sie liegt ueber allem und ist normal weg. Waehrend der Party sieht sie
+ * niemand; beim Aufbau auf einem fremden Geraet ist sie das Erste, was man
+ * aufmacht.
+ */
+.technik {
+  position: fixed;
+  inset: 5vh 50% auto 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  width: min(52rem, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 1rem 1.2rem 1.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 1rem;
+  background: rgba(8, 8, 14, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.technik-kopf {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.technik-kopf button {
+  padding: 0.35rem 0.7rem;
+  margin-left: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* Das Urteil steht oben und in Klartext. Eine Liste von zwanzig Messwerten
+ * beantwortet die Frage naemlich nicht - man muesste wissen, welche Zahl
+ * wofuer steht. */
+.technik .satz {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.35rem 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.technik .satz:first-child {
+  border-top: 0;
+}
+
+.technik .satz b {
+  flex: none;
+  width: 1.1rem;
+  text-align: center;
+}
+
+.technik .gut b {
+  color: var(--gut);
+}
+.technik .schlecht b {
+  color: var(--akzent);
+}
+.technik .offen b {
+  color: var(--leise);
+}
+
+.technik pre {
+  margin: 1rem 0 0;
+  padding: 0.8rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--leise);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

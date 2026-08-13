@@ -2338,6 +2338,14 @@ function mandelbrotZeichnen(stift, lage) {
       // Wertespeichers setzt einen reinen Zoom voraus. Hier steht deshalb
       // nichts und nicht etwa eine Null, die eine Drehung vortaeuschte.
       dreh: null,
+      // Damit die Technikanzeige den Fall "rechnet, aber auf dem
+      // Hauptprozessor" von "laeuft gar nicht" unterscheiden kann.
+      aufGpu: false,
+      guete: 1,
+      bremse: 1,
+      durchsatz: mandelDurchsatz,
+      abstandMs: sekunden * 1000,
+      taktMs: mandelTaktMs,
       mandala: mandelMandala,
       sterne: mandelSterne,
       fang: mandelFang,

@@ -526,6 +526,98 @@ header {
 }
 
 
+/* --- Die Technikanzeige ---------------------------------------------------
+ *
+ * Beantwortet eine Frage, die man einem laufenden Bild nicht ansieht: Rechnet
+ * hier wirklich die Grafikeinheit, und wie ausgelastet ist sie? Der
+ * Unterschied zwischen echter Karte und Nachbildung in Software sind zwei
+ * Groessenordnungen - aber ein zugedrehter Regler macht auch aus der
+ * Notloesung ein fluessiges, nur eben grobes Bild.
+ *
+ * Sie liegt ueber allem und ist normal weg. Waehrend der Party sieht sie
+ * niemand; beim Aufbau auf einem fremden Geraet ist sie das Erste, was man
+ * aufmacht.
+ */
+.technik {
+  position: fixed;
+  inset: 5vh 50% auto 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  width: min(52rem, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  padding: 1rem 1.2rem 1.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 1rem;
+  background: rgba(8, 8, 14, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+.technik-kopf {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+
+.technik-kopf button {
+  padding: 0.35rem 0.7rem;
+  margin-left: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* Das Urteil steht oben und in Klartext. Eine Liste von zwanzig Messwerten
+ * beantwortet die Frage naemlich nicht - man muesste wissen, welche Zahl
+ * wofuer steht. */
+.technik .satz {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+  padding: 0.35rem 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.technik .satz:first-child {
+  border-top: 0;
+}
+
+.technik .satz b {
+  flex: none;
+  width: 1.1rem;
+  text-align: center;
+}
+
+.technik .gut b {
+  color: var(--gut);
+}
+.technik .schlecht b {
+  color: var(--akzent);
+}
+.technik .offen b {
+  color: var(--leise);
+}
+
+.technik pre {
+  margin: 1rem 0 0;
+  padding: 0.8rem;
+  border-radius: 0.6rem;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--leise);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 </style>
   </head>
   <body>
@@ -648,6 +740,7 @@ header {
         <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
         </select>
         <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
+        <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik</button>
         <label class="schieber">
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
@@ -658,6 +751,22 @@ header {
           Angleich
         </label>
         <ol class="verlauf" id="verlauf"></ol>
+      </div>
+
+      <!--
+        Die Technikanzeige. Sie liegt ueber allem und ist normal weg - was hier
+        drinsteht, interessiert beim Aufbau und nie waehrend der Party.
+      -->
+      <div class="technik" id="technik" hidden>
+        <div class="technik-kopf">
+          <strong>Wer rechnet hier?</strong>
+          <span>
+            <button id="technikKopieren" class="still">Kopieren</button>
+            <button id="technikZu" class="still">Schliessen</button>
+          </span>
+        </div>
+        <div id="technikUrteil"></div>
+        <pre id="technikText"></pre>
       </div>
     </main>
 
@@ -3441,6 +3550,49 @@ function gpuLeinwand() {
   return leinwand;
 }
 
+/**
+ * Alles, was sich ueber diese Grafikkarte herausfinden laesst.
+ *
+ * Fuer die Nerd-Anzeige: Auf einem fremden Geraet ist die erste Frage, ob
+ * ueberhaupt die Grafikkarte rechnet - und die zweite, welche. Beides laesst
+ * sich aus der Ferne nicht raten.
+ */
+function gpuAuskunft() {
+  if (!gl) return { da: false };
+  const debug = gl.getExtension('WEBGL_debug_renderer_info');
+  const zahl = (name) => {
+    try {
+      return gl.getParameter(gl[name]);
+    } catch {
+      return null;
+    }
+  };
+  return {
+    da: true,
+    // Was der Treiber ueber sich sagt. Ohne die Erweiterung nennt der Browser
+    // nur "WebKit WebGL" - Safari gibt sie aus Datenschutzgruenden nicht heraus.
+    hersteller: debug ? String(gl.getParameter(debug.UNMASKED_VENDOR_WEBGL) || '') : null,
+    karte: debug ? String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL) || '') : null,
+    herstellerRoh: String(gl.getParameter(gl.VENDOR) || ''),
+    karteRoh: String(gl.getParameter(gl.RENDERER) || ''),
+    fassung: String(gl.getParameter(gl.VERSION) || ''),
+    schattierer: String(gl.getParameter(gl.SHADING_LANGUAGE_VERSION) || ''),
+    grenzen: {
+      textur: zahl('MAX_TEXTURE_SIZE'),
+      zeichenpuffer: zahl('MAX_RENDERBUFFER_SIZE'),
+      texturenJeSchritt: zahl('MAX_TEXTURE_IMAGE_UNITS'),
+      gleitkommaTextur: Boolean(gl.getExtension('EXT_color_buffer_float')),
+      // Genau die beiden, an denen unser Fraktal haengt: Die Bezugsbahn liegt
+      // in einer RGBA32F-Textur, und ohne lineares Filtern darauf muesste der
+      // Schattierer selbst interpolieren.
+      gleitkommaGlatt: Boolean(gl.getExtension('OES_texture_float_linear')),
+    },
+    zeitmessung: Boolean(uhrExt),
+    gpuMs: letzteGpuMs,
+    messungen: uhrGemessen,
+  };
+}
+
 function gpuFarben(tabelle) {
   if (!gl) return;
   const n = tabelle.length / 3;
@@ -3522,9 +3674,80 @@ function gpuZeichnen(lage) {
   gl.uniform1f(orte.mandala, mandala ?? 0);
   gl.uniform1f(orte.sterne, sterne ?? 6);
   gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
+  uhrStarten();
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+  uhrStoppen();
 
-  return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs };
+  return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs };
+}
+
+/*
+ * Wie lange rechnet die Grafikkarte wirklich an einem Bild?
+ *
+ * Eine Stoppuhr um drawArrays beantwortet das nicht - der Befehl kehrt zurueck,
+ * sobald er in der Warteschlange steht, nicht wenn die Karte fertig ist. Genau
+ * daran ist hier schon einmal ein Regler gescheitert.
+ *
+ * EXT_disjoint_timer_query_webgl2 fragt die Karte selbst: Sie stempelt den
+ * Anfang und das Ende der Arbeit und liefert die Dauer in Nanosekunden. Das
+ * Ergebnis steht ein paar Bilder spaeter bereit, deshalb wird es abgeholt statt
+ * abgewartet - eine Abfrage laeuft, die vorige wird eingesammelt.
+ *
+ * Nicht jeder Browser gibt die Erweiterung heraus: Sie erlaubt sehr genaue
+ * Zeitmessung, und daraus lassen sich Seitenkanaele bauen. Safari hat sie
+ * bisher nicht. Fehlt sie, bleibt gpuMs null - und die Anzeige sagt das, statt
+ * eine Zahl zu erfinden.
+ */
+let uhrExt = null;
+let uhrFrage = null;
+// Abfrage abgeschickt, Ergebnis noch nicht abgeholt. Eine neue darf erst
+// starten, wenn die vorige eingesammelt ist - sonst verwirft WebGL sie.
+let uhrOffen = false;
+let uhrLaeuft = false;
+let letzteGpuMs = null;
+let uhrGemessen = 0;
+
+function uhrStarten() {
+  if (uhrExt === null) {
+    uhrExt = gl.getExtension('EXT_disjoint_timer_query_webgl2') ?? false;
+  }
+  if (!uhrExt) return;
+  if (uhrOffen) uhrAbholen();
+  // Steht das Ergebnis noch aus, wird dieses Bild eben nicht gemessen. Die
+  // Karte laeuft der Abfrage naturgemaess hinterher; jedes zweite oder dritte
+  // Bild zu messen reicht fuer eine Anzeige vollkommen.
+  if (uhrOffen) return;
+  if (!uhrFrage) uhrFrage = gl.createQuery();
+  gl.beginQuery(uhrExt.TIME_ELAPSED_EXT, uhrFrage);
+  uhrLaeuft = true;
+}
+
+function uhrStoppen() {
+  if (!uhrLaeuft) return;
+  gl.endQuery(uhrExt.TIME_ELAPSED_EXT);
+  uhrLaeuft = false;
+  uhrOffen = true;
+}
+
+function uhrAbholen() {
+  if (!uhrOffen) return;
+  // Ein "disjoint" heisst: Die Karte hat zwischendurch etwas anderes gerechnet
+  // oder ihren Takt geaendert. Dann ist die Messung wertlos.
+  if (gl.getParameter(uhrExt.GPU_DISJOINT_EXT)) {
+    uhrOffen = false;
+    return;
+  }
+  if (!gl.getQueryParameter(uhrFrage, gl.QUERY_RESULT_AVAILABLE)) return;
+  const ms = Number(gl.getQueryParameter(uhrFrage, gl.QUERY_RESULT)) / 1e6;
+  uhrOffen = false;
+  uhrGemessen++;
+  // Traege glaetten, sonst zappelt die Anzeige unlesbar.
+  letzteGpuMs = letzteGpuMs === null ? ms : letzteGpuMs * 0.8 + ms * 0.2;
+}
+
+/** Die zuletzt gemessene reine Rechenzeit der Grafikkarte, oder null. */
+function gpuZeitMs() {
+  return letzteGpuMs;
 }
 
 /**
@@ -6043,6 +6266,14 @@ function mandelbrotZeichnen(stift, lage) {
       // Wertespeichers setzt einen reinen Zoom voraus. Hier steht deshalb
       // nichts und nicht etwa eine Null, die eine Drehung vortaeuschte.
       dreh: null,
+      // Damit die Technikanzeige den Fall "rechnet, aber auf dem
+      // Hauptprozessor" von "laeuft gar nicht" unterscheiden kann.
+      aufGpu: false,
+      guete: 1,
+      bremse: 1,
+      durchsatz: mandelDurchsatz,
+      abstandMs: sekunden * 1000,
+      taktMs: mandelTaktMs,
       mandala: mandelMandala,
       sterne: mandelSterne,
       fang: mandelFang,
@@ -6916,6 +7147,376 @@ class Visualisierung {
 }
 
 
+// ===== public/gemeinsam/technik.js =====
+// Was steckt in diesem Geraet, und wird es benutzt?
+//
+// Diese Datei beantwortet eine Frage, die man aus der Ferne nicht raten kann:
+// Rechnet auf dem iPad, dem Telefon, dem Spiele-PC wirklich die Grafikeinheit -
+// oder faellt der Browser still auf eine Nachbildung in Software zurueck und
+// alles laeuft nur *irgendwie*? Der Unterschied sind zwei Groessenordnungen,
+// und man sieht ihn dem Bild nicht unbedingt an: Ein zugedrehter Regler macht
+// aus einer Notloesung ein fluessiges, nur eben grobes Bild.
+//
+// Drei Arten von Auskunft, und sie sind unterschiedlich viel wert:
+//
+//   1. Was das Geraet ueber sich *sagt* - Name der Karte, Grenzen des
+//      Treibers, Kerne, Speicher. Billig zu haben, aber Browser luegen hier
+//      absichtlich: Safari verschweigt den Kartennamen, weil er sich zum
+//      Wiedererkennen missbrauchen laesst.
+//   2. Was sich *messen* laesst - die reine Rechenzeit der Karte je Bild aus
+//      EXT_disjoint_timer_query_webgl2, der Durchsatz in Punkt-Schritten je
+//      Millisekunde. Das ist die belastbare Auskunft, weil sie nicht davon
+//      abhaengt, was jemand behauptet.
+//   3. Was sich daraus *schliessen* laesst - siehe urteil() unten.
+//
+// Nichts hiervon laeuft im Normalbetrieb mit. Es wird erst gesammelt, wenn
+// jemand die Anzeige aufklappt.
+
+
+/*
+ * Ab hier gilt eine Grafikeinheit als echt.
+ *
+ * Der Durchsatz zaehlt Punkt-Schritte je Millisekunde: Bildpunkte mal
+ * Iterationen, geteilt durch die gebrauchte Zeit. Die Zahl trennt sauber,
+ * weil sie um Groessenordnungen auseinanderliegt und nicht um Prozente -
+ * nachgemessen liefert der Nachbau in Software (SwiftShader) 125 000 bis
+ * 188 000, jede halbwegs aktuelle Grafikeinheit ueber 10 000 000.
+ */
+const ECHTE_KARTE_AB = 2e6;
+
+// Namen, die eine Nachbildung in Software verraten. Kein Beweis - der Name
+// kann fehlen -, aber wenn er dasteht, ist die Sache klar.
+const SOFTWARE_NAMEN = /swiftshader|llvmpipe|softpipe|software|microsoft basic|generic renderer/i;
+
+function rund(wert, stellen = 1) {
+  return typeof wert === 'number' && Number.isFinite(wert) ? Number(wert.toFixed(stellen)) : null;
+}
+
+/**
+ * Alles einsammeln. `mandel` ist window.__mandel, also der laufende Stand des
+ * Fraktals; ohne ihn kommt trotzdem alles Uebrige.
+ */
+async function technikSammeln(mandel = null, bild = null) {
+  const gpu = gpuAuskunft();
+  const auskunft = {
+    gpu,
+    webgpu: await webgpuFragen(),
+    geraet: geraetFragen(),
+    bildschirm: bildschirmFragen(),
+    speicher: speicherFragen(),
+    fraktal: fraktalFragen(mandel, bild),
+  };
+  auskunft.urteil = urteil(auskunft);
+  return auskunft;
+}
+
+// --- WebGPU ---------------------------------------------------------------
+//
+// Wir zeichnen mit WebGL 2, nicht mit WebGPU. Trotzdem lohnt die Frage: Der
+// WebGPU-Adapter nennt Hersteller und Architektur auch dort, wo WebGL den
+// Namen verschweigt - auf einem iPad steht damit "apple / apple-m" statt
+// "WebKit WebGL". Es ist die zweite Quelle fuer dieselbe Frage.
+
+// Einmal fragen reicht - der Adapter aendert sich nicht, und ihn im
+// Sekundentakt neu anzufordern waere Arbeit fuer nichts.
+let webgpuGemerkt = null;
+
+async function webgpuFragen() {
+  if (webgpuGemerkt) return webgpuGemerkt;
+  webgpuGemerkt = await webgpuErmitteln();
+  return webgpuGemerkt;
+}
+
+async function webgpuErmitteln() {
+  if (typeof navigator === 'undefined' || !navigator.gpu) return { da: false };
+  try {
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    if (!adapter) return { da: false, grund: 'kein Adapter' };
+    const info = adapter.info ?? (adapter.requestAdapterInfo ? await adapter.requestAdapterInfo() : null);
+    return {
+      da: true,
+      hersteller: info?.vendor ?? null,
+      architektur: info?.architecture ?? null,
+      geraet: info?.device ?? null,
+      beschreibung: info?.description ?? null,
+      // Ein Adapter, der sich selbst als Notloesung ausweist. Genau die Frage.
+      notloesung: adapter.isFallbackAdapter === true,
+      arbeitsgruppe: adapter.limits?.maxComputeInvocationsPerWorkgroup ?? null,
+      texturKante: adapter.limits?.maxTextureDimension2D ?? null,
+    };
+  } catch (grund) {
+    return { da: false, grund: String(grund?.message ?? grund) };
+  }
+}
+
+// --- Geraet und Browser ----------------------------------------------------
+
+function geraetFragen() {
+  if (typeof navigator === 'undefined') return {};
+  return {
+    kerne: navigator.hardwareConcurrency ?? null,
+    // Nur Chrome, und absichtlich grob gerundet. Fehlt auf Safari.
+    arbeitsspeicherGb: navigator.deviceMemory ?? null,
+    platform: navigator.platform ?? null,
+    kennung: navigator.userAgent ?? '',
+    // Auf iOS/iPadOS meldet Safari sich seit Jahren als Desktop-Mac. Der
+    // Beruehrungspunkt verraet das Geraet trotzdem.
+    beruehrung: navigator.maxTouchPoints ?? 0,
+    sparmodus: navigator.connection?.saveData ?? null,
+    netz: navigator.connection?.effectiveType ?? null,
+  };
+}
+
+function bildschirmFragen() {
+  if (typeof window === 'undefined') return {};
+  const passt = (frage) => (window.matchMedia ? window.matchMedia(frage).matches : null);
+  return {
+    fensterBreite: window.innerWidth,
+    fensterHoehe: window.innerHeight,
+    punkteJePunkt: window.devicePixelRatio ?? 1,
+    schirmBreite: window.screen?.width ?? null,
+    schirmHoehe: window.screen?.height ?? null,
+    farbtiefe: window.screen?.colorDepth ?? null,
+    // Sagt, ob der Bildschirm mehr als die ueblichen Farben kann.
+    weiterFarbraum: passt('(dynamic-range: high)'),
+    // Wer das eingeschaltet hat, will keine grossen Bewegungen sehen.
+    wenigBewegung: passt('(prefers-reduced-motion: reduce)'),
+  };
+}
+
+function speicherFragen() {
+  const m = typeof performance !== 'undefined' ? performance.memory : null;
+  if (!m) return { da: false };
+  return {
+    da: true,
+    benutztMb: rund(m.usedJSHeapSize / 1048576, 0),
+    reserviertMb: rund(m.totalJSHeapSize / 1048576, 0),
+    grenzeMb: rund(m.jsHeapSizeLimit / 1048576, 0),
+  };
+}
+
+// --- Der laufende Stand des Fraktals ---------------------------------------
+
+function fraktalFragen(mandel, bild) {
+  // Der Modus wechselt mit dem Track. Nur das Fraktal rechnet auf der
+  // Grafikkarte; alle anderen Bilder entstehen auf der 2D-Leinwand, also auf
+  // dem Hauptprozessor. Ohne diese Auskunft liest sich "Fraktal laeuft nicht"
+  // wie ein Fehler, obwohl gerade nur etwas anderes zu sehen ist.
+  const modus = bild?.letzterModusName ?? null;
+  if (!mandel || modus !== 'Mandelbrot') return { da: false, modus };
+  const punkte = (mandel.breite ?? 0) * (mandel.breite ?? 0) * 0.5625;
+  return {
+    da: true,
+    aufGpu: mandel.aufGpu === true,
+    // Die Aufloesung, mit der wirklich gerechnet wird. Ueber 1 heisst
+    // Ueberabtastung - vier gerechnete Punkte je gezeigtem.
+    guete: rund(mandel.guete, 2),
+    bremse: rund(mandel.bremse, 2),
+    breite: mandel.breite ?? null,
+    punkte: Math.round(punkte),
+    schritte: mandel.schritte ?? null,
+    tiefe: rund(mandel.tiefe, 2),
+    ziel: mandel.ziel ?? null,
+    // Punkt-Schritte je Millisekunde - das Mass, das eine Grafikkarte von
+    // einem Nachbau in Software unterscheidet.
+    durchsatz: mandel.durchsatz ?? null,
+    abstandMs: rund(mandel.abstandMs, 1),
+    taktMs: rund(mandel.taktMs, 1),
+    guetestufe: bild?.guetestufe ?? null,
+    ueberzugMs: rund(bild?.bildMs, 2),
+  };
+}
+
+// --- Was heisst das nun? ---------------------------------------------------
+
+/*
+ * Aus den Zahlen eine Aussage machen.
+ *
+ * Das ist der eigentliche Zweck der Anzeige. Eine Liste von zwanzig Werten
+ * beantwortet die Frage "wird meine Hardware genutzt" naemlich nicht - man
+ * muss wissen, welche Zahl wofuer steht. Also steht das Urteil oben, und die
+ * Zahlen darunter belegen es.
+ */
+function urteil(a) {
+  const zeilen = [];
+  const name = a.gpu.karte || a.gpu.karteRoh || '';
+  const durchsatz = a.fraktal.durchsatz ?? 0;
+
+  // 1. Rechnet die Grafikeinheit?
+  if (!a.gpu.da) {
+    zeilen.push([
+      'schlecht',
+      'Kein WebGL 2 - dieser Browser gibt gar keine Grafikbeschleunigung heraus. ' +
+        'Das Fraktal rechnet dann auf dem Hauptprozessor.',
+    ]);
+  } else if (!a.fraktal.da) {
+    zeilen.push([
+      'offen',
+      `WebGL 2 ist da${name ? ` (${name})` : ''}, aber gerade laeuft der Modus "${a.fraktal.modus ?? 'unbekannt'}". ` +
+        'Nur das Mandelbrot rechnet auf der Grafikkarte - alle anderen Bilder entstehen auf der 2D-Leinwand. ' +
+        'Fuer die Messung oben auf "Bild: Mandelbrot" stellen.',
+    ]);
+  } else if (!a.fraktal.aufGpu) {
+    // Der Grund ist wichtiger als die Feststellung: "zu langsam" und "gar
+    // keine Karte da" fuehren zu ganz verschiedenen Handgriffen.
+    zeilen.push([
+      'schlecht',
+      SOFTWARE_NAMEN.test(name)
+        ? `Das Fraktal rechnet auf dem Hauptprozessor - und das zu Recht: "${name}" ist eine ` +
+          'Nachbildung in Software. In diesem Browser ist die Hardwarebeschleunigung aus oder ' +
+          'es gibt keine nutzbare Grafikeinheit.'
+        : 'Das Fraktal rechnet auf dem Hauptprozessor - die Notfassung. Die Karte hat gemeldet, ' +
+          'sie sei da, war aber zu langsam. Unter Windows waehlt der Browser manchmal die ' +
+          'eingebaute statt der eingesteckten Karte.',
+    ]);
+  } else if (SOFTWARE_NAMEN.test(name)) {
+    zeilen.push([
+      'schlecht',
+      `"${name}" ist eine Nachbildung in Software, keine Grafikkarte. Im Browser fehlt wohl die Hardwarebeschleunigung.`,
+    ]);
+  } else if (durchsatz >= ECHTE_KARTE_AB) {
+    zeilen.push([
+      'gut',
+      `Die Grafikeinheit rechnet${name ? ` (${name})` : ''} - ${(durchsatz / 1e6).toFixed(1)} Millionen Punkt-Schritte je Millisekunde.`,
+    ]);
+  } else if (durchsatz > 0) {
+    zeilen.push([
+      'schlecht',
+      `Nur ${(durchsatz / 1e3).toFixed(0)} Tausend Punkt-Schritte je Millisekunde. Das ist Software-Tempo, keine Grafikkarte.`,
+    ]);
+  }
+
+  // 2. Wie ausgelastet ist sie?
+  if (a.gpu.zeitmessung && a.gpu.gpuMs !== null && a.fraktal.abstandMs) {
+    const anteil = (a.gpu.gpuMs / a.fraktal.abstandMs) * 100;
+    const wie =
+      anteil > 90
+        ? ['schlecht', 'am Anschlag - mehr Bild geht nur mit weniger Aufloesung']
+        : anteil > 60
+          ? ['gut', 'gut ausgelastet']
+          : ['gut', 'viel Luft'];
+    zeilen.push([
+      wie[0],
+      `Die Karte rechnet ${a.gpu.gpuMs.toFixed(2)} ms je Bild von ${a.fraktal.abstandMs} ms - ${anteil.toFixed(0)} Prozent, ${wie[1]}.`,
+    ]);
+  } else if (a.gpu.da) {
+    zeilen.push([
+      'offen',
+      'Dieser Browser gibt die GPU-Zeitmessung nicht heraus (Safari tut das nie). Die Auslastung ist deshalb nicht direkt messbar.',
+    ]);
+  }
+
+  // 3. Trifft das Bild den Takt des Bildschirms?
+  if (a.fraktal.abstandMs && a.fraktal.taktMs) {
+    const bilder = 1000 / a.fraktal.abstandMs;
+    const moeglich = 1000 / a.fraktal.taktMs;
+    zeilen.push([
+      a.fraktal.abstandMs <= a.fraktal.taktMs * 1.25 ? 'gut' : 'schlecht',
+      `${bilder.toFixed(0)} Bilder je Sekunde bei einem Bildschirm, der ${moeglich.toFixed(0)} hergibt.`,
+    ]);
+  }
+
+  // 4. Und die Aufloesung, in der wirklich gerechnet wird.
+  if (a.fraktal.da) {
+    const g = a.fraktal.guete ?? 0;
+    zeilen.push([
+      g >= 1 ? 'gut' : g >= 0.6 ? 'offen' : 'schlecht',
+      g >= 1
+        ? `Gerechnet wird mit ${g}-facher Aufloesung - ueber der Anzeige, also mit Ueberabtastung.`
+        : `Gerechnet wird mit ${(g * 100).toFixed(0)} Prozent der Anzeigeaufloesung; das Bild wird hochskaliert.`,
+    ]);
+  }
+
+  return zeilen;
+}
+
+/**
+ * Die Auskunft als Text - zum Kopieren und Verschicken.
+ *
+ * Der eigentliche Zweck: Wer auf dem Telefon steht und wissen will, warum es
+ * dort ruckelt, kann das Ergebnis nicht abtippen.
+ */
+function technikAlsText(a) {
+  const zeilen = [];
+  const raus = (name, wert) => {
+    if (wert === null || wert === undefined || wert === '') return;
+    zeilen.push(`${name.padEnd(22)} ${wert}`);
+  };
+
+  zeilen.push(`resident-dj – Technik  (${new Date().toLocaleString('de-DE')})`);
+  zeilen.push('');
+  for (const [art, satz] of a.urteil) zeilen.push(`[${art}] ${satz}`);
+
+  zeilen.push('', '— Grafik (WebGL 2) —');
+  if (a.gpu.da) {
+    raus('Karte', a.gpu.karte || `${a.gpu.karteRoh} (Name verschwiegen)`);
+    raus('Hersteller', a.gpu.hersteller || a.gpu.herstellerRoh);
+    raus('Fassung', a.gpu.fassung);
+    raus('Schattierer', a.gpu.schattierer);
+    raus('groesste Textur', a.gpu.grenzen.textur);
+    raus('Gleitkomma-Textur', a.gpu.grenzen.gleitkommaTextur ? 'ja' : 'nein');
+    raus('Zeitmessung', a.gpu.zeitmessung ? `ja (${a.gpu.messungen} Messungen)` : 'nicht erlaubt');
+    raus('reine GPU-Zeit', a.gpu.gpuMs === null ? null : `${a.gpu.gpuMs.toFixed(2)} ms je Bild`);
+  } else {
+    raus('WebGL 2', 'nicht vorhanden');
+  }
+
+  zeilen.push('', '— Grafik (WebGPU, nur zur Auskunft) —');
+  if (a.webgpu.da) {
+    raus('Hersteller', a.webgpu.hersteller);
+    raus('Architektur', a.webgpu.architektur);
+    raus('Geraet', a.webgpu.geraet || a.webgpu.beschreibung);
+    raus('Notloesung', a.webgpu.notloesung ? 'ja' : 'nein');
+  } else {
+    raus('WebGPU', a.webgpu.grund ?? 'nicht vorhanden');
+  }
+
+  zeilen.push('', '— Fraktal —');
+  if (a.fraktal.da) {
+    raus('rechnet auf', a.fraktal.aufGpu ? 'Grafikkarte' : 'Hauptprozessor (Notfassung)');
+    raus('Bildguete', a.fraktal.guetestufe);
+    raus('Aufloesung', `${a.fraktal.guete} (${a.fraktal.breite} Punkte breit)`);
+    raus('Bremse', a.fraktal.bremse);
+    raus('Schritte je Punkt', a.fraktal.schritte);
+    raus('Zoomtiefe', a.fraktal.tiefe);
+    raus('Stelle', a.fraktal.ziel);
+    raus(
+      'Durchsatz',
+      a.fraktal.durchsatz
+        ? `${(a.fraktal.durchsatz / 1e6).toFixed(2)} Mio Punkt-Schritte/ms`
+        : null,
+    );
+    raus('Bildabstand', `${a.fraktal.abstandMs} ms`);
+    raus('Bildschirmtakt', `${a.fraktal.taktMs} ms`);
+    raus('Ueberzug zeichnen', `${a.fraktal.ueberzugMs} ms`);
+  } else {
+    raus('Fraktal', 'laeuft nicht');
+  }
+
+  zeilen.push('', '— Geraet —');
+  raus('Kerne', a.geraet.kerne);
+  raus('Arbeitsspeicher', a.geraet.arbeitsspeicherGb ? `ca. ${a.geraet.arbeitsspeicherGb} GB` : null);
+  raus('Beruehrungspunkte', a.geraet.beruehrung);
+  raus('Plattform', a.geraet.platform);
+  raus('Netz', a.geraet.netz);
+  raus('Kennung', a.geraet.kennung);
+
+  zeilen.push('', '— Bildschirm —');
+  raus('Fenster', `${a.bildschirm.fensterBreite} x ${a.bildschirm.fensterHoehe}`);
+  raus('Bildschirm', `${a.bildschirm.schirmBreite} x ${a.bildschirm.schirmHoehe}`);
+  raus('Punkte je Punkt', a.bildschirm.punkteJePunkt);
+  raus('Farbtiefe', a.bildschirm.farbtiefe);
+  raus('weiter Farbraum', a.bildschirm.weiterFarbraum === null ? null : a.bildschirm.weiterFarbraum ? 'ja' : 'nein');
+
+  if (a.speicher.da) {
+    zeilen.push('', '— Speicher (nur Chrome) —');
+    raus('benutzt', `${a.speicher.benutztMb} MB von ${a.speicher.grenzeMb} MB`);
+  }
+
+  return zeilen.join('\n');
+}
+
+
 // ===== public/buehne/buehne.js =====
 // Die Buehne: hier laeuft die Musik, hier sieht man beim Mischen zu, und hier
 // dreht man waehrend der Entwicklung an allem, was sich einstellen laesst.
@@ -7251,6 +7852,76 @@ document.addEventListener('keydown', (e) => {
   }
   const arten = { 1: 'blende', 2: 'aufzug', 3: 'echo', 4: 'schnitt' };
   if (arten[e.key]) ueberblenden(arten[e.key]);
+  if (e.key === 't' || e.key === 'T') technikUmschalten();
+  if (e.key === 'Escape' && !$('technik').hidden) technikUmschalten();
+});
+
+/* --- Wer rechnet hier? ----------------------------------------------------
+ *
+ * Auf einem fremden Geraet - dem iPad, dem Telefon, dem Rechner eines Kumpels -
+ * laesst sich die wichtigste Frage nicht aus der Ferne beantworten: Rechnet
+ * ueberhaupt die Grafikeinheit, und wenn ja, welche? Man sieht es dem Bild
+ * nicht an. Ein zugedrehter Regler macht auch aus einer Nachbildung in
+ * Software ein fluessiges Bild - nur eben ein grobes.
+ *
+ * Die Anzeige wird bei jedem Aufklappen frisch gesammelt und danach im
+ * Sekundentakt nachgezogen, solange sie offen ist. Zu ist sie kostenlos.
+ */
+let technikTakt = null;
+
+async function technikZeichnen() {
+  const auskunft = await technikSammeln(window.__mandel ?? null, bild ?? null);
+  const zeichen = { gut: '✓', schlecht: '✗', offen: '·' };
+  $('technikUrteil').innerHTML = '';
+  for (const [art, satz] of auskunft.urteil) {
+    const zeile = document.createElement('div');
+    zeile.className = `satz ${art}`;
+    const marke = document.createElement('b');
+    marke.textContent = zeichen[art] ?? '·';
+    const text = document.createElement('span');
+    text.textContent = satz;
+    zeile.append(marke, text);
+    $('technikUrteil').append(zeile);
+  }
+  $('technikText').textContent = technikAlsText(auskunft);
+}
+
+function technikUmschalten() {
+  const kasten = $('technik');
+  kasten.hidden = !kasten.hidden;
+  clearInterval(technikTakt);
+  technikTakt = null;
+  if (!kasten.hidden) {
+    void technikZeichnen();
+    technikTakt = setInterval(() => void technikZeichnen(), 1000);
+  }
+}
+
+$('technikKnopf').addEventListener('click', technikUmschalten);
+$('technikZu').addEventListener('click', technikUmschalten);
+$('technikKopieren').addEventListener('click', async () => {
+  const knopf = $('technikKopieren');
+  const text = $('technikText').textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    knopf.textContent = 'Kopiert';
+  } catch {
+    /*
+     * Ohne sicheren Kontext oder ohne Erlaubnis gibt es keine Zwischenablage -
+     * auf einem Telefon im lokalen WLAN ueber http ist das der Normalfall.
+     * Dann wird der Text stattdessen markiert, und Antippen-Halten-Kopieren
+     * tut es auch.
+     */
+    const bereich = document.createRange();
+    bereich.selectNodeContents($('technikText'));
+    const auswahl = window.getSelection();
+    auswahl.removeAllRanges();
+    auswahl.addRange(bereich);
+    knopf.textContent = 'markiert – von Hand kopieren';
+  }
+  setTimeout(() => {
+    knopf.textContent = 'Kopieren';
+  }, 2500);
 });
 
 // --- Zustand vom Server ---------------------------------------------------

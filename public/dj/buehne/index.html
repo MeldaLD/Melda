@@ -127,6 +127,7 @@
         <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
         </select>
         <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
+        <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik</button>
         <label class="schieber">
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
@@ -137,6 +138,22 @@
           Angleich
         </label>
         <ol class="verlauf" id="verlauf"></ol>
+      </div>
+
+      <!--
+        Die Technikanzeige. Sie liegt ueber allem und ist normal weg - was hier
+        drinsteht, interessiert beim Aufbau und nie waehrend der Party.
+      -->
+      <div class="technik" id="technik" hidden>
+        <div class="technik-kopf">
+          <strong>Wer rechnet hier?</strong>
+          <span>
+            <button id="technikKopieren" class="still">Kopieren</button>
+            <button id="technikZu" class="still">Schliessen</button>
+          </span>
+        </div>
+        <div id="technikUrteil"></div>
+        <pre id="technikText"></pre>
       </div>
     </main>
 
