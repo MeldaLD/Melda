@@ -46,18 +46,82 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
   const lufs = lautheitAusBloecken(messung.blockLautheiten);
 
   beiSchritt('Tempo');
-  const { bpm, raster, vertrauen, anschlaege } = rasterBestimmen(huellen, hops);
+  const gesamt = rasterBestimmen(huellen, hops);
+  const anschlaege = gesamt.anschlaege;
+  const abschnitte = tempoKarte(huellen, hops, dauer, gesamt);
+
+  /*
+   * Die gemeldeten Einzelwerte kommen aus dem *ersten* Abschnitt.
+   *
+   * Bei einem Track gibt es nur einen, und dann steht dort genau das, was
+   * vorher dort stand. Bei einem Mix ist "das Tempo der Datei" keine sinnvolle
+   * Groesse mehr - wer sie trotzdem braucht, bekommt den Anfang, und wer es
+   * genau wissen will, fragt die Karte nach der Stelle.
+   *
+   * Das Vertrauen dagegen wird ueber die Laenge gemittelt. Das ist die
+   * Aussage, auf die es ankommt: nicht "hat die ganze Stunde ein Tempo"
+   * - hat sie nicht -, sondern "ist der Takt an den meisten Stellen bekannt".
+   * Vorher fiel ein Mix hier durch und bekam gar keine Marken.
+   */
+  const bpm = abschnitte[0].bpm;
+  const raster = abschnitte[0].raster;
+  const vertrauen =
+    abschnitte.reduce((s, a) => s + a.vertrauen * (a.bis - a.von), 0) /
+    Math.max(1e-9, abschnitte.reduce((s, a) => s + (a.bis - a.von), 0));
   const ohneRaster = vertrauen < VERTRAUENSSCHWELLE;
 
   beiSchritt('Verlauf');
-  const profil = profilBauen(huellen, anschlaege, hops, bpm, raster, ohneRaster);
+  /*
+   * Verlauf und Marken abschnittsweise. Jeder Abschnitt bekommt seine eigenen
+   * Taktgrenzen - sonst verwischt die Neuheitskurve, und genau aus ihr kommen
+   * die Drops.
+   */
+  const teile = abschnitte.map((a) =>
+    profilBauen(
+      huellen,
+      anschlaege,
+      hops,
+      a.bpm,
+      a.raster,
+      ohneRaster,
+      a.von,
+      a.bis,
+      a.beatVersatz,
+    ),
+  );
 
   beiSchritt('Aufbau');
+  const marken = [];
+  let phrasenVersatz = 0;
+  if (!ohneRaster) {
+    abschnitte.forEach((a, i) => {
+      if (teile[i].eintraege.length < 4) return;
+      const erkannt = strukturErkennen(teile[i].eintraege, a.bpm, a.raster);
+      // Die Marken zaehlen im Abschnitt ab null - hier kommen sie auf die
+      // durchlaufende Zaehlung der ganzen Datei.
+      for (const m of erkannt.marken) marken.push({ ...m, beat: m.beat + a.beatVersatz });
+      if (i === 0) phrasenVersatz = erkannt.phrasenVersatz;
+    });
+  }
+
+  /*
+   * Fuer die Ablage werden die Teilverlaeufe wieder zusammengehaengt - und
+   * dabei gemeinsam normiert. Jeder Teil ist auf seinen eigenen lautesten Takt
+   * bezogen; aneinandergereiht waere sonst jedes Stueck im Mix gleich laut,
+   * und die Auswahl der Ein- und Ausstiegsstellen haette nichts mehr zu
+   * vergleichen.
+   */
+  const hoechsteGesamt = teile.reduce((h, t) => Math.max(h, t.hoechste), 0);
+  const profil = [];
+  for (const teil of teile) {
+    const faktor = hoechsteGesamt > 0 ? teil.hoechste / hoechsteGesamt : 1;
+    for (const e of teil.eintraege) {
+      profil.push(faktor === 1 ? e : { ...e, e: Number((e.e * faktor).toFixed(3)) });
+    }
+  }
+
   const takte = taktEnergien(huellen[0], hops, bpm, raster);
   const einstiegBeat = ohneRaster ? 0 : einstiegFinden(takte);
-  const { marken, phrasenVersatz } = ohneRaster
-    ? { marken: [], phrasenVersatz: 0 }
-    : strukturErkennen(profil, bpm, raster);
 
   beiSchritt('Energie');
   const energie = energieSchaetzen(messung, bpm, anschlaege, vertrauen);
@@ -82,6 +146,20 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
     angleichDb: Number(angleichBegrenzen(ZIEL_LUFS - lufs).toFixed(2)),
     energie: Number(energie.toFixed(3)),
     marken,
+    /*
+     * Die Tempo-Karte. Bei einem Track genau ein Eintrag, der dasselbe sagt
+     * wie bpm und raster daneben; bei einem Mix je Stueck einer.
+     *
+     * Alles, was in Beats rechnet, geht ueber diese Liste - siehe takt.js.
+     */
+    abschnitte: abschnitte.map((a) => ({
+      von: Number(a.von.toFixed(3)),
+      bis: Number(a.bis.toFixed(3)),
+      bpm: Number(a.bpm.toFixed(2)),
+      raster: Number(a.raster.toFixed(4)),
+      vertrauen: Number(a.vertrauen.toFixed(3)),
+      beatVersatz: a.beatVersatz,
+    })),
   };
 }
 
@@ -113,14 +191,32 @@ function angleichBegrenzen(db) {
 //   b  Bassanteil - laeuft hier ein Fundament oder schwebt es nur?
 //   h  Hoehenanteil - Hi-Hats und Percussion, das Kennzeichen von Fahrt
 //   d  Anschlaege je Beat - wie dicht ist es hier?
-function profilBauen(huellen, anschlaege, hops, bpm, raster, ohneRaster) {
+//   t  Beatnummer, bei der dieser Takt beginnt
+//
+// Das t ist wegen der Mixe dazugekommen. Vorher war die Beatnummer eines
+// Eintrags schlicht sein Index mal vier, und bei einem Track stimmt das auch
+// weiterhin. Bei einem Mix aus mehreren Stuecken nicht mehr: Dort hat jeder
+// Abschnitt sein eigenes Tempo und seinen eigenen Beatversatz, und die
+// Zaehlung springt an den Grenzen. Wer dann Index mal vier rechnet, landet
+// nach einer halben Stunde Minuten daneben.
+function profilBauen(
+  huellen,
+  anschlaege,
+  hops,
+  bpm,
+  raster,
+  ohneRaster,
+  vonS = 0,
+  bisS = Infinity,
+  beatVersatz = 0,
+) {
   // Ohne Raster gibt es keine Takte. Dann wird in festen Zwei-Sekunden-
   // Abschnitten gerechnet, damit wenigstens der Verlauf stimmt.
   const taktSekunden = ohneRaster ? 2 : (60 / bpm) * 4;
-  const versatz = ohneRaster ? 0 : raster;
-  const laenge = huellen[0].length;
+  const versatz = ohneRaster ? Math.max(0, vonS) : raster;
+  const laenge = Math.min(huellen[0].length, Math.ceil(bisS * hops));
   const takte = Math.floor((laenge / hops - versatz) / taktSekunden);
-  if (!Number.isFinite(takte) || takte < 2) return [];
+  if (!Number.isFinite(takte) || takte < 2) return { eintraege: [], hoechste: 0 };
 
   const tief = [huellen[0], huellen[1]];
   const hoch = [huellen[4], huellen[5]];
@@ -153,19 +249,23 @@ function profilBauen(huellen, anschlaege, hops, bpm, raster, ohneRaster) {
       if (anschlaege[i] > 0.08) dichte++;
     }
 
-    roh.push({ gesamt, unten, oben, dichte: dichte / 4 });
+    roh.push({ gesamt, unten, oben, dichte: dichte / 4, takt: t });
   }
 
   let hoechste = 0;
   for (const r of roh) if (r.gesamt > hoechste) hoechste = r.gesamt;
-  if (hoechste <= 0) return [];
+  if (hoechste <= 0) return { eintraege: [], hoechste: 0 };
 
-  return roh.map((r) => ({
-    e: Number((r.gesamt / hoechste).toFixed(3)),
-    b: Number((r.gesamt > 0 ? r.unten / r.gesamt : 0).toFixed(3)),
-    h: Number((r.gesamt > 0 ? r.oben / r.gesamt : 0).toFixed(3)),
-    d: Number(r.dichte.toFixed(2)),
-  }));
+  return {
+    hoechste,
+    eintraege: roh.map((r) => ({
+      e: Number((r.gesamt / hoechste).toFixed(3)),
+      b: Number((r.gesamt > 0 ? r.unten / r.gesamt : 0).toFixed(3)),
+      h: Number((r.gesamt > 0 ? r.oben / r.gesamt : 0).toFixed(3)),
+      d: Number(r.dichte.toFixed(2)),
+      t: beatVersatz + r.takt * 4,
+    })),
+  };
 }
 
 // --- Aufbau erkennen: Neuheit auf der Selbstaehnlichkeit ------------------
@@ -427,6 +527,315 @@ function rasterBestimmen(huellen, hops, von = 0, bis = -1) {
     anschlaege: breit,
     hops,
   };
+}
+
+// --- Die Tempo-Karte ------------------------------------------------------
+//
+// Eine Zahl fuer das Tempo reicht fuer einen Track. Fuer einen DJ-Mix von
+// einer Stunde ist sie falsch, und zwar nicht ungenau, sondern sinnlos: Da
+// laufen zwanzig Stuecke hintereinander, jedes mit eigenem Tempo und eigenem
+// Beginn. Gemessen kam bei so einem Mix "128,01 BPM, Vertrauen 0 Prozent"
+// heraus - das Verfahren hat voellig richtig gemeldet, dass es auf die
+// gestellte Frage keine Antwort gibt.
+//
+// Also wird die Frage geaendert. Statt "welches Tempo hat diese Datei?" heisst
+// sie "welches Tempo hat diese Datei *hier*?" - fensterweise gefragt, und
+// benachbarte Fenster mit derselben Antwort zu einem Abschnitt
+// zusammengefasst.
+//
+// Ein Abschnitt hat:
+//
+//   von, bis      Sekunden
+//   bpm, raster   wie beim Track, nur eben fuer dieses Stueck
+//   vertrauen     0 bis 1
+//   beatVersatz   die Beatnummer, bei der dieser Abschnitt in der
+//                 durchlaufenden Zaehlung beginnt (siehe unten)
+//
+// Der beatVersatz ist der Kniff, mit dem alles Uebrige unveraendert
+// weiterlaeuft. Buehne und Mixer rechnen in Beatnummern, nicht in Sekunden -
+// die Farbwanderung, die Phrasengrenzen, die Marken. Mit einem Versatz je
+// Abschnitt bleibt eine einzige, durchlaufende Beatzaehlung ueber die ganze
+// Stunde bestehen; nur die Schrittweite aendert sich beim Uebergang.
+//
+// Er wird auf ein Vielfaches einer Phrase aufgerundet. Aufgerundet, damit die
+// Zaehlung nie rueckwaerts springt - eine rueckwaerts laufende Beatnummer
+// wuerde jede Suche nach "der naechsten Marke" durcheinanderbringen. Und auf
+// eine Phrase, damit Takt- und Phrasengrenzen des neuen Abschnitts auf seinen
+// eigenen Downbeats sitzen und nicht auf denen des vorigen.
+
+// Wie lang ein Fenster ist, in dem nach einem Tempo gesucht wird. Dreissig
+// Sekunden sind bei 130 BPM rund fuenfundsechzig Schlaege - genug fuer eine
+// belastbare Autokorrelation, kurz genug, dass ein Stueck von vier Minuten in
+// mehrere Fenster faellt.
+const KARTE_FENSTER_S = 30;
+const KARTE_SCHRITT_S = 15;
+// Unter dieser Laenge lohnt die Fragerei nicht - das ist ein Track, kein Mix.
+const KARTE_AB_SEKUNDEN = 150;
+// Zwei Fenster gehoeren zusammen, wenn Tempo und Beatphase zusammenpassen.
+const KARTE_BPM_TOLERANZ = 0.006;
+const KARTE_PHASE_TOLERANZ_S = 0.02;
+// Kuerzere Abschnitte werden geschluckt. Ein Stueck in einem Mix dauert
+// Minuten; alles unter einer halben Minute ist ein Uebergang oder ein
+// Messausrutscher, kein eigenes Stueck.
+const KARTE_MINDESTLAENGE_S = 30;
+const BEATS_PRO_PHRASE = 32;
+
+// Der Abstand zweier Beatraster, gemessen in Sekunden und ringfoermig: Ein
+// Raster, das um fast eine ganze Periode verschoben ist, ist dasselbe Raster.
+function phasenAbstand(rasterA, rasterB, periode) {
+  const roh = (((rasterA - rasterB) % periode) + periode) % periode;
+  return Math.min(roh, periode - roh);
+}
+
+// Fenster fuer die Grenzsuche. Zehn Sekunden sind bei 130 BPM rund
+// zweiundzwanzig Schlaege - genug, dass rasterVertrauen ueberhaupt eine
+// Aussage macht (es verlangt sechzehn Anschlaege), und kurz genug, um die
+// Grenze auf ein paar Sekunden einzukreisen.
+const GRENZE_FENSTER_S = 16;
+const GRENZE_SCHRITT_S = 2;
+
+/*
+ * Die Grenze zwischen zwei Abschnitten scharfstellen.
+ *
+ * Aus dem Zusammenfassen kommt sie nur so genau, wie die Fenster breit sind:
+ * Ein Fenster von dreissig Sekunden gehoert dem Tempo, das darin ueberwiegt,
+ * und die Grenze landet am Ende des letzten Fensters, das noch dem alten
+ * Tempo gehoerte. Nachgemessen an einem gebauten Mix lag sie dadurch
+ * durchgehend rund vierzehn Sekunden zu spaet.
+ *
+ * Das ist keine Kleinigkeit. Vierzehn Sekunden lang liefe das Bild noch auf
+ * dem Raster des vorigen Stuecks, und bei 128 gegen 140 BPM ist die Phase
+ * nach zwei Sekunden schon hin. Es waere genau das Eiern, das man sofort
+ * sieht.
+ *
+ * Also wird nachgefragt, und zwar genau danach, was eine Grenze ausmacht:
+ * Fuer jeden Zeitpunkt in Schritten von zwei Sekunden - wie gut faengt das
+ * *alte* Raster die zehn Sekunden davor ein, und wie gut das *neue* die zehn
+ * Sekunden danach? Wo diese Summe am groessten ist, liegt der Wechsel.
+ *
+ * Ein erster Versuch fragte nur vorwaerts: ab wann passt das neue Raster
+ * besser? Das ist die falsche Frage - sie kann schon Sekunden vorher mit ja
+ * beantwortet werden, wenn die beiden Raster dort zufaellig zusammenfallen.
+ * Nachgemessen blieb davon ein Fehler von bis zu neun Sekunden uebrig, mit
+ * dem beidseitigen Vergleich sind es noch zwei.
+ */
+function grenzeScharfstellen(huellen, hops, vorher, nachher, grob) {
+  const von = Math.max(vorher.von + GRENZE_FENSTER_S, grob - KARTE_FENSTER_S * 1.5);
+  const bis = Math.min(nachher.bis - GRENZE_FENSTER_S, grob + KARTE_FENSTER_S * 0.5);
+  if (!(bis > von)) return grob;
+
+  const gueteVon = (abschnitt, tVon, tBis) => {
+    const a = Math.round(tVon * hops);
+    const b = Math.round(tBis * hops);
+    if (a < 0 || b > huellen[0].length || b <= a) return 0;
+    const kurve = anschlagskurve(huellen, true, a, b);
+    return rasterVertrauen(kurve, abschnitt.bpm, abschnitt.raster - tVon, hops);
+  };
+
+  let bester = grob;
+  let bestePunkte = -1;
+  for (let t = von; t <= bis; t += GRENZE_SCHRITT_S) {
+    const punkte =
+      gueteVon(vorher, t - GRENZE_FENSTER_S, t) + gueteVon(nachher, t, t + GRENZE_FENSTER_S);
+    if (punkte > bestePunkte) {
+      bestePunkte = punkte;
+      bester = t;
+    }
+  }
+  return bestePunkte > 0 ? bester : grob;
+}
+
+function passenZusammen(a, b) {
+  if (!a || !b) return false;
+  if (Math.abs(a.bpm - b.bpm) / Math.max(a.bpm, b.bpm) > KARTE_BPM_TOLERANZ) return false;
+  return phasenAbstand(a.raster, b.raster, 60 / a.bpm) <= KARTE_PHASE_TOLERANZ_S;
+}
+
+/**
+ * Die Tempo-Karte einer Datei.
+ *
+ * Kurze Dateien und solche, die durchgehend dasselbe Tempo haben, bekommen
+ * genau einen Abschnitt - dann ist das Ergebnis dasselbe wie vorher.
+ */
+function tempoKarte(huellen, hops, dauer, gesamt) {
+  const einer = (mess) => [
+    {
+      von: 0,
+      bis: dauer,
+      bpm: mess.bpm,
+      raster: mess.raster,
+      vertrauen: mess.vertrauen,
+      beatVersatz: 0,
+    },
+  ];
+
+  if (dauer < KARTE_AB_SEKUNDEN) return einer(gesamt);
+
+  // 1. Fensterweise fragen.
+  const fensterHops = Math.round(KARTE_FENSTER_S * hops);
+  const schrittHops = Math.round(KARTE_SCHRITT_S * hops);
+  const laenge = huellen[0].length;
+  const fenster = [];
+  for (let von = 0; von + fensterHops <= laenge; von += schrittHops) {
+    const mess = rasterBestimmen(huellen, hops, von, von + fensterHops);
+    fenster.push({
+      von: von / hops,
+      bis: (von + fensterHops) / hops,
+      bpm: mess.bpm,
+      // rasterBestimmen misst ab Fensteranfang - hier wird daraus eine Zeit
+      // auf der Uhr der ganzen Datei.
+      raster: von / hops + mess.raster,
+      vertrauen: mess.vertrauen,
+    });
+  }
+  if (fenster.length === 0) return einer(gesamt);
+
+  // Stimmt das ganze Stueck ohnehin ueberein, bleibt es bei einem Abschnitt.
+  const brauchbar = fenster.filter((f) => f.vertrauen >= VERTRAUENSSCHWELLE);
+  if (brauchbar.length === 0) return einer(gesamt);
+  if (
+    gesamt.vertrauen >= VERTRAUENSSCHWELLE &&
+    brauchbar.every((f) => passenZusammen(f, gesamt))
+  ) {
+    return einer(gesamt);
+  }
+
+  /*
+   * 2. Zu Abschnitten zusammenfassen.
+   *
+   * Fenster ohne Vertrauen trennen nicht. In einem Breakdown steht das
+   * Schlagwerk still; dort ist kein Tempo zu messen, aber das Stueck laeuft
+   * weiter. Wer dort schneidet, zerlegt jeden Track in seine Teile.
+   */
+  const roh = [];
+  for (const f of fenster) {
+    const letzter = roh[roh.length - 1];
+    if (f.vertrauen < VERTRAUENSSCHWELLE) {
+      if (letzter) letzter.bis = f.bis;
+      continue;
+    }
+    if (letzter && passenZusammen(letzter, f)) {
+      letzter.bis = f.bis;
+      if (f.vertrauen > letzter.vertrauen) {
+        letzter.bpm = f.bpm;
+        letzter.raster = f.raster;
+        letzter.vertrauen = f.vertrauen;
+      }
+      continue;
+    }
+    roh.push({ ...f });
+  }
+
+  // 3. Zu kurze Abschnitte an den Nachbarn geben.
+  const gefiltert = [];
+  for (const a of roh) {
+    const letzter = gefiltert[gefiltert.length - 1];
+    if (letzter && a.bis - a.von < KARTE_MINDESTLAENGE_S) {
+      letzter.bis = a.bis;
+      continue;
+    }
+    gefiltert.push(a);
+  }
+  if (gefiltert.length === 0) return einer(gesamt);
+  gefiltert[0].von = 0;
+  gefiltert[gefiltert.length - 1].bis = dauer;
+  for (let i = 1; i < gefiltert.length; i++) gefiltert[i].von = gefiltert[i - 1].bis;
+
+  // 3b. Die Grenzen scharfstellen - siehe grenzeScharfstellen.
+  for (let i = 1; i < gefiltert.length; i++) {
+    const genau = grenzeScharfstellen(
+      huellen,
+      hops,
+      gefiltert[i - 1],
+      gefiltert[i],
+      gefiltert[i].von,
+    );
+    // Nur uebernehmen, wenn dabei kein Abschnitt in sich zusammenfaellt.
+    if (genau > gefiltert[i - 1].von + 5 && genau < gefiltert[i].bis - 5) {
+      gefiltert[i - 1].bis = genau;
+      gefiltert[i].von = genau;
+    }
+  }
+
+  if (gefiltert.length === 1) {
+    return [{ ...gefiltert[0], beatVersatz: 0 }];
+  }
+
+  /*
+   * 4. Jeden Abschnitt noch einmal ueber seine volle Laenge nachmessen.
+   *
+   * Das Fenster hatte dreissig Sekunden; ein Abschnitt hat oft Minuten. Ueber
+   * die laengere Strecke wird das Tempo deutlich genauer - und genau darauf
+   * sitzt spaeter das Beatraster.
+   */
+  const fertig = [];
+  for (const a of gefiltert) {
+    const von = Math.max(0, Math.round(a.von * hops));
+    const bis = Math.min(laenge, Math.round(a.bis * hops));
+    let bpm = a.bpm;
+    let raster = a.raster;
+    let vertrauen = a.vertrauen;
+    if (bis - von >= Math.round(KARTE_FENSTER_S * hops)) {
+      const nach = rasterBestimmen(huellen, hops, von, bis);
+      // Nur uebernehmen, wenn die Nachmessung nicht schlechter dasteht - sonst
+      // hat sie ueber einen Uebergang hinweg gemittelt.
+      if (nach.vertrauen >= a.vertrauen * 0.9) {
+        bpm = nach.bpm;
+        raster = von / hops + nach.raster;
+        vertrauen = nach.vertrauen;
+      }
+    }
+    fertig.push({ von: a.von, bis: a.bis, bpm, raster, vertrauen });
+  }
+
+  /*
+   * 4b. Nachbarn zusammenlegen, die nach dem Nachmessen doch dasselbe sagen.
+   *
+   * Beim Zusammenfassen wurde auf grob geschaetzten Werten verglichen; nach
+   * der genaueren Messung stellt sich mancher Schnitt als keiner heraus. Ohne
+   * diesen Durchgang blieben Abschnitte stehen, die sich in nichts
+   * unterscheiden - und jede ihrer Grenzen waere ein Sprung in der
+   * Beatzaehlung, an dem musikalisch gar nichts passiert.
+   */
+  const verschmolzen = [];
+  for (const a of fertig) {
+    const letzter = verschmolzen[verschmolzen.length - 1];
+    if (letzter && passenZusammen(letzter, a)) {
+      letzter.bis = a.bis;
+      if (a.vertrauen > letzter.vertrauen) letzter.vertrauen = a.vertrauen;
+      continue;
+    }
+    verschmolzen.push(a);
+  }
+  fertig.length = 0;
+  fertig.push(...verschmolzen);
+  if (fertig.length === 1) return [{ ...fertig[0], beatVersatz: 0 }];
+
+  /*
+   * 5. Die durchlaufende Beatzaehlung.
+   *
+   * beatVersatz ist die Beatnummer, die auf dem *Raster* des Abschnitts liegt,
+   * nicht an seinem Anfang. Nur so faellt Beat n wirklich auf einen Schlag:
+   *
+   *     beat(t) = beatVersatz + (t - raster) / Beatdauer
+   *
+   * Fuer den ersten Abschnitt ist er null - dann steht dort genau die
+   * Rechnung, die vor der Karte galt, und ein einzelner Track zaehlt weiter
+   * wie bisher.
+   */
+  const beatIm = (a, t) => a.beatVersatz + (t - a.raster) / (60 / a.bpm);
+  fertig[0].beatVersatz = 0;
+  for (let i = 1; i < fertig.length; i++) {
+    const a = fertig[i];
+    const weiter = beatIm(fertig[i - 1], a.von);
+    // Aufrunden auf eine ganze Phrase: nie rueckwaerts, und Takt- wie
+    // Phrasengrenzen sitzen auf den Downbeats *dieses* Abschnitts.
+    const ohneVersatz = (a.von - a.raster) / (60 / a.bpm);
+    a.beatVersatz =
+      Math.ceil((weiter - ohneVersatz) / BEATS_PRO_PHRASE) * BEATS_PRO_PHRASE;
+  }
+
+  return fertig;
 }
 
 // --- Wie sehr ist dem Raster zu trauen? -----------------------------------

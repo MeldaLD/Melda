@@ -37,6 +37,37 @@ const KEIN_AUSKLANG_AB = 0.65;
 // und Anschlagsdichte. Alles hier drin arbeitet in Takten und rechnet erst am
 // Ende in Beats um.
 
+/*
+ * Zwischen Verlaufseintrag und Beatnummer umrechnen.
+ *
+ * Frueher stand hier schlicht "Index mal vier", und bei einem einzelnen Track
+ * stimmt das auch weiterhin. Ein DJ-Mix von einer Stunde besteht aber aus
+ * vielen Stuecken mit eigenem Tempo; dort hat jeder Abschnitt seinen eigenen
+ * Beatversatz, und die Zaehlung springt an den Grenzen. Deshalb bringt jeder
+ * Eintrag seine Beatnummer als t mit.
+ *
+ * Aeltere Aufnahmen in der Datenbank haben das Feld nicht. Fehlt es, gilt die
+ * alte Rechnung - fuer einen Track ist sie ja richtig.
+ */
+function taktZuBeat(profil, index) {
+  const i = Math.min(profil.length - 1, Math.max(0, Math.round(index)));
+  const eintrag = profil[i];
+  return typeof eintrag?.t === 'number' ? eintrag.t : i * BEATS_PRO_TAKT;
+}
+
+function beatZuTakt(profil, beat) {
+  if (profil.length === 0 || typeof profil[0]?.t !== 'number') return beat / BEATS_PRO_TAKT;
+  // Die Beatnummern laufen aufsteigend, also binaer suchen.
+  let unten = 0;
+  let oben = profil.length - 1;
+  while (unten < oben) {
+    const mitte = (unten + oben + 1) >> 1;
+    if (profil[mitte].t <= beat) unten = mitte;
+    else oben = mitte - 1;
+  }
+  return unten;
+}
+
 /** Mittelwert eines Feldes ueber einen Taktbereich. */
 function mittelwert(profil, von, bis, feld) {
   const a = Math.max(0, Math.floor(von));
@@ -110,7 +141,7 @@ export function einstiegWaehlen(track, zielenergie, uebergangBeats = BEATS_PRO_P
   }
 
   const kern = kernAnfang(profil);
-  const kernBeat = kern * BEATS_PRO_TAKT;
+  const kernBeat = taktZuBeat(profil, kern);
 
   // Frueh am Abend darf ein Intro ein Intro sein. Es gibt der Nacht Luft, und
   // niemand tanzt um zehn.
@@ -186,7 +217,7 @@ export function ausstiegWaehlen(track, zielenergie, fruehestensBeat = 0) {
   }
 
   const ende = kernEnde(profil);
-  const endeBeat = (ende + 1) * BEATS_PRO_TAKT;
+  const endeBeat = taktZuBeat(profil, ende) + BEATS_PRO_TAKT;
 
   /*
    * Der beste Ausstieg ist ein Loch, das jemand anders fuellen kann.
@@ -225,7 +256,7 @@ export function ausstiegWaehlen(track, zielenergie, fruehestensBeat = 0) {
   let bester = null;
   for (let beat = aufPhrase(frueheste, track.phrasenVersatz); beat <= spaeteste; beat += BEATS_PRO_PHRASE) {
     if (beat < fruehestensBeat) continue;
-    const takt = beat / BEATS_PRO_TAKT;
+    const takt = beatZuTakt(profil, beat);
     const davor = mittelE(takt - 8, takt);
     const danach = mittelE(takt, takt + 8);
 
@@ -318,7 +349,7 @@ export function uebergangPlanen(
   // klingt. Also mit einer Annahme anfangen und danach einmal nachziehen.
   let einstieg = einstiegWaehlen(b, ziel, BEATS_PRO_PHRASE);
   const ausstieg = ausstiegWaehlen(a, ziel, jetztBeat + BEATS_PRO_PHRASE);
-  let bStelle = stelleBeschreiben(b.profil, einstieg.beat / BEATS_PRO_TAKT);
+  let bStelle = stelleBeschreiben(b.profil, beatZuTakt(b.profil ?? [], einstieg.beat));
 
   /*
    * Der Ausstieg braucht Auslauf.
@@ -339,13 +370,13 @@ export function uebergangPlanen(
   const zurueckAufPhrase = (beat) => Math.max(0, Math.floor(beat / BEATS_PRO_PHRASE) * BEATS_PRO_PHRASE);
 
   let ausstiegBeat = ausstieg.beat;
-  let aStelle = stelleBeschreiben(a.profil, ausstiegBeat / BEATS_PRO_TAKT);
+  let aStelle = stelleBeschreiben(a.profil, beatZuTakt(a.profil ?? [], ausstiegBeat));
   let wahl = artWaehlen({ aStelle, bStelle, ziel, tempoPasst, letzteArt });
 
   const platzMachen = (laenge) => zurueckAufPhrase(Math.min(ausstieg.beat, letzterBeatA - laenge));
   if (ausstiegBeat + wahl.beats > letzterBeatA) {
     ausstiegBeat = platzMachen(wahl.beats);
-    aStelle = stelleBeschreiben(a.profil, ausstiegBeat / BEATS_PRO_TAKT);
+    aStelle = stelleBeschreiben(a.profil, beatZuTakt(a.profil ?? [], ausstiegBeat));
     wahl = artWaehlen({ aStelle, bStelle, ziel, tempoPasst, letzteArt });
     // Nach der zweiten Wahl noch einmal deckeln, falls sie laenger ausfiel.
     if (ausstiegBeat + wahl.beats > letzterBeatA) ausstiegBeat = platzMachen(wahl.beats);
@@ -358,7 +389,7 @@ export function uebergangPlanen(
   const nachgezogen = einstiegWaehlen(b, ziel, beats);
   if (nachgezogen.beat !== einstieg.beat) {
     einstieg = nachgezogen;
-    bStelle = stelleBeschreiben(b.profil, einstieg.beat / BEATS_PRO_TAKT);
+    bStelle = stelleBeschreiben(b.profil, beatZuTakt(b.profil ?? [], einstieg.beat));
   }
 
   // Wann wechselt das Fundament das Deck?
