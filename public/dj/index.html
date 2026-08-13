@@ -4018,6 +4018,7 @@ function gueteZuruecksetzen() {
   mandelGuete = 0.45;
   mandelDurchsatz = 4e5;
   mandelBremse = 0.6;
+  mandelAbstandMittel = 16.7;
   mandelGpuZaeh = 0;
   mandelDauer = 8;
   mandelUeberblendung = 0;
@@ -4066,7 +4067,50 @@ let mandelDrehTempo = 0;
  * gelegentlich dreimal hintereinander ziehen, und genau das soll nicht
  * passieren.
  */
-const DROP_KUNSTSTUECKE = ['wirbel', 'welle', 'kippen', 'enge', 'sog', 'bluete', 'sternbruch', 'ranken'];
+/*
+ * Zwanzig Kunststuecke fuer den Drop - und keines zweimal gleich.
+ *
+ * Der Reiz liegt in der Erwartung: Wer weiss, dass gleich ein Drop kommt, aber
+ * nicht, *was* dann passiert, schaut hin. Fuenf feste Nummern haben diesen
+ * Reiz nach einer halben Stunde aufgebraucht - man kennt sie dann.
+ *
+ * Also zwei Ebenen Abwechslung. Erstens zwanzig verschiedene Griffe. Zweitens
+ * bekommt jeder Griff seine Staerke bei jedem Mal neu ausgewuerfelt, in einer
+ * Spanne, die zum Griff passt. Derselbe Wirbel ist damit einmal ein kurzer
+ * Ruck und einmal eine lange Drehung.
+ *
+ * Die Griffe bedienen alle dieselben Hebel, die es ohnehin gibt - es kommt
+ * also kein einziger Rechenschritt dazu. Die Zahlenpaare sind Spannen.
+ */
+const DROP_KUNSTSTUECKE = [
+  { name: 'wirbel', drehen: [3, 7] },
+  { name: 'gegenwirbel', drehen: [-6, -3] },
+  { name: 'welle', welle: [0.8, 1] },
+  { name: 'doppelwelle', welle: [0.9, 1], enge: [0.5, 0.9] },
+  { name: 'kippen', tonDreh: [90, 170] },
+  { name: 'kaltkippen', tonDreh: [-170, -90] },
+  { name: 'enge', enge: [0.8, 1] },
+  { name: 'weite', enge: [-0.45, -0.25] },
+  { name: 'sog', schwung: [16, 26] },
+  { name: 'stoss', schwung: [26, 38] },
+  { name: 'bluete', mandala: [0.9, 1] },
+  { name: 'sternbruch', mandala: [0.8, 1], sterneNeu: true },
+  { name: 'ranken', fang: [0.8, 1] },
+  { name: 'rankenwirbel', fang: [0.6, 0.9], drehen: [2, 4] },
+  { name: 'blitzfarbe', farbe: [0.4, 0.6], tonDreh: [40, 90] },
+  { name: 'strudel', drehen: [2, 5], schwung: [12, 20] },
+  { name: 'mandalasog', mandala: [0.7, 1], schwung: [14, 22] },
+  { name: 'wellenbruch', welle: [0.7, 1], sterneNeu: true, mandala: [0.6, 0.9] },
+  { name: 'engwirbel', enge: [0.6, 1], drehen: [-4, -2] },
+  { name: 'vollbild', mandala: [0.8, 1], fang: [0.5, 0.8], drehen: [1.5, 3.5], enge: [0.3, 0.6] },
+];
+
+/** Ein Wert aus der Spanne - oder null, wenn der Griff diesen Hebel nicht zieht. */
+function ausSpanne(spanne) {
+  if (!spanne) return 0;
+  return spanne[0] + Math.random() * (spanne[1] - spanne[0]);
+}
+
 let mandelBeutel = [];
 let mandelLetztesKunststueck = '';
 // Die Nachwirkungen, alle klingen von selbst ab.
@@ -4126,6 +4170,7 @@ let mandelDurchsatz = 4e5;
  * das die asynchrone Grafikkarte nicht ueberlisten kann.
  */
 let mandelBremse = 0.6;
+let mandelAbstandMittel = 16.7;
 let mandelAufGpu = null;
 // Zaehlt aufeinanderfolgende zu langsame Bilder auf der Grafikkarte.
 let mandelGpuZaeh = 0;
@@ -4807,26 +4852,32 @@ function mandelbrotZeichnen(stift, lage) {
         const j = Math.floor(Math.random() * (i + 1));
         [mandelBeutel[i], mandelBeutel[j]] = [mandelBeutel[j], mandelBeutel[i]];
       }
-      if (mandelBeutel[mandelBeutel.length - 1] === mandelLetztesKunststueck) {
+      if (mandelBeutel[mandelBeutel.length - 1]?.name === mandelLetztesKunststueck) {
         [mandelBeutel[0], mandelBeutel[mandelBeutel.length - 1]] =
           [mandelBeutel[mandelBeutel.length - 1], mandelBeutel[0]];
       }
     }
-    const kunststueck = mandelBeutel.pop();
-    mandelLetztesKunststueck = kunststueck;
-    if (kunststueck === 'wirbel') mandelDrehTempo += 5;
-    else if (kunststueck === 'welle') { mandelWelle = 1; mandelWelleZeit = 0; }
-    else if (kunststueck === 'kippen') mandelTonDreh += 128;
-    else if (kunststueck === 'enge') mandelEnge = 1;
-    else if (kunststueck === 'sog') mandelSchwung += 20;
-    else if (kunststueck === 'bluete') mandelMandalaHalt = 1;
-    else if (kunststueck === 'sternbruch') {
-      // Eine andere Zahl von Spiegelachsen - das Motiv bleibt, die Ordnung
-      // wechselt. Nie dieselbe wie eben, sonst sieht man nichts.
-      const auswahl = [4, 5, 6, 8, 10, 12].filter((z) => z !== mandelSterneZiel);
+    const griff = mandelBeutel.pop();
+    mandelLetztesKunststueck = griff.name;
+    // Jeder Hebel wird nur gezogen, wenn der Griff ihn nennt - und dann mit
+    // einer Staerke, die jedes Mal neu ausgewuerfelt wird.
+    mandelSchwung += ausSpanne(griff.schwung);
+    mandelDrehTempo += ausSpanne(griff.drehen);
+    mandelFarbSprung += ausSpanne(griff.farbe);
+    mandelTonDreh += ausSpanne(griff.tonDreh);
+    mandelEnge = Math.max(-0.45, mandelEnge + ausSpanne(griff.enge));
+    if (griff.welle) {
+      mandelWelle = ausSpanne(griff.welle);
+      mandelWelleZeit = 0;
+    }
+    if (griff.mandala) mandelMandalaHalt = Math.max(mandelMandalaHalt, ausSpanne(griff.mandala));
+    if (griff.fang) mandelFangHalt = Math.max(mandelFangHalt, ausSpanne(griff.fang));
+    if (griff.sterneNeu) {
+      // Andere Zahl von Spiegelachsen - das Motiv bleibt, die Ordnung wechselt.
+      // Nie dieselbe wie eben, sonst sieht man nichts.
+      const auswahl = [4, 5, 6, 7, 8, 9, 10, 12].filter((z) => z !== mandelSterneZiel);
       mandelSterneZiel = auswahl[Math.floor(Math.random() * auswahl.length)];
-      mandelMandalaHalt = 1;
-    } else if (kunststueck === 'ranken') mandelFangHalt = 1;
+    }
   }
 
   // Alle Nachwirkungen klingen ab - unterschiedlich schnell, damit sie sich
@@ -5099,8 +5150,14 @@ function mandelbrotZeichnen(stift, lage) {
     /*
      * Steht die Bremse am Anschlag und es reicht immer noch nicht, muss auch
      * die Schrittzahl nachgeben - weniger Aufloesung hilft dann nichts mehr.
+     *
+     * Der Uebergang laeuft weich. Vorher sprang der Deckel bei einem festen
+     * Punkt von 15000 auf 900, und mit ihm sprang die Zeichnung: Ganze
+     * Strukturen erschienen und verschwanden von einem Bild zum naechsten.
+     * Ein Deckel, der mit der Bremse gleitet, tut dasselbe, ohne dass man es
+     * sieht.
      */
-    const schritteDeckel = mandelBremse > 0.12 ? 15000 : 900;
+    const schritteDeckel = 900 + 14100 * Math.min(1, Math.max(0, (mandelBremse - 0.08) / 0.12));
     const schritteGpu = Math.round(
       Math.min(
         schritteDeckel,
@@ -5140,6 +5197,7 @@ function mandelbrotZeichnen(stift, lage) {
         guete: Math.min(mandelGuete, stufe.fraktal),
         durchsatz: mandelDurchsatz,
         bremse: mandelBremse,
+        abstandMittel: mandelAbstandMittel,
         // Nicht abstandMs: das wird erst weiter unten berechnet, und ein Zugriff
         // davor wirft in jedem Bild.
         abstandMs: sekunden * 1000,
@@ -5197,9 +5255,23 @@ function mandelbrotZeichnen(stift, lage) {
      * das, was der Gast sieht.
      */
     const abstandMs = Math.min(200, sekunden * 1000);
-    const zielMs = 1000 / 60;
-    if (abstandMs > zielMs * 1.12) mandelBremse *= 0.88;
-    else if (abstandMs < zielMs * 0.98) mandelBremse *= 1.02;
+    /*
+     * Geglaettet und mit totem Band - sonst pumpt der Regler.
+     *
+     * Der Bildabstand ist an den Bildschirm gekoppelt: Er betraegt 16,7 ms
+     * oder 33,3, nie etwas dazwischen. Ein Regler mit dem Ziel 16,7 sieht
+     * deshalb in jedem Bild entweder "zu schnell" oder "doppelt so lang" und
+     * korrigiert dauernd - die Aufloesung wandert auf und ab, und mit ihr
+     * erscheint und verschwindet Zeichnung. Genau das war das Flackern in den
+     * neu auftauchenden Teilen.
+     *
+     * Also wird ueber acht Bilder gemittelt, und zwischen 15,5 und 19 ms
+     * passiert gar nichts. Erst ausserhalb dieses Bandes wird nachgeregelt,
+     * und dann in kleinen Schritten.
+     */
+    mandelAbstandMittel = mandelAbstandMittel * 0.875 + abstandMs * 0.125;
+    if (mandelAbstandMittel > 19) mandelBremse *= 0.94;
+    else if (mandelAbstandMittel < 15.5) mandelBremse *= 1.012;
     mandelBremse = Math.min(1, Math.max(0.05, mandelBremse));
 
     /*
