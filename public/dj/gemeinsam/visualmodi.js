@@ -1449,9 +1449,18 @@ function mandelbrotZeichnen(stift, lage) {
      * Punkten. Die Ursache verschwindet damit, statt behandelt zu werden.
      */
     mandelSeitProbe += sekunden;
-    // Sieht es knapp aus, wird oefter nachgesehen. Ein totes Bild soll nicht
-    // drei Sekunden lang unbemerkt dastehen.
-    if (mandelSeitProbe > (mandelSpreizung < 0.12 ? 1.5 : 4)) {
+    /*
+     * Nicht mitten im Drop nachsehen.
+     *
+     * Die Stichprobe rechnet auf dem Hauptprozessor und kostet ein paar
+     * Millisekunden - auf einem Tablet mehr. Faellt sie in den Moment, in dem
+     * der Zoom vorschiesst, addiert sie sich zu der Spitze, die der Drop
+     * ohnehin macht, und genau dann darf nichts haken. Sie wartet deshalb, bis
+     * der Schub abgeklungen ist; ein, zwei Sekunden spaeter ist ihr Ergebnis
+     * genauso gueltig.
+     */
+    const imSchub = mandelSchwung > 1.5;
+    if (!imSchub && mandelSeitProbe > (mandelSpreizung < 0.12 ? 1.5 : 4)) {
       mandelSeitProbe = 0;
       const begonnenProbe = performance.now();
       const probe = gpuProbe(mandelTiefe, mandelDrehung);

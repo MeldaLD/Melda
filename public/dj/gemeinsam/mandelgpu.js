@@ -63,54 +63,6 @@ function festkommaAusText(text) {
 
 const fkMal = (a, b) => (a * b) >> NACHKOMMA;
 
-/**
- * Die Bahn des Mittelpunkts, in hoher Genauigkeit gerechnet und als Paar aus
- * grobem und feinem Anteil abgelegt.
- *
- * Warum zwei Gleitkommazahlen je Wert: Die Grafikkarte kennt nur einfache
- * Genauigkeit, also sieben Stellen. Fuer die Bezugsbahn ist das zu wenig - ihr
- * Fehler geht unvermindert in jeden Bildpunkt ein. Zwei Zahlen, deren zweite
- * den Rest der ersten traegt, ergeben zusammen rund vierzehn Stellen, und der
- * Rest der Rechnung bleibt einfach.
- */
-function bahnRechnen(zielX, zielY, schritte) {
-  const cr = festkommaAusText(zielX);
-  const ci = festkommaAusText(zielY);
-  const daten = new Float32Array(schritte * 4);
-  const vier = 4n * EINS;
-  let zr = 0n;
-  let zi = 0n;
-  let gelaufen = schritte;
-  for (let i = 0; i < schritte; i++) {
-    const r = Number(zr) / TEILER;
-    const j = Number(zi) / TEILER;
-    const rGrob = Math.fround(r);
-    const jGrob = Math.fround(j);
-    daten[i * 4] = rGrob;
-    daten[i * 4 + 1] = Math.fround(r - rGrob);
-    daten[i * 4 + 2] = jGrob;
-    daten[i * 4 + 3] = Math.fround(j - jGrob);
-
-    const zr2 = fkMal(zr, zr);
-    const zi2 = fkMal(zi, zi);
-    if (zr2 + zi2 > vier) {
-      // Der Zielpunkt liegt ausserhalb der Menge. Fuer unsere Ziele passiert
-      // das nicht - sie liegen alle auf dem Rand -, aber ein falsch getippter
-      // Zielpunkt soll nicht in einer Bahn aus Unendlichkeiten enden.
-      gelaufen = i + 1;
-      for (let k = i + 1; k < schritte; k++) {
-        daten[k * 4] = daten[i * 4];
-        daten[k * 4 + 1] = daten[i * 4 + 1];
-        daten[k * 4 + 2] = daten[i * 4 + 2];
-        daten[k * 4 + 3] = daten[i * 4 + 3];
-      }
-      break;
-    }
-    zi = 2n * fkMal(zr, zi) + ci;
-    zr = zr2 - zi2 + cr;
-  }
-  return { daten, gelaufen };
-}
 
 // --- Die Schattierer -------------------------------------------------------
 
@@ -131,6 +83,7 @@ uniform float seite;         // Hoehe zu Breite
 uniform float dreh;          // Drehung des Ausschnitts
 uniform int   schritte;      // Obergrenze der Iteration
 uniform int   bahnBreite;    // Breite der Bahntextur
+uniform int   bahnLaenge;    // wieviele Punkte der Bahn fertig sind
 uniform float versatz;       // Farbverschiebung, 0 bis 1
 uniform float dichte;        // wie eng die Farbbaender liegen
 uniform float innenHell;     // Helligkeit der Innenflaeche
@@ -232,7 +185,16 @@ void main() {
     // Der Kniff von Zhuoran: Ist der Abstand groesser als der Punkt selbst,
     // taugt die Bezugsbahn hier nicht mehr - dann faengt der Punkt bei sich
     // selbst neu an. Dasselbe am Ende der gerechneten Bahn.
-    if (r2 < dot(d, d) || m >= schritte - 1) { d = z; m = 0; Z = bahnHolen(0); }
+    /*
+     * Die Bahnlaenge ist *nicht* die Schrittzahl.
+     *
+     * Beides stand frueher in derselben Zahl, und das war falsch: Eine kurze
+     * Bahn haette dann auch die Iteration gekappt. Sie muss sie aber nur
+     * haeufiger neu ansetzen - das kostet Genauigkeit an wenigen Punkten, aber
+     * es rechnet weiter. Getrennt darf die Bahn nachwachsen, waehrend das Bild
+     * schon in voller Tiefe laeuft.
+     */
+    if (r2 < dot(d, d) || m >= bahnLaenge - 1) { d = z; m = 0; Z = bahnHolen(0); }
     else Z = Zn;
   }
 
@@ -351,7 +313,7 @@ export function gpuBereit() {
     orte = {};
     for (const name of [
       'bahn', 'farben', 'feld', 'spanne', 'seite', 'dreh',
-      'schritte', 'bahnBreite', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
+      'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
       'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
     ]) {
       orte[name] = gl.getUniformLocation(programm, name);
@@ -385,23 +347,112 @@ export function gpuBereit() {
 }
 
 /** Die Bezugsbahn fuer ein Ziel bereitstellen oder verlaengern. */
-function bahnSichern(ziel, gebraucht) {
-  if (bahnZiel === ziel.name && bahnSchritte >= gebraucht) return;
-  // Mit Vorlauf rechnen, damit nicht bei jedem tieferen Bild neu gerechnet
-  // werden muss - die Bahn kostet Millisekunden, nicht Mikrosekunden.
-  const schritte = Math.min(BAHN_BREITE * 16, Math.ceil(gebraucht * 1.6));
-  const { daten } = bahnRechnen(ziel.x, ziel.y, schritte);
-  bahnBreite = BAHN_BREITE;
-  const hoehe = Math.ceil(schritte / BAHN_BREITE);
-  const voll = new Float32Array(bahnBreite * hoehe * 4);
-  voll.set(daten.subarray(0, Math.min(daten.length, voll.length)));
+/*
+ * Die Bezugsbahn waechst stueckweise - und blockiert nie ein Bild.
+ *
+ * Vorher wurde sie bei jeder Vergroesserung von vorn gerechnet, synchron,
+ * mitten im Bild: bis zu 16000 Schritte in Festkommaarithmetik plus ein
+ * vollstaendiger Texturupload. Ausgeloest wurde das von der Zoomtiefe - und
+ * ein Drop schiebt die Tiefe schlagartig vor. Das Haken kam also genau in dem
+ * Moment, in dem es am wenigsten passieren darf.
+ *
+ * Jetzt bleibt der Rechenstand erhalten und die Bahn wird je Bild um einen
+ * Happen verlaengert. Zwei Dinge machen das moeglich:
+ *
+ *   - Die Bahn haengt nur am Zielpunkt, nicht an der Tiefe. Was einmal
+ *     gerechnet ist, bleibt gueltig - Fortsetzen ist also billiger als
+ *     Neurechnen, und zwar um den ganzen bereits gerechneten Teil.
+ *   - Eine noch zu kurze Bahn ist kein Fehler, sondern nur weniger sparsam:
+ *     Der Schattierer setzt dann eben oefter neu an. Das Bild ist sofort
+ *     richtig, es wird nur waehrend des Nachwachsens etwas teurer.
+ */
+const BAHN_HOEHE = 16;
+const BAHN_MAX = BAHN_BREITE * BAHN_HOEHE;
+// Soviele Punkte je Bild. Gemessen kostet ein Punkt rund eine halbe
+// Mikrosekunde, ein Happen also unter einer Millisekunde.
+const BAHN_HAPPEN = 1400;
+// Womit angefangen wird, damit das erste Bild brauchbar ist.
+const BAHN_ANFANG = 1200;
 
+let bahnZr = 0n;
+let bahnZi = 0n;
+let bahnCr = 0n;
+let bahnCi = 0n;
+let bahnFertig = false;
+
+/** Die Bahn um hoechstens `wieviele` Punkte verlaengern. */
+function bahnWachsen(wieviele) {
+  const vier = 4n * EINS;
+  const bis = Math.min(BAHN_MAX, bahnSchritte + wieviele);
+  const von = bahnSchritte;
+  for (let i = von; i < bis; i++) {
+    const r = Number(bahnZr) / TEILER;
+    const j = Number(bahnZi) / TEILER;
+    const rGrob = Math.fround(r);
+    const jGrob = Math.fround(j);
+    bahnDaten[i * 4] = rGrob;
+    bahnDaten[i * 4 + 1] = Math.fround(r - rGrob);
+    bahnDaten[i * 4 + 2] = jGrob;
+    bahnDaten[i * 4 + 3] = Math.fround(j - jGrob);
+
+    const zr2 = fkMal(bahnZr, bahnZr);
+    const zi2 = fkMal(bahnZi, bahnZi);
+    if (zr2 + zi2 > vier) {
+      // Der Zielpunkt liegt ausserhalb der Menge - fuer unsere Ziele kommt das
+      // nicht vor, aber ein vertippter soll nicht in Unendlichkeiten enden.
+      bahnFertig = true;
+      bahnSchritte = i + 1;
+      return { von, bis: i + 1 };
+    }
+    bahnZi = 2n * fkMal(bahnZr, bahnZi) + bahnCi;
+    bahnZr = zr2 - zi2 + bahnCr;
+  }
+  bahnSchritte = bis;
+  if (bis >= BAHN_MAX) bahnFertig = true;
+  return { von, bis };
+}
+
+/** Nur die geaenderten Zeilen der Textur nachladen. */
+function bahnHochladen(von, bis) {
+  if (bis <= von) return;
+  const zeileVon = Math.floor(von / BAHN_BREITE);
+  const zeileBis = Math.min(BAHN_HOEHE, Math.ceil(bis / BAHN_BREITE));
+  const anzahl = zeileBis - zeileVon;
+  if (anzahl <= 0) return;
   gl.activeTexture(gl.TEXTURE0);
   gl.bindTexture(gl.TEXTURE_2D, bahnTextur);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, bahnBreite, hoehe, 0, gl.RGBA, gl.FLOAT, voll);
-  bahnSchritte = schritte;
-  bahnDaten = voll;
-  bahnZiel = ziel.name;
+  gl.texSubImage2D(
+    gl.TEXTURE_2D, 0, 0, zeileVon, BAHN_BREITE, anzahl, gl.RGBA, gl.FLOAT,
+    bahnDaten.subarray(zeileVon * BAHN_BREITE * 4, zeileBis * BAHN_BREITE * 4),
+  );
+}
+
+function bahnSichern(ziel, gebraucht) {
+  if (bahnZiel !== ziel.name) {
+    bahnBreite = BAHN_BREITE;
+    if (!bahnDaten) bahnDaten = new Float32Array(BAHN_MAX * 4);
+    bahnDaten.fill(0);
+    bahnCr = festkommaAusText(ziel.x);
+    bahnCi = festkommaAusText(ziel.y);
+    bahnZr = 0n;
+    bahnZi = 0n;
+    bahnSchritte = 0;
+    bahnFertig = false;
+    bahnZiel = ziel.name;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, bahnTextur);
+    gl.texImage2D(
+      gl.TEXTURE_2D, 0, gl.RGBA32F, BAHN_BREITE, BAHN_HOEHE, 0, gl.RGBA, gl.FLOAT, bahnDaten,
+    );
+    const anfang = bahnWachsen(BAHN_ANFANG);
+    bahnHochladen(anfang.von, anfang.bis);
+    return;
+  }
+  // Mit Vorlauf wachsen, damit die Bahn der Tiefe voraus ist statt hinterher.
+  const wunsch = Math.min(BAHN_MAX, Math.ceil(gebraucht * 1.3));
+  if (bahnFertig || bahnSchritte >= wunsch) return;
+  const gewachsen = bahnWachsen(BAHN_HAPPEN);
+  bahnHochladen(gewachsen.von, gewachsen.bis);
 }
 
 /** Die Farbtabelle hochladen. 512 Stufen, drei Kanaele. */
@@ -454,8 +505,9 @@ export function gpuZeichnen(lage) {
   gl.uniform1f(orte.spanne, 1.6 / Math.pow(10, tiefe));
   gl.uniform1f(orte.seite, h / b);
   gl.uniform1f(orte.dreh, dreh);
-  gl.uniform1i(orte.schritte, Math.min(bahnSchritte - 1, schritte));
+  gl.uniform1i(orte.schritte, schritte);
   gl.uniform1i(orte.bahnBreite, bahnBreite);
+  gl.uniform1i(orte.bahnLaenge, Math.max(2, bahnSchritte));
   gl.uniform1f(orte.versatz, versatz);
   gl.uniform1f(orte.dichte, dichte);
   gl.uniform1f(orte.innenHell, innenHell);

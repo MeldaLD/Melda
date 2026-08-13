@@ -422,6 +422,18 @@ try {
   // geringer Tiefe von Bild zu Bild stark - als Ruhewert waere das unbrauchbar.
   await seite.waitForTimeout(3000);
   const dropMessung = await seite.evaluate(async () => {
+    /*
+     * Erst abwarten, bis der Zoomschub abgeklungen ist.
+     *
+     * Im Demolauf kommen echte Drops aus der Analyse. Faellt einer kurz vor
+     * die Messung, steht der Ausgangswert schon bei 17 statt bei 0,3 - und
+     * weil der Schub schnell abklingt, ist die Summe aus Rest und neuem Drop
+     * dann kleiner als die geforderte Zunahme. Gemessen wurde in dem Fall
+     * nicht der Drop, sondern der Zufall.
+     */
+    for (let i = 0; i < 60 && window.__mandel.schwung > 1; i++) {
+      await new Promise((f) => setTimeout(f, 250));
+    }
     const leinwand = document.getElementById('visual');
     const stift = leinwand.getContext('2d');
     const ay = Math.max(0, Math.round(leinwand.height / 2 - 40));
