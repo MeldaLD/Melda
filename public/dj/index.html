@@ -713,6 +713,27 @@ function abschnittBeiZeit(track, sekunden) {
   return liste[unten];
 }
 
+/*
+ * Die Beatnummer am *Anfang* eines Abschnitts - nicht sein beatVersatz.
+ *
+ * Der Unterschied hat einen zehn Sekunden grossen Fehler verursacht, und er
+ * ist leicht zu uebersehen: beatVersatz gehoert zum `raster` des Abschnitts,
+ * also zu seinem ersten Downbeat, und der liegt fast nie genau auf `von`.
+ * Nach dem Scharfstellen der Grenzen kann er Dutzende Sekunden dahinter
+ * liegen.
+ *
+ * Wer nun in beatBei nach der Zeit sucht, aber in beatZeit nach dem
+ * beatVersatz, bekommt fuer die Strecke zwischen von und raster zwei
+ * verschiedene Abschnitte - und damit zwei verschiedene Tempi. Die beiden
+ * Richtungen waren dann nicht mehr zueinander invers. Nachgemessen an einem
+ * halbstuendigen Mix: 10,7 Sekunden Rundlauffehler.
+ *
+ * Also wird in beide Richtungen dieselbe Grenze benutzt.
+ */
+function beatAmAnfang(a) {
+  return a.beatVersatz + (a.von - a.raster) / beatDauer(a.bpm);
+}
+
 function abschnittBeiBeat(track, beatNr) {
   const liste = track.abschnitte;
   if (!Array.isArray(liste) || liste.length === 0) return ersatzAbschnitt(track);
@@ -720,7 +741,7 @@ function abschnittBeiBeat(track, beatNr) {
   let oben = liste.length - 1;
   while (unten < oben) {
     const mitte = (unten + oben + 1) >> 1;
-    if (liste[mitte].beatVersatz <= beatNr) unten = mitte;
+    if (beatAmAnfang(liste[mitte]) <= beatNr) unten = mitte;
     else oben = mitte - 1;
   }
   return liste[unten];

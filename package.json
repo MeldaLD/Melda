@@ -23,10 +23,11 @@
     "dj:modibilder": "node dj/werkzeuge/modibilder.mjs",
     "dj:vermessen": "node dj/werkzeuge/vermessen.mjs",
     "dj:mandelpruefen": "node dj/pruefungen/mandelbrot.mjs",
-    "dj:alles": "npm run dj && npm run dj:pruefen && npm run dj:planpruefen && npm run dj:analysepruefen && npm run dj:mischpruefen && npm run dj:bildpruefen && npm run dj:mandelpruefen && npm run dj:aufnahmepruefen && npm run dj:loeschpruefen",
+    "dj:alles": "npm run dj && npm run dj:pruefen && npm run dj:planpruefen && npm run dj:analysepruefen && npm run dj:mischpruefen && npm run dj:bildpruefen && npm run dj:mandelpruefen && npm run dj:aufnahmepruefen && npm run dj:langmixpruefen && npm run dj:loeschpruefen",
     "dj:loeschpruefen": "node dj/pruefungen/loeschen.mjs",
     "dj:planpruefen": "node dj/pruefungen/uebergang.mjs",
-    "dj:aufnahmepruefen": "node dj/pruefungen/aufnahme.mjs"
+    "dj:aufnahmepruefen": "node dj/pruefungen/aufnahme.mjs",
+    "dj:langmixpruefen": "node dj/pruefungen/langmix.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.115.0",
