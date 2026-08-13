@@ -770,6 +770,29 @@ let mandelFarbe = 0;
 let mandelFarbSprung = 0;
 
 let mandelLetzterBeat = -1;
+/*
+ * Die Phrasengrenze - alle zweiunddreissig Schlaege.
+ *
+ * Sie ist die groesste Einheit, die man im Techno noch *fuehlt*: Auf ihr
+ * liegen die Wechsel, dort steigt jedes Element ein und aus. Bisher stand im
+ * Bild an dieser Stelle nichts, obwohl das Raster sie kennt. Ein leiser
+ * Akzent genuegt - kein Drop, sondern ein Aufatmen: eine Andeutung von
+ * Symmetrie, ein kleiner Farbschub. Wer eine Weile hinsieht, lernt das
+ * Raster, ohne es zu bemerken, und liest den naechsten Wechsel dann voraus.
+ */
+let mandelPhasenPuls = 0;
+let mandelLetztePhrase = -1;
+/*
+ * Der Schwerpunkt des Spektrums - wo im Frequenzband die Energie sitzt.
+ *
+ * Der Pegel sagt, *wie laut* es ist; der Schwerpunkt sagt, *wie es klingt*.
+ * Eine dumpfe Bassflaeche und ein schneidendes Lead koennen gleich laut sein
+ * und sehen bisher gleich aus. Der Schwerpunkt trennt sie - und weil er eine
+ * eigene, vom Pegel unabhaengige Groesse ist, darf er auch einen eigenen
+ * Kanal im Bild bekommen: den Farbton, der zum Gegenton hin wandert, wenn es
+ * hell klingt.
+ */
+let mandelKlangfarbe = 0.35;
 let mandelDauer = 8;
 let mandelLeerlauf = 0;
 let mandelFarbtabelle = null;
@@ -885,77 +908,112 @@ const MANDEL_KANTEN_MIN = 3;
  * falsch: Die untere Oktave belegt dann ein Prozent der Tabelle, obwohl im
  * Techno dort das halbe Stueck stattfindet.
  */
-function mandelTabelleBauen(grundton, akzent, spektrum, glanz, baenderZahl = 3) {
+/*
+ * Die Farbtabelle in zwei Schritten - weil der teure Teil sich nicht aendert.
+ *
+ * Sie wurde in *jedem* Bild komplett neu gebaut: 512 Eintraege, jeder mit drei
+ * Potenzberechnungen fuer die Gammakorrektur und einer weiteren fuer die
+ * logarithmische Frequenzachse. Gut zweitausend teure Aufrufe je Bild, und das
+ * bei sechzig Bildern in der Sekunde - auf einem Tablet ein spuerbarer Posten.
+ *
+ * Dabei aendert sich der teure Teil fast nie. Farbton, Gegenton und die Zahl
+ * der Baender bleiben ueber einen ganzen Track gleich; nur die Helligkeit
+ * zappelt mit dem Spektrum. Also werden zwei Tabellen vorgerechnet - eine
+ * dunkle und eine helle - und je Bild nur noch zwischen ihnen gemischt. Das
+ * ist eine Multiplikation je Kanal statt einer Wurzel, und das Ergebnis ist
+ * dasselbe: Beide Enden sind korrekt in Oklab gerechnet, und dazwischen liegt
+ * die Helligkeit ohnehin fast auf einer Geraden.
+ */
+let mandelGrundTabelle = null;
+let mandelHellTabelle = null;
+let mandelBandZuordnung = null;
+let mandelTabellenSchluessel = '';
+
+/*
+ * Die Toene werden auf zwei Grad gerundet, bevor sie in den Schluessel gehen.
+ *
+ * Ohne das Runden war die ganze Vorberechnung wertlos: Seit der
+ * Klangschwerpunkt den Farbton stetig verschiebt, aendert er sich in jedem
+ * Bild um Bruchteile eines Grades - der Schluessel passte also nie, und die
+ * teuren Tabellen wurden neu gebaut, seit es zwei sind sogar doppelt so oft
+ * wie vorher. Nachgemessen stieg die Bildzeit dadurch von 12 auf 17,8 ms.
+ *
+ * Zwei Grad sind im Bild nicht zu unterscheiden - die Palette umspannt
+ * ohnehin nur siebzig -, aber sie machen aus "nie" ein "fast immer".
+ */
+const TON_RASTER = 2;
+
+function mandelTabellenSichern(grundtonRoh, akzentRoh, baenderZahl, baender) {
+  const grundton = Math.round(grundtonRoh / TON_RASTER) * TON_RASTER;
+  const akzent = Math.round(akzentRoh / TON_RASTER) * TON_RASTER;
+  const schluessel = `${grundton}|${akzent}|${baenderZahl}|${baender}`;
+  if (schluessel === mandelTabellenSchluessel) return;
+  mandelTabellenSchluessel = schluessel;
   const n = 512;
-  const tabelle = new Uint8Array(n * 3);
-  const baender = spektrum ? spektrum.length : 0;
+  mandelGrundTabelle = new Uint8Array(n * 3);
+  mandelHellTabelle = new Uint8Array(n * 3);
+  mandelBandZuordnung = new Uint16Array(n);
+
   for (let i = 0; i < n; i++) {
     const t = i / n;
-    /*
-     * Zwischen Grundton und Gegenton hin und her, nicht rund um den Kreis.
-     *
-     * Der Weg wird auf dem *kuerzeren* Bogen genommen - sonst laeuft eine
-     * Palette von Violett nach Magenta einmal quer durch Gruen und Gelb, und
-     * genau die Toene sollten ja draussen bleiben. Der Gegenton liegt bei der
-     * Haelfte des Durchlaufs und trifft damit die hellsten Baender: Er ist der
-     * Akzent, nicht die zweite Hauptfarbe.
-     */
     let bogen = ((akzent - grundton + 540) % 360) - 180;
     /*
-     * Der Bogen wird begrenzt.
-     *
-     * Ein Gegenton fast gegenueber sieht auf dem Papier reizvoll aus, aber der
-     * *Weg* dorthin fuehrt zwangslaeufig durch alles, was dazwischen liegt.
-     * Nachgemessen: Die Palette von Blau nach Gold nahm einen Bogen von 173
-     * Grad und lief dabei quer durch Gruen und Oliv - genau durch den
-     * Bereich, der am Tief der Vorliebenkurve liegt, und im Bild standen
-     * schmutzige Flecken. Siebzig Grad reichen fuer einen deutlichen Akzent
-     * und bleiben auf der Seite des Grundtons.
+     * Der Bogen wird begrenzt. Ein Gegenton fast gegenueber sieht auf dem
+     * Papier reizvoll aus, aber der *Weg* dorthin fuehrt durch alles, was
+     * dazwischen liegt - bei Blau nach Gold quer durch Gruen und Oliv, also
+     * genau durch das Tief der Vorliebenkurve.
      */
     if (bogen > 70) bogen = 70;
     else if (bogen < -70) bogen = -70;
-    /*
-     * Der Gegenton ist eine schmale Spitze, keine zweite Haelfte.
-     *
-     * Mit einem glatten Hin und Her belegte er die halbe Tabelle, und das
-     * Ergebnis war genau das Bunte, das vermieden werden sollte - bei der
-     * Palette aus Blau und Bernstein standen beide Toene gleich gross im Bild
-     * und stritten sich. Hoch drei genommen bleibt der Weg lange beim
-     * Grundton und erreicht den Gegenton nur auf den letzten paar Prozent des
-     * Durchlaufs. Damit ist er das, was ein Akzent sein soll: selten, kurz,
-     * und deshalb wirksam.
-     */
+    // Der Gegenton ist eine schmale Spitze, keine zweite Haelfte.
     const naehe = 0.5 - 0.5 * Math.cos(t * Math.PI * 2);
     const ton = (grundton + bogen * naehe * naehe * naehe + 360) % 360;
-    // Helligkeit schwingt, damit Baender aus Licht und Dunkel entstehen.
-    /*
-     * Die Helligkeit laeuft zyklisch.
-     *
-     * Die Tabelle wird im Kreis gelesen - der letzte Eintrag stoesst an den
-     * ersten. Eine Kennlinie, die das nicht beruecksichtigt, hat dort eine
-     * Naht, und die wandert als harte Kante durch das Bild. Ein Kosinus ueber
-     * ganze Perioden hat diese Naht nicht.
-     */
-    let helligkeit = 0.1 + 0.34 * (0.5 - 0.5 * Math.cos(t * Math.PI * 2 * baenderZahl));
 
-    if (baender) {
-      // Logarithmisch: die unteren Oktaven bekommen den Platz, den sie im
-      // Stueck auch haben.
-      const stelle = Math.min(baender - 1, Math.round((Math.pow(baender, t) - 1) * (baender / (baender - 1))));
-      const pegel = spektrum[stelle] / 255;
-      helligkeit += pegel * pegel * 0.3 * glanz;
-    }
+    // Zyklische Kennlinie: Die Tabelle wird im Kreis gelesen, eine Naht waere
+    // eine harte Kante im Bild.
+    const grund = 0.1 + 0.34 * (0.5 - 0.5 * Math.cos(t * Math.PI * 2 * baenderZahl));
+    const hell = Math.min(0.72, grund + 0.3);
+    const buntGrund = 0.055 + 0.085 * Math.min(1, grund * 2.2);
+    const buntHell = 0.055 + 0.085 * Math.min(1, hell * 2.2);
 
-    // Buntheit folgt der Helligkeit: Ganz dunkle Stellen bleiben fast neutral,
-    // sonst leuchtet das Rauschen im Schatten staerker als die Zeichnung.
-    const buntheit = 0.055 + 0.085 * Math.min(1, helligkeit * 2.2);
-    // Der Deckel bleibt: Das Bild ist Hintergrund, und darueber steht Schrift.
-    const [r, g, b] = oklabZuRgb(Math.min(0.72, helligkeit), buntheit, ton);
-    tabelle[i * 3] = r;
-    tabelle[i * 3 + 1] = g;
-    tabelle[i * 3 + 2] = b;
+    const [r1, g1, b1] = oklabZuRgb(Math.min(0.72, grund), buntGrund, ton);
+    const [r2, g2, b2] = oklabZuRgb(hell, buntHell, ton);
+    mandelGrundTabelle[i * 3] = r1;
+    mandelGrundTabelle[i * 3 + 1] = g1;
+    mandelGrundTabelle[i * 3 + 2] = b1;
+    mandelHellTabelle[i * 3] = r2;
+    mandelHellTabelle[i * 3 + 1] = g2;
+    mandelHellTabelle[i * 3 + 2] = b2;
+
+    // Logarithmische Frequenzachse: die unteren Oktaven bekommen den Platz,
+    // den sie im Stueck auch haben. Haengt nur an der Bandzahl, also einmal.
+    mandelBandZuordnung[i] = baender
+      ? Math.min(baender - 1, Math.round((Math.pow(baender, t) - 1) * (baender / (baender - 1))))
+      : 0;
   }
-  return tabelle;
+}
+
+function mandelTabelleBauen(grundton, akzent, spektrum, glanz, baenderZahl = 3) {
+  const baender = spektrum ? spektrum.length : 0;
+  mandelTabellenSichern(grundton, akzent, baenderZahl, baender);
+  const n = 512;
+  if (!mandelFarbtabelle) mandelFarbtabelle = new Uint8Array(n * 3);
+  const aus = mandelFarbtabelle;
+  const dunkel = mandelGrundTabelle;
+  const licht = mandelHellTabelle;
+
+  for (let i = 0; i < n; i++) {
+    let mischung = 0;
+    if (baender) {
+      const pegel = spektrum[mandelBandZuordnung[i]] / 255;
+      mischung = Math.min(1, pegel * pegel * glanz);
+    }
+    const k = i * 3;
+    aus[k] = dunkel[k] + (licht[k] - dunkel[k]) * mischung;
+    aus[k + 1] = dunkel[k + 1] + (licht[k + 1] - dunkel[k + 1]) * mischung;
+    aus[k + 2] = dunkel[k + 2] + (licht[k + 2] - dunkel[k + 2]) * mischung;
+  }
+  return aus;
 }
 
 /*
@@ -1336,6 +1394,36 @@ function mandelbrotZeichnen(stift, lage) {
     mandelLetzterBeat = takt.nummer;
     mandelSchwung += 0.3 + wucht * 0.6 + (takt.aufEins ? 0.4 : 0);
   }
+
+  // Die Phrasengrenze: einmal je zweiunddreissig Schlaege, und nur einmal.
+  if (takt) {
+    const phrase = Math.floor(takt.beat / 32);
+    if (phrase !== mandelLetztePhrase) {
+      if (mandelLetztePhrase >= 0) {
+        mandelPhasenPuls = 1;
+        mandelSchwung += 1.6;
+        mandelFarbSprung += 0.06;
+      }
+      mandelLetztePhrase = phrase;
+    }
+  }
+  mandelPhasenPuls *= Math.pow(0.13, sekunden);
+
+  /*
+   * Der Klangschwerpunkt, traege nachgefuehrt. Traege deshalb, weil er von
+   * Bild zu Bild springt - was man sehen soll, ist der Charakter einer
+   * Passage, nicht das Zappeln einzelner Anschlaege.
+   */
+  if (spektrum && spektrum.length) {
+    let summe = 0;
+    let gewicht = 0;
+    for (let i = 0; i < spektrum.length; i++) {
+      summe += spektrum[i] * i;
+      gewicht += spektrum[i];
+    }
+    const roh = gewicht > 0 ? summe / gewicht / spektrum.length : 0.35;
+    mandelKlangfarbe += (roh - mandelKlangfarbe) * Math.min(1, sekunden * 1.1);
+  }
   mandelSchwung *= Math.pow(0.08, sekunden);
 
   if (drop) {
@@ -1388,7 +1476,9 @@ function mandelbrotZeichnen(stift, lage) {
    */
   mandelMandalaHalt *= Math.pow(0.55, sekunden);
   mandelFangHalt *= Math.pow(0.4, sekunden);
-  const mandalaZiel = Math.min(1, Math.max(spannung * 0.9, mandelMandalaHalt)) * (1 - abbau * 0.8);
+  const mandalaZiel =
+    Math.min(1, Math.max(spannung * 0.9, mandelMandalaHalt, mandelPhasenPuls * 0.3)) *
+    (1 - abbau * 0.8);
   mandelMandala += (mandalaZiel - mandelMandala) * Math.min(1, sekunden * 1.6);
   // Die Achsenzahl wandert weich, damit aus sechs nicht ruckartig zwoelf wird.
   mandelSterne += (mandelSterneZiel - mandelSterne) * Math.min(1, sekunden * 2.2);
@@ -1542,12 +1632,23 @@ function mandelbrotZeichnen(stift, lage) {
    * und man *sieht* den Wechsel kommen.
    */
   const bogenAB = (a, b2) => a + (((b2 - a + 540) % 360) - 180) * (anteilB ?? 0);
-  const grundton = paletteB
+  const grundtonRoh = paletteB
     ? bogenAB(paletteA.grundton, paletteB.grundton)
     : paletteA.grundton;
   // Jedes Bild neu: Sie traegt jetzt das Spektrum, und das aendert sich mit
   // jedem Bild. 512 Stufen kosten weniger als ein Zehntel einer Millisekunde.
-  const akzent = paletteB ? bogenAB(paletteA.akzent, paletteB.akzent) : paletteA.akzent;
+  const akzentRoh = paletteB ? bogenAB(paletteA.akzent, paletteB.akzent) : paletteA.akzent;
+  /*
+   * Klingt es hell, rueckt der Grundton ein Stueck zum Gegenton - klingt es
+   * dumpf, faellt er zurueck. Der Ausschlag ist klein gehalten: Es soll wie
+   * eine Temperatur wirken, die sich mit der Passage aendert, nicht wie ein
+   * Farbwechsel. Der Schwerpunkt liegt bei Techno meist zwischen 0,1 und 0,5;
+   * die Mitte bei 0,3 gilt als neutral.
+   */
+  const waerme = Math.max(-1, Math.min(1, (mandelKlangfarbe - 0.3) * 4));
+  const zumAkzent = (((akzentRoh - grundtonRoh + 540) % 360) - 180) * 0.22 * waerme;
+  const grundton = grundtonRoh + zumAkzent;
+  const akzent = akzentRoh + zumAkzent * 0.4;
   mandelFarbtabelle = mandelTabelleBauen(
     grundton + mandelTonDreh,
     akzent + mandelTonDreh,
