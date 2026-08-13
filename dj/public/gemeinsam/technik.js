@@ -175,6 +175,7 @@ function fraktalFragen(mandel, bild) {
     taktMs: rund(mandel.taktMs, 1),
     guetestufe: bild?.guetestufe ?? null,
     ueberzugMs: rund(bild?.bildMs, 2),
+    reihe: mandel.reihe ?? null,
   };
 }
 
@@ -267,7 +268,28 @@ function urteil(a) {
     ]);
   }
 
-  // 4. Und die Aufloesung, in der wirklich gerechnet wird.
+  // 4. Was die Reihenentwicklung einspart.
+  const reihe = a.fraktal.reihe;
+  if (a.fraktal.da && reihe) {
+    const schritte = a.fraktal.schritte ?? 0;
+    if (reihe.n > 0 && schritte > 0) {
+      const anteil = (reihe.n / schritte) * 100;
+      zeilen.push([
+        anteil > 20 ? 'gut' : 'offen',
+        `Die Reihe ueberspringt ${reihe.n} der ${schritte} Schritte je Punkt - ${anteil.toFixed(0)} Prozent weniger Rechnung ` +
+          `(Bau ${(reihe.bauMs ?? 0).toFixed(1)} ms, einmal je Sekunde).`,
+      ]);
+    } else if (reihe.stand === 'abgeschaltet') {
+      zeilen.push(['offen', 'Die Reihenentwicklung ist abgeschaltet - es wird alles gerechnet.']);
+    } else {
+      zeilen.push([
+        'offen',
+        `Die Reihe springt hier nicht (${reihe.stand}). Das ist bei flachen Zooms normal - erst in der Tiefe lohnt sie.`,
+      ]);
+    }
+  }
+
+  // 5. Und die Aufloesung, in der wirklich gerechnet wird.
   if (a.fraktal.da) {
     const g = a.fraktal.guete ?? 0;
     zeilen.push([
@@ -329,6 +351,13 @@ export function technikAlsText(a) {
     raus('Aufloesung', `${a.fraktal.guete} (${a.fraktal.breite} Punkte breit)`);
     raus('Bremse', a.fraktal.bremse);
     raus('Schritte je Punkt', a.fraktal.schritte);
+    raus(
+      'Reihe',
+      a.fraktal.reihe
+        ? `${a.fraktal.reihe.stand}, ${a.fraktal.reihe.glieder} Glieder, ` +
+          `Bau ${(a.fraktal.reihe.bauMs ?? 0).toFixed(1)} ms ueber ${a.fraktal.reihe.runden ?? 0} Runden`
+        : null,
+    );
     raus('Zoomtiefe', a.fraktal.tiefe);
     raus('Stelle', a.fraktal.ziel);
     raus(

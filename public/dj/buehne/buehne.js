@@ -14,6 +14,7 @@ import { demoBibliothek } from '../gemeinsam/demomusik.js';
 import { leitungSuchen } from '../gemeinsam/leitung.js';
 import { Visualisierung } from '../gemeinsam/visual.js';
 import { technikSammeln, technikAlsText } from '../gemeinsam/technik.js';
+import { reiheSetzen } from '../gemeinsam/visualmodi.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -380,6 +381,23 @@ function technikUmschalten() {
     void technikZeichnen();
     technikTakt = setInterval(() => void technikZeichnen(), 1000);
   }
+}
+
+/*
+ * Der Schalter fuer die Reihenentwicklung.
+ *
+ * Die Wahl haelt ueber einen Neustart - man vergleicht so etwas nicht in
+ * dreissig Sekunden, sondern laesst es eine Weile laufen und schaut hin.
+ */
+{
+  const gemerkt = localStorage.getItem('djReihe');
+  const an = gemerkt === null ? true : gemerkt === 'ja';
+  $('reiheAn').checked = an;
+  reiheSetzen(an);
+  $('reiheAn').addEventListener('change', (e) => {
+    reiheSetzen(e.target.checked);
+    localStorage.setItem('djReihe', e.target.checked ? 'ja' : 'nein');
+  });
 }
 
 $('technikKnopf').addEventListener('click', technikUmschalten);

@@ -15,7 +15,27 @@
 
 import {
   gpuBereit, gpuFarben, gpuZeichnen, gpuProbe, gpuProbeVergessen, gpuLeinwand, gpuName,
+  reiheAuskunft,
 } from './mandelgpu.js';
+
+/*
+ * Die Reihenentwicklung laesst sich abschalten.
+ *
+ * Sie ueberspringt bei tiefen Zooms einen grossen Teil der Iterationen - und
+ * sie ist das einzige Stueck hier, das eine *Naeherung* ist und nicht eine
+ * exakte Rechnung. Ein Schalter ist deshalb keine Spielerei: Nur so laesst
+ * sich am selben Bild vergleichen, ob sie etwas wegputzt, und wieviel sie
+ * ueberhaupt bringt.
+ */
+let mandelReihe = true;
+
+export function reiheSetzen(an) {
+  mandelReihe = an !== false;
+}
+
+export function reiheAn() {
+  return mandelReihe;
+}
 
 export const TAU = Math.PI * 2;
 
@@ -1858,6 +1878,7 @@ function mandelbrotZeichnen(stift, lage) {
       sterne: mandelSterne,
       fangAnteil: mandelFang,
       guete: Math.min(mandelGuete, stufe.fraktal),
+      reihe: mandelReihe,
     });
     mandelPunkte = bild.breite * bild.hoehe;
 
@@ -1889,6 +1910,7 @@ function mandelbrotZeichnen(stift, lage) {
         fang: mandelFang,
         aufGpu: true,
         karte: gpuName(),
+        reihe: reiheAuskunft(),
         dauerMs: mandelDauer,
         schwung: mandelSchwung,
       };

@@ -750,6 +750,13 @@ header {
           <input type="checkbox" id="angleichAn" checked />
           Angleich
         </label>
+        <label
+          class="schalter"
+          title="Reihenentwicklung: überspringt bei tiefen Zooms einen Teil der Rechnung. Zum Vergleichen abschaltbar."
+        >
+          <input type="checkbox" id="reiheAn" checked />
+          Reihe
+        </label>
         <ol class="verlauf" id="verlauf"></ol>
       </div>
 
@@ -3166,7 +3173,34 @@ uniform float mandala;       // 0 = reines Mandelbrot, 1 = volle Symmetrie
 uniform float sterne;        // Zahl der Spiegelachsen
 uniform float fangAnteil;    // wieviel die Bahnfalle zur Farbe beitraegt
 
+/*
+ * Reihenentwicklung - wieviele Schritte uebersprungen werden duerfen.
+ *
+ * reiheN ist die Zahl der Schritte, die *alle* Punkte des Bildes ueberspringen.
+ * reiheA bis reiheD sind die vier Koeffizienten der Potenzreihe, schon so
+ * skaliert, dass sie mit u = versch/reiheS gerechnet werden koennen; u liegt
+ * damit in der Einheitsscheibe.
+ *
+ * reiheFalle und reiheNah tragen nach, was in den uebersprungenen Schritten
+ * fuer Bahnfalle und Innenzeichnung angefallen waere - siehe die Begruendung
+ * bei reiheBauen.
+ *
+ * reiheN = 0 heisst: abgeschaltet, es wird von vorn gerechnet.
+ */
+uniform int   reiheN;
+uniform float reiheS;
+uniform vec2  reiheA;
+uniform vec2  reiheB;
+uniform vec2  reiheC;
+uniform vec2  reiheD;
+uniform float reiheFalle;
+uniform float reiheNah;
+
 out vec4 ergebnis;
+
+vec2 kmal(vec2 a, vec2 b) {
+  return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+}
 
 vec4 bahnHolen(int i) {
   return texelFetch(bahn, ivec2(i % bahnBreite, i / bahnBreite), 0);
@@ -3211,6 +3245,7 @@ void main() {
   int n = 0;
   float naechster = 1e30;
   float raus = 0.0;
+
   /*
    * Bahnfalle (orbit trap).
    *
@@ -3224,6 +3259,30 @@ void main() {
    */
   float kreuz = 1e30;
 
+
+  /*
+   * Der Sprung nach vorn.
+   *
+   * Statt bei null anzufangen, wird der Abstand nach reiheN Schritten direkt
+   * aus der Reihe ausgerechnet - vier komplexe Multiplikationen anstelle von
+   * reiheN Iterationen. Die Koeffizienten gelten fuer das ganze Bild und sind
+   * auf dem Hauptprozessor entstanden; hier ist nur noch das Einsetzen zu tun.
+   */
+  if (reiheN > 0) {
+    vec2 u = versch / reiheS;
+    vec2 u2 = kmal(u, u);
+    vec2 u3 = kmal(u2, u);
+    vec2 u4 = kmal(u2, u2);
+    d = kmal(reiheA, u) + kmal(reiheB, u2) + kmal(reiheC, u3) + kmal(reiheD, u4);
+    m = reiheN;
+    n = reiheN;
+    // Was in den uebersprungenen Schritten fuer Falle und Innenzeichnung
+    // angefallen waere. Ohne diese beiden Zahlen saehe das Bild mit
+    // Reihenentwicklung anders aus als ohne - und dann liesse sich mit dem
+    // Schalter nichts vergleichen.
+    naechster = reiheNah;
+    kreuz = reiheFalle;
+  }
   /*
    * Ein Texturzugriff je Schritt statt zwei.
    *
@@ -3236,8 +3295,8 @@ void main() {
    * Der Texturzugriff ist in dieser Schleife der Engpass, nicht das Rechnen.
    * Die Haelfte davon einzusparen heisst annaehernd doppelt so schnell.
    */
-  vec4 Z = bahnHolen(0);
-  for (int k = 0; k < schritte; k++) {
+  vec4 Z = bahnHolen(m);
+  for (int k = n; k < schritte; k++) {
     vec2 grob = vec2(Z.x, Z.z);
     vec2 fein = vec2(Z.y, Z.w);
     // d' = 2*Z*d + d*d + versch, mit Z in zwei Teilen
@@ -3387,6 +3446,7 @@ function gpuBereit() {
       'bahn', 'farben', 'feld', 'spanne', 'seite', 'dreh',
       'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
       'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
+      'reiheN', 'reiheS', 'reiheA', 'reiheB', 'reiheC', 'reiheD', 'reiheFalle', 'reiheNah',
     ]) {
       orte[name] = gl.getUniformLocation(programm, name);
     }
@@ -3497,6 +3557,308 @@ function bahnHochladen(von, bis) {
     gl.TEXTURE_2D, 0, 0, zeileVon, BAHN_BREITE, anzahl, gl.RGBA, gl.FLOAT,
     bahnDaten.subarray(zeileVon * BAHN_BREITE * 4, zeileBis * BAHN_BREITE * 4),
   );
+}
+
+/* --- Reihenentwicklung ----------------------------------------------------
+ *
+ * Der eine Gedanke dahinter: Fuer kleine Abstaende ist der Abstand nach n
+ * Schritten eine *analytische* Funktion des Startabstands. Man kann ihn also
+ * als Potenzreihe schreiben,
+ *
+ *     d_n = a1*δ + a2*δ² + a3*δ³ + a4*δ⁴,
+ *
+ * und die Koeffizienten haengen nur von der Bezugsbahn ab - nicht vom
+ * einzelnen Bildpunkt. Also einmal je Bild ausrechnen, und danach springt
+ * *jeder* Punkt mit vier Multiplikationen ueber n Iterationen hinweg.
+ *
+ * Die Rekursion folgt aus d' = 2Zd + d² + δ durch Koeffizientenvergleich:
+ *
+ *     a1' = 2Z a1 + 1
+ *     a2' = 2Z a2 + a1²
+ *     a3' = 2Z a3 + 2 a1 a2
+ *     a4' = 2Z a4 + 2 a1 a3 + a2²
+ *
+ * Zwei Dinge daran sind nicht offensichtlich.
+ *
+ * Erstens die Skalierung. Roh gerechnet wachsen die Koeffizienten wie die
+ * Ableitung der Iteration, und a4 waere ihre vierte Potenz - bei tiefen Zooms
+ * jenseits von 10^38, also ausserhalb dessen, was eine Gleitkommazahl auf der
+ * Grafikkarte darstellen kann. Deshalb wird nicht mit δ gerechnet, sondern mit
+ * u = δ/s, wobei s der groesste im Bild vorkommende Abstand ist. Damit liegt u
+ * in der Einheitsscheibe, und alle vier Koeffizienten bleiben in derselben
+ * Groessenordnung wie d selbst, also klein. In der Rekursion aendert sich
+ * dadurch nur eine Stelle: aus der 1 bei a1 wird s.
+ *
+ * Zweitens die Frage, wie weit man springen darf. Eine Faustformel ueber die
+ * Groesse des letzten Glieds ist ueblich, aber unzuverlaessig - sie hat den
+ * Ruf, bei Miniaturen zu weit zu springen und Zeichnung wegzuputzen. Hier
+ * werden stattdessen Probepunkte mitgerechnet: An zwoelf Stellen des Bildes
+ * laeuft die *echte* Iteration mit, und verglichen wird Schritt fuer Schritt.
+ * Sobald die Reihe an einer dieser Stellen weiter danebenliegt als ein
+ * Zwanzigstel Bildpunkt, ist Schluss. Das ist das Verfahren, das in der
+ * Literatur zu Recht empfohlen wird: nachrechnen statt schaetzen.
+ *
+ * Was das Verfahren *nicht* kann: Es springt nur am Anfang der Bahn. Die
+ * moderne Antwort darauf heisst bilineare Approximation und springt an jeder
+ * Stelle - sie braucht aber eine Tabelle im Speicher der Karte und
+ * Koeffizienten, die wieder ueberlaufen. Fuer den Anfang ist die Reihe der
+ * bessere Tausch: viel Gewinn, wenig Umbau.
+ */
+
+// Vier Glieder. Mehr brauchen mehr Rechnung auf dem Hauptprozessor und
+// bringen bei unseren Tiefen wenig; weniger springt spuerbar kuerzer.
+const REIHE_GLIEDER = 4;
+// So weit darf die Reihe hoechstens springen. Ein Deckel ist noetig, weil die
+// Probepunkte sonst bei einem sehr tiefen Zoom Tausende Schritte mitrechnen.
+const REIHE_MAX = 8000;
+// Wie weit die Reihe danebenliegen darf, in Bildpunkten gemessen. Ein
+// Zwanzigstel ist deutlich unter dem, was man sehen koennte.
+const REIHE_TOLERANZ_PUNKTE = 0.01;
+// Sicherheitsabstand: von der gefundenen Grenze wird ein Zehntel abgezogen.
+const REIHE_RUECKHALT = 0.9;
+
+/*
+ * Wie oft die Reihe neu gebaut wird.
+ *
+ * Der Bau ist nicht gratis: Zwoelf Probepunkte laufen ueber Tausende Schritte
+ * mit. Nachgemessen kostet das eingelaufen 0,9 bis 3,4 Millisekunden - die
+ * ersten Male mehr, weil der Browser den Code erst uebersetzt (gemessen 6,6 ms
+ * beim ersten Lauf, 0,3 beim dritten).
+ *
+ * Bei jedem sechzigsten Bild, also etwa einmal je Sekunde, faellt das unter die
+ * vier Prozent verpasster Bilder, auf die der Regler ohnehin zusteuert. Bei
+ * jedem zwanzigsten waeren es fuenf Prozent gewesen - dann haette der Bau der
+ * Reihe die Bremse zugedreht und ausgerechnet die Aufloesung gekostet, die er
+ * einspart.
+ *
+ * Dass ein alter Wert dazwischen stehenbleibt, macht nichts: Er ist immer zu
+ * vorsichtig, nie zu kuehn - siehe die Begruendung beim Umskalieren.
+ */
+const REIHE_ALLE_BILDER = 60;
+
+let reiheN = 0;
+let reiheS = 1;
+let reiheZiel = '';
+let reiheAlter = 1e9;
+let reiheTiefe = -1e9;
+let reiheKoeff = new Float32Array(REIHE_GLIEDER * 2);
+let reiheFalle = 1e30;
+let reiheNah = 1e30;
+let reiheStand = '';
+let reiheBauMs = 0;
+let reiheRunden = 0;
+
+/** Die Reihe fuer den aktuellen Ausschnitt bauen. */
+function reiheBauen(spanne, seite, breite, deckel) {
+  const begonnen = performance.now();
+  reiheN = 0;
+  reiheFalle = 1e30;
+  reiheNah = 1e30;
+  // Der groesste Abstand im Bild: die halbe Diagonale. Das Falten des
+  // Mandalas dreht nur den Winkel und aendert die Laenge nicht, die Drehung
+  // ebenso - beide koennen hier also ausser Acht bleiben.
+  const s = spanne * Math.sqrt(1 + seite * seite);
+  reiheS = s;
+  if (!bahnDaten || bahnSchritte < 8) return;
+
+  const grenze = Math.min(deckel, REIHE_MAX, bahnSchritte - 2);
+  if (grenze < 16) return;
+
+  // Probepunkte: auf dem Rand, wo der Fehler am groessten ist, und ein paar
+  // weiter innen. Auf dem Rand ist |u| = 1.
+  const proben = [];
+  for (let i = 0; i < 8; i++) {
+    const w = (i / 8) * 2 * Math.PI;
+    proben.push({ ur: Math.cos(w), ui: Math.sin(w) });
+  }
+  for (let i = 0; i < 4; i++) {
+    const w = (i / 4) * 2 * Math.PI + 0.4;
+    proben.push({ ur: 0.62 * Math.cos(w), ui: 0.62 * Math.sin(w) });
+  }
+  /*
+   * Die Potenzen von u haengen nur vom Probepunkt ab, nicht vom Schritt - also
+   * einmal ausrechnen und nicht in jeder Iteration neu.
+   *
+   * Das klingt nach einer Kleinigkeit und war der Unterschied zwischen 13 und
+   * 2 Millisekunden. Bei zwoelf Probepunkten ueber zweitausend Schritte werden
+   * aus "einmal pro Punkt" sonst vierundzwanzigtausend Mal.
+   */
+  for (const p of proben) {
+    p.dr = 0;
+    p.di = 0;
+    p.raus = false;
+    p.u2r = p.ur * p.ur - p.ui * p.ui;
+    p.u2i = 2 * p.ur * p.ui;
+    p.u3r = p.u2r * p.ur - p.u2i * p.ui;
+    p.u3i = p.u2r * p.ui + p.u2i * p.ur;
+    p.u4r = p.u2r * p.u2r - p.u2i * p.u2i;
+    p.u4i = 2 * p.u2r * p.u2i;
+    p.vr = s * p.ur;
+    p.vi = s * p.ui;
+  }
+
+  /*
+   * Die Toleranz waechst mit der Iteration - und das ist keine Grosszuegigkeit,
+   * sondern die einzige richtige Frage.
+   *
+   * Zuerst stand hier ein fester Wert: ein Zwanzigstel des Bildpunktabstands,
+   * gemessen ganz am Anfang. Das ist zu streng, und zwar zunehmend. Zwei
+   * benachbarte Bildpunkte liegen anfangs Δδ auseinander; nach n Schritten
+   * liegen ihre Abstaende |a1(n)| * Δδ auseinander, denn a1 ist genau die
+   * Ableitung der Iteration nach dem Startpunkt. Der Bildpunktabstand *waechst
+   * also mit*, und mit ihm das, was man an Fehler noch nicht sieht.
+   *
+   * Gegen den Anfangsabstand zu pruefen hiess, spaete Schritte an einem Massstab
+   * zu messen, den sie laengst hinter sich gelassen haben. Nachgemessen kostete
+   * das bei Tiefe 8 ein Drittel der Sprungweite, bei Tiefe 15 ein Viertel.
+   *
+   * a1 steckt skaliert in ã1, also ist |a1| = |ã1| / s.
+   */
+  const punktAbstand = (2 * spanne) / Math.max(1, breite);
+
+  let a1r = 0, a1i = 0, a2r = 0, a2i = 0, a3r = 0, a3i = 0, a4r = 0, a4i = 0;
+  let gut = 0;
+  let falle = 1e30;
+  let nah = 1e30;
+  let falleGut = 1e30;
+  let nahGut = 1e30;
+  let gelaufen = 0;
+
+  for (let n = 0; n < grenze; n++) {
+    gelaufen++;
+    const zr = bahnDaten[n * 4] + bahnDaten[n * 4 + 1];
+    const zi = bahnDaten[n * 4 + 2] + bahnDaten[n * 4 + 3];
+    const zr2 = 2 * zr;
+    const zi2 = 2 * zi;
+
+    // Die Koeffizienten einen Schritt weiter. Reihenfolge beachten: a4
+    // braucht a1..a3 vom vorigen Schritt.
+    const n4r = zr2 * a4r - zi2 * a4i + 2 * (a1r * a3r - a1i * a3i) + (a2r * a2r - a2i * a2i);
+    const n4i = zr2 * a4i + zi2 * a4r + 2 * (a1r * a3i + a1i * a3r) + 2 * a2r * a2i;
+    const n3r = zr2 * a3r - zi2 * a3i + 2 * (a1r * a2r - a1i * a2i);
+    const n3i = zr2 * a3i + zi2 * a3r + 2 * (a1r * a2i + a1i * a2r);
+    const n2r = zr2 * a2r - zi2 * a2i + (a1r * a1r - a1i * a1i);
+    const n2i = zr2 * a2i + zi2 * a2r + 2 * a1r * a1i;
+    const n1r = zr2 * a1r - zi2 * a1i + s;
+    const n1i = zr2 * a1i + zi2 * a1r;
+    a1r = n1r; a1i = n1i; a2r = n2r; a2i = n2i;
+    a3r = n3r; a3i = n3i; a4r = n4r; a4i = n4i;
+
+    // Die Probepunkte einen echten Schritt weiter, mit derselben Rechnung wie
+    // im Schattierer.
+    // Der naechste Bahnpunkt - einmal gelesen, nicht je Probepunkt.
+    const nr = bahnDaten[(n + 1) * 4] + bahnDaten[(n + 1) * 4 + 1];
+    const ni = bahnDaten[(n + 1) * 4 + 2] + bahnDaten[(n + 1) * 4 + 3];
+
+    // Verglichen wird im Quadrat: Eine Wurzel je Probepunkt und Schritt waere
+    // in dieser Schleife einer der teuersten Einzelposten.
+    const toleranz = REIHE_TOLERANZ_PUNKTE * punktAbstand * (Math.hypot(a1r, a1i) / s);
+    const toleranz2 = toleranz * toleranz;
+
+    let zuWeit = false;
+    let alleRaus = true;
+    for (const p of proben) {
+      if (p.raus) continue;
+      alleRaus = false;
+      const dr = p.dr, di = p.di;
+      p.dr = zr2 * dr - zi2 * di + (dr * dr - di * di) + p.vr;
+      p.di = zr2 * di + zi2 * dr + 2 * dr * di + p.vi;
+
+      const pr = nr + p.dr, pi = ni + p.di;
+      const r2 = pr * pr + pi * pi;
+      // Entkommen oder neu ansetzen - dort endet die Gueltigkeit ohnehin.
+      if (r2 > 65536 || r2 < p.dr * p.dr + p.di * p.di) p.raus = true;
+
+      // Und was die Reihe an dieser Stelle sagt.
+      const sr =
+        a1r * p.ur - a1i * p.ui + (a2r * p.u2r - a2i * p.u2i) +
+        (a3r * p.u3r - a3i * p.u3i) + (a4r * p.u4r - a4i * p.u4i);
+      const si =
+        a1r * p.ui + a1i * p.ur + (a2r * p.u2i + a2i * p.u2r) +
+        (a3r * p.u3i + a3i * p.u3r) + (a4r * p.u4i + a4i * p.u4r);
+      const fr = sr - p.dr, fi = si - p.di;
+      if (fr * fr + fi * fi > toleranz2) zuWeit = true;
+    }
+
+    /*
+     * Falle und Innenzeichnung fuer die uebersprungenen Schritte.
+     *
+     * In diesem Bereich ist der Abstand winzig - das ist ja die Bedingung,
+     * unter der die Reihe ueberhaupt gilt. Also ist der Punkt praktisch die
+     * Bezugsbahn selbst, und beides ist fuer alle Bildpunkte dieselbe Zahl.
+     * Ohne diesen Nachtrag saehe das Bild mit Reihe anders aus als ohne, und
+     * der Schalter waere zum Vergleichen unbrauchbar.
+     */
+    falle = Math.min(falle, Math.min(Math.abs(nr), Math.abs(ni)));
+    nah = Math.min(nah, nr * nr + ni * ni);
+
+    if (alleRaus || zuWeit) break;
+    gut = n + 1;
+    falleGut = falle;
+    nahGut = nah;
+    reiheKoeff[0] = a1r; reiheKoeff[1] = a1i;
+    reiheKoeff[2] = a2r; reiheKoeff[3] = a2i;
+    reiheKoeff[4] = a3r; reiheKoeff[5] = a3i;
+    reiheKoeff[6] = a4r; reiheKoeff[7] = a4i;
+  }
+
+  /*
+   * Der Rueckhalt.
+   *
+   * Die Probepunkte sind zwoelf Stellen von Hunderttausenden. Irgendwo im Bild
+   * liegt die Reihe frueher daneben als an jeder von ihnen - deshalb wird von
+   * der gefundenen Grenze ein Zehntel abgezogen. Das kostet wenig Sprung und
+   * nimmt der Sache die Spitze.
+   *
+   * Die Koeffizienten muessen dann noch einmal bis zu dieser kleineren Grenze
+   * gerechnet werden; das ist billig gegen die Probepunkte.
+   */
+  const ziel = Math.floor(gut * REIHE_RUECKHALT);
+  if (ziel < 24) {
+    reiheN = 0;
+    reiheStand = gut > 0 ? `nur ${gut} Schritte moeglich - lohnt nicht` : 'keine gueltige Reihe';
+    return;
+  }
+  if (ziel < gut) {
+    a1r = 0; a1i = 0; a2r = 0; a2i = 0; a3r = 0; a3i = 0; a4r = 0; a4i = 0;
+    falleGut = 1e30;
+    nahGut = 1e30;
+    for (let n = 0; n < ziel; n++) {
+      const zr = bahnDaten[n * 4] + bahnDaten[n * 4 + 1];
+      const zi = bahnDaten[n * 4 + 2] + bahnDaten[n * 4 + 3];
+      const zr2 = 2 * zr, zi2 = 2 * zi;
+      const n4r = zr2 * a4r - zi2 * a4i + 2 * (a1r * a3r - a1i * a3i) + (a2r * a2r - a2i * a2i);
+      const n4i = zr2 * a4i + zi2 * a4r + 2 * (a1r * a3i + a1i * a3r) + 2 * a2r * a2i;
+      const n3r = zr2 * a3r - zi2 * a3i + 2 * (a1r * a2r - a1i * a2i);
+      const n3i = zr2 * a3i + zi2 * a3r + 2 * (a1r * a2i + a1i * a2r);
+      const n2r = zr2 * a2r - zi2 * a2i + (a1r * a1r - a1i * a1i);
+      const n2i = zr2 * a2i + zi2 * a2r + 2 * a1r * a1i;
+      const n1r = zr2 * a1r - zi2 * a1i + s;
+      const n1i = zr2 * a1i + zi2 * a1r;
+      a1r = n1r; a1i = n1i; a2r = n2r; a2i = n2i;
+      a3r = n3r; a3i = n3i; a4r = n4r; a4i = n4i;
+      const nr = bahnDaten[(n + 1) * 4] + bahnDaten[(n + 1) * 4 + 1];
+      const ni = bahnDaten[(n + 1) * 4 + 2] + bahnDaten[(n + 1) * 4 + 3];
+      falleGut = Math.min(falleGut, Math.min(Math.abs(nr), Math.abs(ni)));
+      nahGut = Math.min(nahGut, nr * nr + ni * ni);
+    }
+    reiheKoeff[0] = a1r; reiheKoeff[1] = a1i;
+    reiheKoeff[2] = a2r; reiheKoeff[3] = a2i;
+    reiheKoeff[4] = a3r; reiheKoeff[5] = a3i;
+    reiheKoeff[6] = a4r; reiheKoeff[7] = a4i;
+  }
+
+  reiheN = ziel;
+  reiheFalle = falleGut;
+  reiheNah = nahGut;
+  reiheBauMs = performance.now() - begonnen;
+  reiheRunden = gelaufen;
+  reiheStand = `${ziel} von ${grenze} Schritten uebersprungen`;
+}
+
+/** Was die Reihe zuletzt gebracht hat - fuer die Technikanzeige. */
+function reiheAuskunft() {
+  return { n: reiheN, stand: reiheStand, glieder: REIHE_GLIEDER, bauMs: reiheBauMs, runden: reiheRunden };
 }
 
 function bahnSichern(ziel, gebraucht) {
@@ -3674,6 +4036,62 @@ function gpuZeichnen(lage) {
   gl.uniform1f(orte.mandala, mandala ?? 0);
   gl.uniform1f(orte.sterne, sterne ?? 6);
   gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
+
+  /*
+   * Die Reihe wird nicht in jedem Bild neu gebaut.
+   *
+   * Die zwoelf Probepunkte rechnen bis zu achttausend Schritte mit - das sind
+   * hunderttausend Iterationen auf dem Hauptprozessor, in jedem Bild waere das
+   * teurer als das, was es einspart.
+   *
+   * Dazwischen wird nur umskaliert, und das ist exakt: Die Koeffizienten sind
+   * mit u = δ/s gerechnet, und ein anderes s heisst schlicht Faktor (s'/s)^k
+   * je Glied. Auch die Sprungweite bleibt gueltig, denn wir zoomen immer nur
+   * hinein - kleineres s heisst kleinere Abstaende, und die Reihe traegt dann
+   * eher weiter als kuerzer. Ein alter Wert ist also zu vorsichtig, nie zu
+   * kuehn.
+   */
+  const spanneJetzt = 1.6 / Math.pow(10, tiefe);
+  const seiteJetzt = h / b;
+  const reiheAn = lage.reihe !== false;
+  if (!reiheAn) {
+    reiheN = 0;
+    reiheStand = 'abgeschaltet';
+    // Merken, dass nichts Gueltiges dasteht. Ohne das lieferte der Schalter
+    // beim Wiedereinschalten weiter null Spruenge, bis die zwanzig Bilder um
+    // waren - und in der Abnahme sah es aus, als koennte die Reihe gar nichts.
+    reiheZiel = '';
+  } else if (
+    bahnZiel !== reiheZiel ||
+    reiheAlter >= REIHE_ALLE_BILDER ||
+    // Ein Sprung in der Tiefe - beim Stellenwechsel oder beim Drop. Dann passt
+    // die alte Sprungweite nicht mehr zur Lage.
+    Math.abs(tiefe - reiheTiefe) > 0.5
+  ) {
+    reiheBauen(spanneJetzt, seiteJetzt, b, schritte);
+    reiheZiel = bahnZiel;
+    reiheTiefe = tiefe;
+    reiheAlter = 0;
+  } else {
+    reiheAlter++;
+  }
+
+  if (reiheN > 0) {
+    const sJetzt = spanneJetzt * Math.sqrt(1 + seiteJetzt * seiteJetzt);
+    let faktor = sJetzt / reiheS;
+    gl.uniform1i(orte.reiheN, reiheN);
+    gl.uniform1f(orte.reiheS, sJetzt);
+    for (const [ort, k] of [[orte.reiheA, 0], [orte.reiheB, 1], [orte.reiheC, 2], [orte.reiheD, 3]]) {
+      gl.uniform2f(ort, reiheKoeff[k * 2] * faktor, reiheKoeff[k * 2 + 1] * faktor);
+      faktor *= sJetzt / reiheS;
+    }
+    gl.uniform1f(orte.reiheFalle, reiheFalle);
+    gl.uniform1f(orte.reiheNah, reiheNah);
+  } else {
+    gl.uniform1i(orte.reiheN, 0);
+    gl.uniform1f(orte.reiheS, 1);
+  }
+
   uhrStarten();
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   uhrStoppen();
@@ -3944,6 +4362,25 @@ function gpuProbe(tiefe, dreh, deckel = 9000, arbeitsbudget = 20000) {
 // auf Positionen ab - Oktaven liegen dadurch immer gleich weit auseinander,
 // egal welcher Track laeuft.
 
+
+/*
+ * Die Reihenentwicklung laesst sich abschalten.
+ *
+ * Sie ueberspringt bei tiefen Zooms einen grossen Teil der Iterationen - und
+ * sie ist das einzige Stueck hier, das eine *Naeherung* ist und nicht eine
+ * exakte Rechnung. Ein Schalter ist deshalb keine Spielerei: Nur so laesst
+ * sich am selben Bild vergleichen, ob sie etwas wegputzt, und wieviel sie
+ * ueberhaupt bringt.
+ */
+let mandelReihe = true;
+
+function reiheSetzen(an) {
+  mandelReihe = an !== false;
+}
+
+function reiheAn() {
+  return mandelReihe;
+}
 
 const TAU = Math.PI * 2;
 
@@ -5786,6 +6223,7 @@ function mandelbrotZeichnen(stift, lage) {
       sterne: mandelSterne,
       fangAnteil: mandelFang,
       guete: Math.min(mandelGuete, stufe.fraktal),
+      reihe: mandelReihe,
     });
     mandelPunkte = bild.breite * bild.hoehe;
 
@@ -5817,6 +6255,7 @@ function mandelbrotZeichnen(stift, lage) {
         fang: mandelFang,
         aufGpu: true,
         karte: gpuName(),
+        reihe: reiheAuskunft(),
         dauerMs: mandelDauer,
         schwung: mandelSchwung,
       };
@@ -7324,6 +7763,7 @@ function fraktalFragen(mandel, bild) {
     taktMs: rund(mandel.taktMs, 1),
     guetestufe: bild?.guetestufe ?? null,
     ueberzugMs: rund(bild?.bildMs, 2),
+    reihe: mandel.reihe ?? null,
   };
 }
 
@@ -7416,7 +7856,28 @@ function urteil(a) {
     ]);
   }
 
-  // 4. Und die Aufloesung, in der wirklich gerechnet wird.
+  // 4. Was die Reihenentwicklung einspart.
+  const reihe = a.fraktal.reihe;
+  if (a.fraktal.da && reihe) {
+    const schritte = a.fraktal.schritte ?? 0;
+    if (reihe.n > 0 && schritte > 0) {
+      const anteil = (reihe.n / schritte) * 100;
+      zeilen.push([
+        anteil > 20 ? 'gut' : 'offen',
+        `Die Reihe ueberspringt ${reihe.n} der ${schritte} Schritte je Punkt - ${anteil.toFixed(0)} Prozent weniger Rechnung ` +
+          `(Bau ${(reihe.bauMs ?? 0).toFixed(1)} ms, einmal je Sekunde).`,
+      ]);
+    } else if (reihe.stand === 'abgeschaltet') {
+      zeilen.push(['offen', 'Die Reihenentwicklung ist abgeschaltet - es wird alles gerechnet.']);
+    } else {
+      zeilen.push([
+        'offen',
+        `Die Reihe springt hier nicht (${reihe.stand}). Das ist bei flachen Zooms normal - erst in der Tiefe lohnt sie.`,
+      ]);
+    }
+  }
+
+  // 5. Und die Aufloesung, in der wirklich gerechnet wird.
   if (a.fraktal.da) {
     const g = a.fraktal.guete ?? 0;
     zeilen.push([
@@ -7478,6 +7939,13 @@ function technikAlsText(a) {
     raus('Aufloesung', `${a.fraktal.guete} (${a.fraktal.breite} Punkte breit)`);
     raus('Bremse', a.fraktal.bremse);
     raus('Schritte je Punkt', a.fraktal.schritte);
+    raus(
+      'Reihe',
+      a.fraktal.reihe
+        ? `${a.fraktal.reihe.stand}, ${a.fraktal.reihe.glieder} Glieder, ` +
+          `Bau ${(a.fraktal.reihe.bauMs ?? 0).toFixed(1)} ms ueber ${a.fraktal.reihe.runden ?? 0} Runden`
+        : null,
+    );
     raus('Zoomtiefe', a.fraktal.tiefe);
     raus('Stelle', a.fraktal.ziel);
     raus(
@@ -7895,6 +8363,23 @@ function technikUmschalten() {
     void technikZeichnen();
     technikTakt = setInterval(() => void technikZeichnen(), 1000);
   }
+}
+
+/*
+ * Der Schalter fuer die Reihenentwicklung.
+ *
+ * Die Wahl haelt ueber einen Neustart - man vergleicht so etwas nicht in
+ * dreissig Sekunden, sondern laesst es eine Weile laufen und schaut hin.
+ */
+{
+  const gemerkt = localStorage.getItem('djReihe');
+  const an = gemerkt === null ? true : gemerkt === 'ja';
+  $('reiheAn').checked = an;
+  reiheSetzen(an);
+  $('reiheAn').addEventListener('change', (e) => {
+    reiheSetzen(e.target.checked);
+    localStorage.setItem('djReihe', e.target.checked ? 'ja' : 'nein');
+  });
 }
 
 $('technikKnopf').addEventListener('click', technikUmschalten);
