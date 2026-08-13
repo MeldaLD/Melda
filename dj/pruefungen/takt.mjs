@@ -6,6 +6,7 @@ import {
   BEATS_PRO_PHRASE,
   beatZeit,
   beatBei,
+  bpmBei,
   naechstePhrase,
   naechsterTakt,
   tempoVerhaeltnis,
@@ -103,6 +104,81 @@ for (const bpm of [123.7, 174, 90]) {
     fast(beatZeit(t, naechstePhrase(t, 5)) % ((60 / bpm) * BEATS_PRO_PHRASE), 0, 1e-6),
   );
 }
+
+/*
+ * Die Tempo-Karte: ein Mix ist nicht ein Tempo.
+ *
+ * Hier haengt viel dran, und Fehler wuerden sich nicht als Fehler anhoeren,
+ * sondern als "ab der Mitte eiert es". Geprueft wird deshalb nicht nur, dass
+ * Zahlen herauskommen, sondern dass die drei Eigenschaften gelten, auf die
+ * sich alles Uebrige verlaesst:
+ *
+ *   1. Beat n faellt auf einen echten Schlag - auch im dritten Abschnitt.
+ *   2. beatBei und beatZeit sind zueinander invers, ueber Grenzen hinweg.
+ *   3. Die Zaehlung laeuft nur vorwaerts. Springt sie an einer Grenze
+ *      rueckwaerts, findet die Suche nach "der naechsten Marke" die falsche.
+ */
+console.log('\nEin Mix mit wechselndem Tempo:');
+const mix = {
+  bpm: 128,
+  raster: 0.35,
+  abschnitte: [
+    { von: 0, bis: 300, bpm: 128, raster: 0.35, vertrauen: 1, beatVersatz: 0 },
+    { von: 300, bis: 640, bpm: 140, raster: 300.12, vertrauen: 1, beatVersatz: 672 },
+    { von: 640, bis: 1000, bpm: 132, raster: 640.5, vertrauen: 1, beatVersatz: 1472 },
+  ],
+};
+
+for (const a of mix.abschnitte) {
+  const drin = a.beatVersatz + 40;
+  pruefe(
+    `${a.bpm} BPM: Beat ${drin} sitzt auf dem Raster des Abschnitts`,
+    fast((beatZeit(mix, drin) - a.raster) % (60 / a.bpm), 0, 1e-6) ||
+      fast((beatZeit(mix, drin) - a.raster) % (60 / a.bpm), 60 / a.bpm, 1e-6),
+  );
+  pruefe(
+    `${a.bpm} BPM: bpmBei trifft den richtigen Abschnitt`,
+    bpmBei(mix, (a.von + a.bis) / 2) === a.bpm,
+  );
+}
+
+let hinUndZurueck = 0;
+for (let s = 1; s < 1000; s += 7) {
+  const zurueck = beatZeit(mix, beatBei(mix, s));
+  hinUndZurueck = Math.max(hinUndZurueck, Math.abs(zurueck - s));
+}
+pruefe(
+  'beatBei und beatZeit heben sich auf, auch ueber die Grenzen',
+  hinUndZurueck < 1e-6,
+  `groesster Restfehler ${(hinUndZurueck * 1000).toFixed(4)} ms`,
+);
+
+let rueckwaerts = 0;
+let vorher = -Infinity;
+for (let s = 0; s < 1000; s += 0.25) {
+  const jetzt = beatBei(mix, s);
+  if (jetzt < vorher) rueckwaerts++;
+  vorher = jetzt;
+}
+pruefe('die Beatzaehlung laeuft nie rueckwaerts', rueckwaerts === 0, `${rueckwaerts} Rueckspruenge`);
+
+// Und die Phrasengrenzen muessen auf den Downbeats des jeweiligen Abschnitts
+// sitzen - dafuer ist der beatVersatz ein Vielfaches von 32.
+for (const a of mix.abschnitte) {
+  const grenze = naechstePhrase(mix, a.von + 30);
+  const imAbschnitt = beatZeit(mix, grenze);
+  pruefe(
+    `${a.bpm} BPM: die naechste Phrasengrenze liegt auf einem Schlag`,
+    grenze % BEATS_PRO_PHRASE === 0 && imAbschnitt > a.von,
+  );
+}
+
+// Und der alte Weg muss unveraendert bleiben: ohne Karte rechnet es linear.
+console.log('\nOhne Tempo-Karte bleibt alles wie vorher:');
+const ohneKarte = { bpm: 128, raster: 0.35 };
+pruefe('Beat 100 wie in der alten Rechnung', fast(beatZeit(ohneKarte, 100), 0.35 + 100 * beat));
+pruefe('und zurueck', fast(beatBei(ohneKarte, 0.35 + 100 * beat), 100));
+pruefe('bpmBei liefert das Tempo des Tracks', bpmBei(ohneKarte, 500) === 128);
 
 console.log(fehler === 0 ? '\nAlles gruen.\n' : `\n${fehler} Pruefung(en) fehlgeschlagen.\n`);
 process.exit(fehler === 0 ? 0 : 1);

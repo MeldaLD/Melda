@@ -21,6 +21,7 @@ import {
   naechstePhrase,
   naechsterTakt,
   beatBei,
+  bpmBei,
   tempoVerhaeltnis,
   kontextZeitVonBeat,
   stelleInDatei,
@@ -276,9 +277,16 @@ class Deck {
     return stelleInDatei(this, jetzt);
   }
 
-  // Das tatsaechlich klingende Tempo, inklusive Angleich.
+  /*
+   * Das tatsaechlich klingende Tempo, inklusive Angleich.
+   *
+   * Bei einem Mix wird die Tempo-Karte an der Stelle gefragt, die gerade
+   * laeuft. Ein Mittelwert ueber eine Stunde waere hier die falsche Zahl:
+   * Angeglichen wird an das, was in diesem Moment aus dem Deck kommt.
+   */
   effektivBpm() {
-    return this.track ? this.track.bpm * this.tempo : null;
+    if (!this.track) return null;
+    return bpmBei(this.track, this.stelle()) * this.tempo;
   }
 }
 
@@ -364,9 +372,16 @@ export class Mixer {
     if (!alt.laeuft) return this.ersterTrack(neuTrack, puffer);
 
     const jetzt = this.ctx.currentTime;
-    const beatSekundeAlt = beatDauer(alt.track.bpm) / alt.tempo;
+    const beatSekundeAlt = beatDauer(bpmBei(alt.track, alt.stelle(jetzt))) / alt.tempo;
 
-    const tempo = tempoVerhaeltnis(alt.effektivBpm(), neuTrack.bpm);
+    /*
+     * Angeglichen wird an die Stelle, an der eingestiegen wird - nicht an den
+     * Dateianfang. Bei einem Mix stehen dort zwei verschiedene Tempi, und der
+     * Anfang ist das falsche davon.
+     */
+    const neuAbBeat = Math.max(0, neuTrack.einstiegBeat ?? 0);
+    const neuBpm = bpmBei(neuTrack, beatZeit(neuTrack, neuAbBeat));
+    const tempo = tempoVerhaeltnis(alt.effektivBpm(), neuBpm);
     const energiesprung = (neuTrack.energie ?? 0.5) - (alt.track.energie ?? 0.5);
 
     /*
@@ -414,8 +429,8 @@ export class Mixer {
     });
 
     // Der neue Beat bestimmt ab jetzt das Raster - er laeuft ja schon im
-    // Zieltempo.
-    const beatSekunde = beatDauer(neuTrack.bpm) / tempo.verhaeltnis;
+    // Zieltempo. Massgeblich ist das Tempo an der Einstiegsstelle.
+    const beatSekunde = beatDauer(bpmBei(neuTrack, einstieg)) / tempo.verhaeltnis;
 
     // Die Schritte nach Regler gruppieren und je Regler *eine* durchgehende
     // Kurve planen. Das ist der Punkt, an dem eine Blende zur Blende wird:

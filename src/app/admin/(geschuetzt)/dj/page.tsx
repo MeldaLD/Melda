@@ -31,10 +31,26 @@ type Befund = {
   bpmVertrauen: number;
   /** true = kein brauchbares Raster; damit lässt sich nicht beatmatchen. */
   ohneRaster: boolean;
-  /** Verlauf je Takt – daran hängt, wo ein Übergang ansetzt und wo er landet. */
-  profil: { e: number; b: number; h: number; d: number }[];
+  /**
+   * Verlauf je Takt – daran hängt, wo ein Übergang ansetzt und wo er landet.
+   * `t` ist die Beatnummer des Taktes; bei einem Mix ist sie nicht mehr
+   * schlicht Index mal vier.
+   */
+  profil: { e: number; b: number; h: number; d: number; t: number }[];
   /** Auf welchem Takt eine Achttaktphrase beginnt (0–7). */
   phrasenVersatz: number;
+  /**
+   * Die Tempo-Karte: je Stück im Mix ein Eintrag. Bei einem einzelnen Track
+   * genau einer, der dasselbe sagt wie bpm und raster oben.
+   */
+  abschnitte: {
+    von: number;
+    bis: number;
+    bpm: number;
+    raster: number;
+    vertrauen: number;
+    beatVersatz: number;
+  }[];
 };
 
 type Vorhanden = {
@@ -45,7 +61,7 @@ type Vorhanden = {
   /** Fehlt bei Einträgen aus der Zeit vor der Vertrauensmessung. */
   ohneRaster?: boolean;
   /** Leer bei Einträgen, die vor der Verlaufsmessung hochgeladen wurden. */
-  profil?: { e: number; b: number; h: number; d: number }[];
+  profil?: { e: number; b: number; h: number; d: number; t?: number }[];
 };
 
 /**
@@ -149,10 +165,28 @@ export default function DjAufnahme() {
     // halbe Energie oberhalb 11 kHz liegt – bei Musik ist da fast nichts.
     //
     // Hochgeladen wird davon unberührt die Originaldatei.
-    const ctx = neuerKontext(22050);
+    //
+    // Bei großen Dateien wird gleich noch sparsamer angefangen. Eine Stunde
+    // bei 22050 Hz stereo sind 635 MB allein an dekodierten Abtastwerten, dazu
+    // die Messung – gemessen zusammen ein Gigabyte. Das kippt auf einem iPad.
+    // Bei 11025 Hz ist es die Hälfte, und für ein Stundenset ist das der
+    // richtige Tausch: Über 5,5 kHz steht dann nichts mehr, aber Tempo und
+    // Struktur hängen an Kick, Snare und Bass.
+    //
+    // Die Grenze liegt an der Dateigröße, weil die Dauer erst nach dem
+    // Dekodieren feststeht – und dann wäre der Speicher schon belegt.
+    const GROSS_AB_MB = 30;
+    let ctx = neuerKontext(22050);
+    let ctxRate = 22050;
 
     for (const [nummer, eintrag] of eintraege.entries()) {
       if (eintrag.zustand === "fertig") continue;
+      const willRate = eintrag.datei.size > GROSS_AB_MB * 1048576 ? 11025 : 22050;
+      if (willRate !== ctxRate) {
+        void ctx.close();
+        ctx = neuerKontext(willRate);
+        ctxRate = willRate;
+      }
       try {
         aendern(nummer, { zustand: "misst", schritt: "Datei lesen", meldung: undefined });
         const roh = await eintrag.datei.arrayBuffer();
@@ -569,10 +603,15 @@ async function dekodieren(ctx: AudioContext, roh: ArrayBuffer, datei: File) {
     const mb = (datei.size / 1048576).toFixed(1);
 
     // Zweiter Versuch mit noch weniger Speicher. Wenn es daran lag, reicht das.
+    //
+    // Geschlossen wird der Aushilfskontext, nicht der übergebene: Der wird für
+    // die weiteren Dateien gebraucht. Vorher stand hier ctx.close(), und damit
+    // lief jede Datei nach einer geretteten in einen geschlossenen Kontext.
+    // Der Puffer bleibt nach dem Schließen gültig.
     try {
       const sparsam = neuerKontext(11025);
       const puffer = await sparsam.decodeAudioData(roh.slice(0));
-      void ctx.close();
+      void sparsam.close();
       return puffer;
     } catch {
       // War also nicht der Speicher.

@@ -18,17 +18,69 @@ export function beatDauer(bpm) {
   return 60 / bpm;
 }
 
+/*
+ * Die Tempo-Karte nachschlagen.
+ *
+ * Ein Track hat ein Tempo, ein DJ-Mix von einer Stunde hat zwanzig. Die
+ * Analyse legt deshalb `abschnitte` an - je Stueck einen Eintrag mit eigenem
+ * bpm, eigenem Raster und einem beatVersatz, der die durchlaufende
+ * Beatzaehlung ueber die Abschnittsgrenzen traegt.
+ *
+ * Alles hier drin geht ueber diese Nachschlagerei. Fehlt die Karte - bei
+ * Aufnahmen von vor ihrer Einfuehrung -, wird aus bpm und raster des Tracks
+ * ein einzelner Abschnitt gebaut, und dann rechnet es genau wie vorher.
+ */
+function ersatzAbschnitt(track) {
+  return { von: 0, bis: Infinity, bpm: track.bpm, raster: track.raster ?? 0, beatVersatz: 0 };
+}
+
+function abschnittBeiZeit(track, sekunden) {
+  const liste = track.abschnitte;
+  if (!Array.isArray(liste) || liste.length === 0) return ersatzAbschnitt(track);
+  // Die Abschnitte liegen der Reihe nach - binaer suchen.
+  let unten = 0;
+  let oben = liste.length - 1;
+  while (unten < oben) {
+    const mitte = (unten + oben + 1) >> 1;
+    if (liste[mitte].von <= sekunden) unten = mitte;
+    else oben = mitte - 1;
+  }
+  return liste[unten];
+}
+
+function abschnittBeiBeat(track, beatNr) {
+  const liste = track.abschnitte;
+  if (!Array.isArray(liste) || liste.length === 0) return ersatzAbschnitt(track);
+  let unten = 0;
+  let oben = liste.length - 1;
+  while (unten < oben) {
+    const mitte = (unten + oben + 1) >> 1;
+    if (liste[mitte].beatVersatz <= beatNr) unten = mitte;
+    else oben = mitte - 1;
+  }
+  return liste[unten];
+}
+
+// Welches Tempo laeuft gerade? Fuer den Mixer, der zwei Decks aneinander
+// angleichen will - massgeblich ist das Tempo an der Stelle, an der gemischt
+// wird, nicht ein Mittelwert ueber die ganze Datei.
+export function bpmBei(track, sekunden) {
+  return abschnittBeiZeit(track, sekunden).bpm;
+}
+
 // Wann faellt Beat n, in Sekunden ab Dateianfang?
 // `raster` ist der Versatz des ersten Downbeats - fast nie exakt null, weil
 // Dateien mit etwas Stille oder einem Anspieler beginnen.
 export function beatZeit(track, beatNr) {
-  return track.raster + beatNr * beatDauer(track.bpm);
+  const a = abschnittBeiBeat(track, beatNr);
+  return a.raster + (beatNr - a.beatVersatz) * beatDauer(a.bpm);
 }
 
 // Umgekehrt: Auf welchem Beat stehen wir zum Zeitpunkt `sekunden`?
 // Nicht gerundet - die Nachkommastelle ist die Position innerhalb des Beats.
 export function beatBei(track, sekunden) {
-  return (sekunden - track.raster) / beatDauer(track.bpm);
+  const a = abschnittBeiZeit(track, sekunden);
+  return a.beatVersatz + (sekunden - a.raster) / beatDauer(a.bpm);
 }
 
 // Die naechste Phrasengrenze ab `sekunden`, als Beatnummer.

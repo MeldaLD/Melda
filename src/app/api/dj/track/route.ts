@@ -64,6 +64,9 @@ export async function GET() {
     // dann bleibt es beim natürlichen Einstieg statt beim Sprung in den Groove.
     profil: Array.isArray(zeile.profil) ? zeile.profil : [],
     phrasenVersatz: zeile.phrasen_versatz ?? 0,
+    // Die Tempo-Karte. Leer heißt: ein Tempo für die ganze Datei, dann gelten
+    // bpm und raster oben – so rechnen auch Aufnahmen von vor der Migration.
+    abschnitte: Array.isArray(zeile.abschnitte) ? zeile.abschnitte : [],
   }));
 
   return NextResponse.json(
@@ -120,6 +123,7 @@ export async function POST(anfrage: Request) {
     ohne_raster: koerper.ohneRaster === true,
     profil: Array.isArray(koerper.profil) ? koerper.profil : [],
     phrasen_versatz: Math.max(0, Math.min(7, Math.round(zahl("phrasenVersatz", 0)))),
+    abschnitte: Array.isArray(koerper.abschnitte) ? koerper.abschnitte : [],
   };
 
   const { error } = await supabaseAdmin()
@@ -142,11 +146,13 @@ export async function POST(anfrage: Request) {
     return NextResponse.json({ fehler: error.message }, { status: 500 });
   }
 
-  const { bpm_vertrauen, ohne_raster, profil, phrasen_versatz, ...ohneNeueSpalten } = zeile;
+  const { bpm_vertrauen, ohne_raster, profil, phrasen_versatz, abschnitte, ...ohneNeueSpalten } =
+    zeile;
   void bpm_vertrauen;
   void ohne_raster;
   void profil;
   void phrasen_versatz;
+  void abschnitte;
 
   const zweiter = await supabaseAdmin()
     .from("dj_track")
@@ -160,7 +166,8 @@ export async function POST(anfrage: Request) {
     id: zeile.id,
     warnung:
       "Eingetragen, aber ohne das Rastervertrauen – die Migration " +
-      "20260812060000_dj_rastervertrauen.sql / 20260812090000_dj_verlauf.sql sind auf dieser Datenbank noch nicht gelaufen. " +
+      "20260812060000_dj_rastervertrauen.sql / 20260812090000_dj_verlauf.sql / 20260813150000_dj_tempokarte.sql " +
+      "sind auf dieser Datenbank noch nicht gelaufen. " +
       "Bis dahin gilt jedes Tempo als belastbar, auch ein erfundenes.",
   });
 }
@@ -173,6 +180,7 @@ function fehltSpalte(meldung: string) {
     text.includes("ohne_raster") ||
     text.includes("profil") ||
     text.includes("phrasen_versatz") ||
+    text.includes("abschnitte") ||
     (text.includes("column") && text.includes("does not exist")) ||
     text.includes("schema cache")
   );
