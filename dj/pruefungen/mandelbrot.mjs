@@ -23,6 +23,7 @@
 // der Leinwand.
 
 import { chromium } from 'playwright';
+import { bremseNachfuehren } from '../public/gemeinsam/visualmodi.js';
 
 const ADRESSE = process.env.DJ_ADRESSE ?? 'http://localhost:3200';
 const CHROM = process.env.CHROMIUM_PFAD;
@@ -35,6 +36,86 @@ const pruefe = (name, ok, hinweis = '') => {
   console.log(`  ${ok ? 'ok  ' : 'FEHL'} ${name}${hinweis ? ` – ${hinweis}` : ''}`);
   if (!ok) fehler++;
 };
+
+/*
+ * Zuerst der Regler, ohne Browser.
+ *
+ * Diese Pruefung gibt es, weil ein Fehler in genau diesem Regler von aussen
+ * nicht zu sehen war: Das Bild lief fluessig, sechzig Bilder je Sekunde, alle
+ * anderen Pruefungen gruen - und trotzdem wurde es auf dem iPad im Lauf einer
+ * Viertelstunde zu Pixelbrei. Die Bremse konnte nur zudrehen. Aufgefallen ist
+ * das erst auf einem Foto vom Geraet.
+ *
+ * Am Bild ist so etwas schwer zu messen, am Regelgesetz dagegen leicht - man
+ * muss es nur einzeln aufrufen koennen.
+ */
+console.log('Der Regler dreht in beide Richtungen:');
+{
+  // Ein Bildschirm, der sauber im Takt laeuft: jedes Bild 16,7 ms. Die
+  // Taktschaetzung liegt bauartbedingt etwas darunter - genau die Konstellation
+  // vom iPad-Foto.
+  let bremse = 0.3;
+  for (let i = 0; i < 2000; i++) bremse = bremseNachfuehren(bremse, 16.7, 16.0);
+  pruefe(
+    'im Takt macht der Regler wieder auf',
+    bremse > 0.95,
+    `0.30 -> ${bremse.toFixed(2)} nach 2000 Bildern im Takt`,
+  );
+
+  // Die Gegenrichtung muss erhalten bleiben: halbe Bildrate heisst zudrehen.
+  let langsam = 1;
+  for (let i = 0; i < 200; i++) langsam = bremseNachfuehren(langsam, 33.3, 16.0);
+  pruefe(
+    'bei halber Bildrate dreht er zu',
+    langsam < 0.1,
+    `1.00 -> ${langsam.toFixed(2)} nach 200 verpassten Bildern`,
+  );
+
+  // Ein einzelner Ruckler darf kaum etwas kosten. Das war der Kern der
+  // Ratsche: Jeder Drop drehte zu, und nichts drehte je wieder auf.
+  const vorher = 0.8;
+  let nach = bremseNachfuehren(vorher, 200, 16.0);
+  const einbruch = 1 - nach / vorher;
+  let bilder = 0;
+  while (nach < vorher && bilder < 200) {
+    nach = bremseNachfuehren(nach, 16.7, 16.0);
+    bilder++;
+  }
+  pruefe(
+    'ein einzelner Ruckler ist in einer halben Sekunde aufgeholt',
+    einbruch < 0.05 && bilder <= 30,
+    `${(einbruch * 100).toFixed(1)} % Einbruch, nach ${bilder} Bildern wieder da`,
+  );
+
+  /*
+   * Und der Arbeitspunkt. Hier wird der Regelkreis geschlossen: ein gedachtes
+   * Geraet, das Bilder bis zu einer Bremse von 0,62 puenktlich liefert und
+   * darueber welche verpasst. Der Regler soll diese Grenze von selbst finden,
+   * ohne sie zu kennen - das ist die eigentliche Aufgabe.
+   */
+  const kapazitaet = 0.62;
+  let geregelt = 0.3;
+  let tiefst = 1;
+  let hoechst = 0;
+  for (let i = 0; i < 4000; i++) {
+    const abstand = geregelt > kapazitaet ? 33.3 : 16.7;
+    geregelt = bremseNachfuehren(geregelt, abstand, 16.0);
+    if (i > 2000) {
+      tiefst = Math.min(tiefst, geregelt);
+      hoechst = Math.max(hoechst, geregelt);
+    }
+  }
+  console.log(
+    `    eingependelt zwischen ${tiefst.toFixed(3)} und ${hoechst.toFixed(3)}, ` +
+      `Grenze des Geraets ${kapazitaet}`,
+  );
+  pruefe(
+    'er findet die Grenze des Geraets von allein',
+    tiefst > kapazitaet * 0.94 && hoechst < kapazitaet * 1.06,
+    `${tiefst.toFixed(3)} bis ${hoechst.toFixed(3)} um ${kapazitaet}`,
+  );
+}
+console.log('');
 
 const browser = await chromium.launch({
   ...(CHROM ? { executablePath: CHROM } : {}),

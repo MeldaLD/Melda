@@ -508,14 +508,35 @@ export function gpuFarben(tabelle) {
  */
 export function gpuZeichnen(lage) {
   const { breite, hoehe, ziel, tiefe, dreh, schritte, versatz, dichte, innenHell, guete, welle, welleZeit, mandala, sterne, fangAnteil } = lage;
-  const b = Math.max(64, Math.round(breite * guete));
-  const h = Math.max(48, Math.round(hoehe * guete));
-  if (b !== feldBreite || h !== feldHoehe) {
-    leinwand.width = b;
-    leinwand.height = h;
-    feldBreite = b;
-    feldHoehe = h;
+  /*
+   * Die Rechenflaeche wird nur in Spruengen umgestellt, nicht stufenlos.
+   *
+   * leinwand.width zu setzen ist kein Zuweisen einer Zahl: Der Browser legt
+   * den Zeichenpuffer neu an und loescht ihn. Das kostet, und der Regler
+   * darueber bewegt sich in jedem Bild ein wenig - stufenlos nachgezogen
+   * hiesse das eine Neuanlage je Bild, dauerhaft.
+   *
+   * Deshalb die tote Zone: Erst wenn die gewuenschte Breite um mehr als sechs
+   * Prozent von der stehenden abweicht, wird wirklich umgestellt. Sechs
+   * Prozent Flaechenunterschied sieht niemand; eine Neuanlage je Bild schon.
+   */
+  const bWunsch = Math.max(64, Math.round(breite * guete));
+  const hWunsch = Math.max(48, Math.round(hoehe * guete));
+  const abweichung =
+    feldBreite > 0 && feldHoehe > 0
+      ? Math.max(
+          Math.abs(bWunsch - feldBreite) / feldBreite,
+          Math.abs(hWunsch - feldHoehe) / feldHoehe,
+        )
+      : 1;
+  if (abweichung > 0.06) {
+    leinwand.width = bWunsch;
+    leinwand.height = hWunsch;
+    feldBreite = bWunsch;
+    feldHoehe = hWunsch;
   }
+  const b = feldBreite;
+  const h = feldHoehe;
 
   const vorBahn = performance.now();
   bahnSichern(ziel, schritte);

@@ -313,7 +313,8 @@ setInterval(() => {
   $('bildTempo').textContent = `${ms.toFixed(1)} ms · ${bilder}/s${takt}`;
   $('bildTempo').title = m
     ? `${m.aufGpu ? `Grafikkarte: ${m.karte ?? 'unbekannt'}` : 'Hauptprozessor (Notfassung)'}\n` +
-      `Aufloesung ${(m.guete ?? 0).toFixed(2)} · Schritte ${m.schritte} · Tiefe ${(m.tiefe ?? 0).toFixed(1)}\n` +
+      `Aufloesung ${(m.guete ?? 0).toFixed(2)} · Bremse ${(m.bremse ?? 0).toFixed(2)} · ` +
+      `Schritte ${m.schritte} · Tiefe ${(m.tiefe ?? 0).toFixed(1)}\n` +
       `Zeichnen ${bild.bildMs.toFixed(1)} ms (nur der Ueberzug)`
     : '';
 }, 500);

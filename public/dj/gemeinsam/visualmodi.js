@@ -628,6 +628,52 @@ let mandelDurchsatz = 4e5;
  * das die asynchrone Grafikkarte nicht ueberlisten kann.
  */
 let mandelBremse = 0.6;
+
+/*
+ * Die Bremse nachfuehren: an *verpassten Bildern*, nicht an einem Mittelwert.
+ *
+ * Hier steckte ein Fehler, der das Bild auf dem iPad ueber die Zeit zu Brei
+ * gemacht hat, und er ist an zwei Zahlen aus der Anzeige abzulesen gewesen:
+ * "16,7 ms" neben "Takt 16,0 ms".
+ *
+ * Der Vergleich lautete: Ist der mittlere Abstand kleiner als Takt mal 1,02,
+ * also kleiner als 16,3 ms? Dann darf die Aufloesung steigen. Dieser Fall kann
+ * auf einem Bildschirm, der im Takt laeuft, *nie* eintreten. Der Bildabstand
+ * ist nach unten durch den Bildschirm begrenzt - unter 16,7 ms geht nichts.
+ * Die Schaetzung des Taktes kommt dagegen aus dem unteren Fuenftel und liegt
+ * damit bauartbedingt *unter* der wahren Periode. Da wurde ein Mittelwert
+ * gegen ein unteres Fuenftel derselben Verteilung gehalten - der Mittelwert
+ * ist zwangslaeufig groesser, und die Bedingung ist zwangslaeufig falsch.
+ *
+ * Damit war die Bremse eine Ratsche. Jeder Ruckler - ein Drop, ein
+ * Stellenwechsel, ein Tiefensprung - drehte sie zu, und nichts drehte sie je
+ * wieder auf. Nach einer Viertelstunde stand sie unten. Genau das war zu
+ * sehen: fluessige sechzig Bilder, aber Pixelbrei.
+ *
+ * Der Vergleich zwischen zwei Statistiken derselben Groesse faellt jetzt weg.
+ * Gezaehlt wird das eindeutige Ereignis: Ein Bild, das laenger als anderthalb
+ * Perioden gebraucht hat, ist ein verpasstes Bild. Jedes verpasste dreht zu,
+ * jedes puenktliche dreht ein bisschen auf.
+ *
+ * Die beiden Faktoren sind kein Gefuehl, sie legen den Arbeitspunkt fest. Im
+ * Gleichgewicht muss gelten
+ *
+ *     (1 - p) * ln(1,0015) + p * ln(0,9646) = 0,
+ *
+ * und das ergibt p = 0,04. Der Regler pendelt sich also dort ein, wo etwa vier
+ * von hundert Bildern verpasst werden: nah genug am Anschlag, dass die
+ * Aufloesung stimmt, weit genug davon weg, dass man das Ruckeln nicht sieht.
+ * Wer den Arbeitspunkt verschieben will, aendert das Verhaeltnis der beiden
+ * Faktoren, nicht ihre Groesse - die bestimmt nur, wie schnell er dort ankommt.
+ *
+ * Ausgelagert und ausgefuehrt, damit die Abnahme das nachrechnen kann: Der
+ * Fehler war von aussen nicht zu sehen - das Bild lief ja fluessig.
+ */
+export function bremseNachfuehren(bremse, abstandMs, taktMs) {
+  const verpasst = abstandMs > taktMs * 1.5;
+  return Math.min(1, Math.max(0.05, bremse * (verpasst ? 0.9646 : 1.0015)));
+}
+
 let mandelAbstandMittel = 16.7;
 // Die gemessene Bildschirmperiode - siehe Begruendung beim Regler.
 let mandelTaktMs = 16.7;
@@ -1892,18 +1938,13 @@ function mandelbrotZeichnen(stift, lage) {
      */
     const abstandMs = Math.min(200, sekunden * 1000);
     /*
-     * Geglaettet - sonst pumpt der Regler.
+     * Der geglaettete Abstand ist nur noch eine Anzeige, kein Stellsignal.
      *
-     * Der Bildabstand ist an den Bildschirm gekoppelt und deshalb gestuft: Er
-     * betraegt eine Bildschirmperiode oder zwei, selten etwas dazwischen. Ein
-     * Regler, der jedes einzelne Bild bewertet, sieht darum abwechselnd "zu
-     * schnell" und "doppelt so lang" und korrigiert dauernd - die Aufloesung
-     * wandert auf und ab, und mit ihr erscheint und verschwindet Zeichnung.
-     * Genau das war das Flackern in den neu auftauchenden Teilen.
-     *
-     * Also wird ueber acht Bilder gemittelt, und unten steht ein totes Band
-     * um das Ziel herum (1,02 bis 1,14 Perioden), in dem gar nichts passiert.
-     * Erst ausserhalb wird nachgeregelt, und dann in kleinen Schritten.
+     * Er hat einmal den Regler getrieben, und das war der Fehler - siehe
+     * unten. Zum Ablesen taugt er weiterhin: Der rohe Abstand ist an den
+     * Bildschirm gekoppelt und deshalb gestuft, er betraegt eine Periode oder
+     * zwei und springt zwischen beidem hin und her. Ungeglaettet waere die
+     * Zahl auf der Buehne nicht lesbar.
      */
     mandelAbstandMittel = mandelAbstandMittel * 0.875 + abstandMs * 0.125;
 
@@ -1952,9 +1993,7 @@ function mandelbrotZeichnen(stift, lage) {
         mandelTaktMs = Math.min(16.8, Math.max(4, fuenftel));
       }
     }
-    if (mandelAbstandMittel > mandelTaktMs * 1.14) mandelBremse *= 0.94;
-    else if (mandelAbstandMittel < mandelTaktMs * 1.02) mandelBremse *= 1.012;
-    mandelBremse = Math.min(1, Math.max(0.05, mandelBremse));
+    mandelBremse = bremseNachfuehren(mandelBremse, abstandMs, mandelTaktMs);
 
     /*
      * Die alte Vorhersage aus dem Durchsatz bleibt als *Obergrenze* stehen -
