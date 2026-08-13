@@ -199,8 +199,20 @@ void main() {
    */
   float kreuz = 1e30;
 
+  /*
+   * Ein Texturzugriff je Schritt statt zwei.
+   *
+   * Die Schleife brauchte bisher zwei: den Bahnpunkt m fuer die Rechnung und
+   * gleich danach m+1 fuer die Austrittspruefung. Der zweite ist aber genau
+   * der, den der naechste Durchlauf als ersten braucht - er wird also
+   * mitgenommen statt noch einmal geholt. Nur beim Neuansetzen der Bahn muss
+   * einmal zusaetzlich gelesen werden, und das ist selten.
+   *
+   * Der Texturzugriff ist in dieser Schleife der Engpass, nicht das Rechnen.
+   * Die Haelfte davon einzusparen heisst annaehernd doppelt so schnell.
+   */
+  vec4 Z = bahnHolen(0);
   for (int k = 0; k < schritte; k++) {
-    vec4 Z = bahnHolen(m);
     vec2 grob = vec2(Z.x, Z.z);
     vec2 fein = vec2(Z.y, Z.w);
     // d' = 2*Z*d + d*d + versch, mit Z in zwei Teilen
@@ -220,7 +232,8 @@ void main() {
     // Der Kniff von Zhuoran: Ist der Abstand groesser als der Punkt selbst,
     // taugt die Bezugsbahn hier nicht mehr - dann faengt der Punkt bei sich
     // selbst neu an. Dasselbe am Ende der gerechneten Bahn.
-    if (r2 < dot(d, d) || m >= schritte - 1) { d = z; m = 0; }
+    if (r2 < dot(d, d) || m >= schritte - 1) { d = z; m = 0; Z = bahnHolen(0); }
+    else Z = Zn;
   }
 
   vec3 farbe;
@@ -482,15 +495,15 @@ export function gpuZeichnen(lage) {
  *                   und die Ursache des schwarzen Bildes verschwindet, statt
  *                   nachtraeglich behandelt zu werden.
  */
-export function gpuProbe(tiefe, dreh, deckel = 16000) {
+export function gpuProbe(tiefe, dreh, deckel = 9000) {
   if (!bahnDaten || !bahnSchritte) return null;
   const spanne = 1.6 / Math.pow(10, tiefe);
   const sd = Math.sin(dreh);
   const cd = Math.cos(dreh);
   // Wenige Punkte, dafuer oft genug. 77 Stueck kosten im schlimmsten Fall
   // rund zwanzig Millisekunden - ein ausgelassenes Bild alle drei Sekunden.
-  const breit = 11;
-  const hoch = 7;
+  const breit = 9;
+  const hoch = 5;
   let innen = 0;
   let hoechstes = 0;
   const gesehen = [];
@@ -539,7 +552,9 @@ export function gpuProbe(tiefe, dreh, deckel = 16000) {
   // Punkt, der zufaellig genau auf dem Rand sitzt, braucht beliebig viele
   // Schritte und wuerde die Obergrenze in die Hoehe treiben, ohne dass man
   // von ihm etwas saehe.
-  const rand = gesehen.length ? gesehen[Math.floor(gesehen.length * 0.95)] : 0;
+  // Das obere Zehntel statt des oberen Zwanzigstels: Der Unterschied sind
+  // wenige Randpunkte, die Ersparnis an Schritten ist erheblich.
+  const rand = gesehen.length ? gesehen[Math.floor(gesehen.length * 0.9)] : 0;
 
   /*
    * Wie weit die Ausstiegszeiten auseinanderliegen - das Mass fuer "steht hier

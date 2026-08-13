@@ -781,7 +781,13 @@ try {
          * dadurch als die langsamste. Die Fassung auf dem Hauptprozessor liegt
          * bei 4 bis 13 ms; dazwischen ist die Grenze eindeutig.
          */
-        ruhig = window.__dj.bild.bildMs < 25 ? ruhig + 1 : 0;
+        /*
+         * 15 ms, nicht 25. Die Fassung auf dem Hauptprozessor liegt bei 4 bis
+         * 13 ms; alles darueber heisst, dass der erneute Versuch auf der
+         * Grafikkarte noch laeuft. Mit 25 ging ein Zwischenstand von 18 ms als
+         * Ruhe durch, und verglichen wurde dann der Versuch statt der Stufe.
+         */
+        ruhig = window.__dj.bild.bildMs < 15 ? ruhig + 1 : 0;
         // Vier ruhige Messungen hintereinander, damit ein einzelnes schnelles
         // Bild mitten im Versuch nicht als Ruhe durchgeht.
         if (ruhig >= 4) break;
@@ -828,7 +834,7 @@ try {
    * verglichen, wenn alle drei zur Ruhe gekommen sind, und andernfalls
    * ausdruecklich vermerkt, dass hier nichts gezeigt wurde.
    */
-  const alleRuhig = stufen.every((e) => e.ms < 25);
+  const alleRuhig = stufen.every((e) => e.ms < 15);
   if (alleRuhig) {
     const [a, b2, c] = stufen;
     pruefe(
@@ -839,7 +845,7 @@ try {
   } else {
     console.log(
       '    NICHT GEPRUEFT: mindestens eine Stufe kam nicht zur Ruhe ' +
-        `(${stufen.filter((e) => e.ms >= 25).map((e) => e.stufe).join(', ')}). ` +
+        `(${stufen.filter((e) => e.ms >= 15).map((e) => `${e.stufe} ${e.ms.toFixed(0)} ms`).join(', ')}). ` +
         'Ohne Grafikkarte misst dieser Vergleich den Rueckzug statt die Stufe.',
     );
   }

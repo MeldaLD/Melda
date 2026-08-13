@@ -3044,8 +3044,20 @@ void main() {
    */
   float kreuz = 1e30;
 
+  /*
+   * Ein Texturzugriff je Schritt statt zwei.
+   *
+   * Die Schleife brauchte bisher zwei: den Bahnpunkt m fuer die Rechnung und
+   * gleich danach m+1 fuer die Austrittspruefung. Der zweite ist aber genau
+   * der, den der naechste Durchlauf als ersten braucht - er wird also
+   * mitgenommen statt noch einmal geholt. Nur beim Neuansetzen der Bahn muss
+   * einmal zusaetzlich gelesen werden, und das ist selten.
+   *
+   * Der Texturzugriff ist in dieser Schleife der Engpass, nicht das Rechnen.
+   * Die Haelfte davon einzusparen heisst annaehernd doppelt so schnell.
+   */
+  vec4 Z = bahnHolen(0);
   for (int k = 0; k < schritte; k++) {
-    vec4 Z = bahnHolen(m);
     vec2 grob = vec2(Z.x, Z.z);
     vec2 fein = vec2(Z.y, Z.w);
     // d' = 2*Z*d + d*d + versch, mit Z in zwei Teilen
@@ -3065,7 +3077,8 @@ void main() {
     // Der Kniff von Zhuoran: Ist der Abstand groesser als der Punkt selbst,
     // taugt die Bezugsbahn hier nicht mehr - dann faengt der Punkt bei sich
     // selbst neu an. Dasselbe am Ende der gerechneten Bahn.
-    if (r2 < dot(d, d) || m >= schritte - 1) { d = z; m = 0; }
+    if (r2 < dot(d, d) || m >= schritte - 1) { d = z; m = 0; Z = bahnHolen(0); }
+    else Z = Zn;
   }
 
   vec3 farbe;
@@ -3327,15 +3340,15 @@ function gpuZeichnen(lage) {
  *                   und die Ursache des schwarzen Bildes verschwindet, statt
  *                   nachtraeglich behandelt zu werden.
  */
-function gpuProbe(tiefe, dreh, deckel = 16000) {
+function gpuProbe(tiefe, dreh, deckel = 9000) {
   if (!bahnDaten || !bahnSchritte) return null;
   const spanne = 1.6 / Math.pow(10, tiefe);
   const sd = Math.sin(dreh);
   const cd = Math.cos(dreh);
   // Wenige Punkte, dafuer oft genug. 77 Stueck kosten im schlimmsten Fall
   // rund zwanzig Millisekunden - ein ausgelassenes Bild alle drei Sekunden.
-  const breit = 11;
-  const hoch = 7;
+  const breit = 9;
+  const hoch = 5;
   let innen = 0;
   let hoechstes = 0;
   const gesehen = [];
@@ -3384,7 +3397,9 @@ function gpuProbe(tiefe, dreh, deckel = 16000) {
   // Punkt, der zufaellig genau auf dem Rand sitzt, braucht beliebig viele
   // Schritte und wuerde die Obergrenze in die Hoehe treiben, ohne dass man
   // von ihm etwas saehe.
-  const rand = gesehen.length ? gesehen[Math.floor(gesehen.length * 0.95)] : 0;
+  // Das obere Zehntel statt des oberen Zwanzigstels: Der Unterschied sind
+  // wenige Randpunkte, die Ersparnis an Schritten ist erheblich.
+  const rand = gesehen.length ? gesehen[Math.floor(gesehen.length * 0.9)] : 0;
 
   /*
    * Wie weit die Ausstiegszeiten auseinanderliegen - das Mass fuer "steht hier
@@ -3814,7 +3829,12 @@ const MANDEL_BUDGET_MS = 12;
 // reicht immer noch nicht" ist die Bedingung zum Umschalten, und die muss sich
 // auf denselben Wert beziehen wie die Schranke selbst - sonst ist sie nie
 // erfuellt, und es wird nie umgeschaltet.
-const MANDEL_GUETE_MIN = 0.22;
+// Unter diesen Anteil der vollen Aufloesung geht der Regler nie. Frueher lag
+// er bei 0,22; das war zu hoch, seit die Schrittzahl das Dreifache erreichen
+// kann - der Regler stand dann am Anschlag und das Bild trotzdem ausserhalb
+// des Budgets. Mit 0,14 hat er wieder Luft, und darunter faengt die
+// Schrittzahl an nachzugeben.
+const MANDEL_GUETE_MIN = 0.14;
 // Unter diesem Durchsatz ist keine Grafikkarte am Werk. Der Wert steht
 // zwischen den beiden Groessenordnungen und wird in der Abnahme nachgemessen.
 const MANDEL_DURCHSATZ_MIN = 2.5e5;
@@ -4867,7 +4887,7 @@ function mandelbrotZeichnen(stift, lage) {
     mandelSeitProbe += sekunden;
     // Sieht es knapp aus, wird oefter nachgesehen. Ein totes Bild soll nicht
     // drei Sekunden lang unbemerkt dastehen.
-    if (mandelSeitProbe > (mandelSpreizung < 0.12 ? 1 : 3)) {
+    if (mandelSeitProbe > (mandelSpreizung < 0.12 ? 1.5 : 4)) {
       mandelSeitProbe = 0;
       const begonnenProbe = performance.now();
       const probe = gpuProbe(mandelTiefe, mandelDrehung);
@@ -4882,10 +4902,33 @@ function mandelbrotZeichnen(stift, lage) {
     // Ein Drittel Reserve auf das, was die Stichprobe gesehen hat - und ein
     // Boden, damit ein Bild, das fast ganz innen liegt, trotzdem genug
     // Schritte bekommt, um wieder herauszufinden.
+    /*
+     * Die Schrittzahl - und diesmal mit einer harten Obergrenze aus dem
+     * Zeitbudget.
+     *
+     * Bisher bestimmte allein die Stichprobe, wieviele Schritte noetig sind,
+     * und der Aufloesungsregler musste das ausbaden. Das geht nur bis zu
+     * seiner Untergrenze; darunter kann er nicht, und dann laeuft das Bild aus
+     * dem Budget. Genau das hat die Fahrt auf dem iPad zaeh gemacht, seit die
+     * Stichprobe bis zu 15000 Schritte fordern darf - das Dreifache des
+     * frueheren Deckels.
+     *
+     * Also wird jetzt *beides* gegeneinander abgewogen. Reicht die kleinste
+     * zumutbare Aufloesung nicht aus, um die geforderten Schritte im Budget
+     * zu rechnen, gibt die Schrittzahl nach. Das kostet Zeichnung an den
+     * feinsten Stellen - ein paar Randpunkte gelten dann als innen liegend -,
+     * aber es kostet keine Bilder. Ein etwas weicheres Fraktal sieht besser
+     * aus als ein ruckelndes.
+     */
+    const flaecheGpu = Math.max(1, breite * hoehe);
+    const arbeitBudget = mandelDurchsatz * stufe.budget;
+    const punkteUnten = flaecheGpu * MANDEL_GUETE_MIN * MANDEL_GUETE_MIN;
+    const schritteBezahlbar = arbeitBudget / punkteUnten;
     const schritteGpu = Math.round(
       Math.min(
         15000,
-        Math.max(700, mandelSchritteNoetig * 1.35, 500 + mandelTiefe * 120),
+        Math.max(400, schritteBezahlbar),
+        Math.max(700, mandelSchritteNoetig * 1.2, 400 + mandelTiefe * 110),
       ),
     );
     gpuFarben(mandelFarbtabelle);
@@ -4919,6 +4962,7 @@ function mandelbrotZeichnen(stift, lage) {
         breite: bild.breite,
         guete: Math.min(mandelGuete, stufe.fraktal),
         durchsatz: mandelDurchsatz,
+        schritteBezahlbar: Math.round(schritteBezahlbar),
         dreh: mandelDrehung,
         dichte,
         versatz: versatzJetzt,
@@ -4970,9 +5014,8 @@ function mandelbrotZeichnen(stift, lage) {
      * Das Kostenmodell ist diesmal zulaessig, weil es sich am Ergebnis
      * kalibriert: Vorhergesagt und gemessen wird dieselbe Groesse.
      */
-    const flaeche = Math.max(1, breite * hoehe);
-    const bezahlbar = (mandelDurchsatz * stufe.budget) / Math.max(1, schritteGpu);
-    const gueteWunsch = Math.sqrt(bezahlbar / flaeche);
+    const bezahlbar = arbeitBudget / Math.max(1, schritteGpu);
+    const gueteWunsch = Math.sqrt(bezahlbar / flaecheGpu);
     // Traege nach oben, zuegig nach unten - ein zu grosses Bild kostet sofort,
     // ein zu kleines nur Schaerfe.
     const regelGpu = gueteWunsch > mandelGuete ? 1.08 : 0.7;
