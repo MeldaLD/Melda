@@ -4017,6 +4017,7 @@ function gueteZuruecksetzen() {
   mandelGrundierenNoetig = true;
   mandelGuete = 0.45;
   mandelDurchsatz = 4e5;
+  mandelBremse = 0.6;
   mandelGpuZaeh = 0;
   mandelDauer = 8;
   mandelUeberblendung = 0;
@@ -4119,6 +4120,12 @@ let mandelGuete = 0.45;
  * Schritte braucht. Der Durchsatz trennt beides.
  */
 let mandelDurchsatz = 4e5;
+/*
+ * Die Bremse: wieviel von der erlaubten Aufloesung tatsaechlich genutzt wird.
+ * Sie folgt allein dem gemessenen Bildabstand und ist damit das einzige Mass,
+ * das die asynchrone Grafikkarte nicht ueberlisten kann.
+ */
+let mandelBremse = 0.6;
 let mandelAufGpu = null;
 // Zaehlt aufeinanderfolgende zu langsame Bilder auf der Grafikkarte.
 let mandelGpuZaeh = 0;
@@ -5089,9 +5096,14 @@ function mandelbrotZeichnen(stift, lage) {
     const arbeitBudget = mandelDurchsatz * stufe.budget;
     const punkteUnten = flaecheGpu * MANDEL_GUETE_MIN * MANDEL_GUETE_MIN;
     const schritteBezahlbar = arbeitBudget / punkteUnten;
+    /*
+     * Steht die Bremse am Anschlag und es reicht immer noch nicht, muss auch
+     * die Schrittzahl nachgeben - weniger Aufloesung hilft dann nichts mehr.
+     */
+    const schritteDeckel = mandelBremse > 0.12 ? 15000 : 900;
     const schritteGpu = Math.round(
       Math.min(
-        15000,
+        schritteDeckel,
         Math.max(400, schritteBezahlbar),
         Math.max(700, mandelSchritteNoetig * 1.2, 400 + mandelTiefe * 110),
       ),
@@ -5127,6 +5139,10 @@ function mandelbrotZeichnen(stift, lage) {
         breite: bild.breite,
         guete: Math.min(mandelGuete, stufe.fraktal),
         durchsatz: mandelDurchsatz,
+        bremse: mandelBremse,
+        // Nicht abstandMs: das wird erst weiter unten berechnet, und ein Zugriff
+        // davor wirft in jedem Bild.
+        abstandMs: sekunden * 1000,
         schritteBezahlbar: Math.round(schritteBezahlbar),
         dreh: mandelDrehung,
         dichte,
@@ -5165,7 +5181,32 @@ function mandelbrotZeichnen(stift, lage) {
      * nicht ueberschwingt; nach unten muss er springen koennen.
      */
     /*
-     * Die Aufloesung wird *vorhergesagt*, nicht nachgeregelt.
+     * Geregelt wird am *tatsaechlichen Bildabstand*, nicht an einer Stoppuhr
+     * um den Zeichenbefehl.
+     *
+     * Das war der Denkfehler hinter der ganzen Zaehigkeit: WebGL ist
+     * asynchron. drawArrays gibt zurueck, sobald der Befehl in der
+     * Warteschlange steht - nicht, wenn die Grafikkarte fertig ist. Eine
+     * Stoppuhr darum misst also die Abgabe, nicht die Arbeit. Der gemessene
+     * "Durchsatz" war dadurch massiv zu hoch, der Regler gab immer mehr
+     * Aufloesung frei, und die Rechnung kam als niedrige Bildrate zurueck -
+     * nachgemessen auf dem iPad 26 ms je Bild bei einem Budget von 4.
+     *
+     * Der Abstand zwischen zwei Bildern luegt nicht. Er enthaelt alles: die
+     * Grafikkarte, die Lava, die Schrift, das Uebertragen. Und er ist genau
+     * das, was der Gast sieht.
+     */
+    const abstandMs = Math.min(200, sekunden * 1000);
+    const zielMs = 1000 / 60;
+    if (abstandMs > zielMs * 1.12) mandelBremse *= 0.88;
+    else if (abstandMs < zielMs * 0.98) mandelBremse *= 1.02;
+    mandelBremse = Math.min(1, Math.max(0.05, mandelBremse));
+
+    /*
+     * Die alte Vorhersage aus dem Durchsatz bleibt als *Obergrenze* stehen -
+     * sie verhindert, dass beim Start oder nach einem Stellenwechsel ein
+     * unbezahlbares Bild abgeschickt wird, bevor der Bildabstand ueberhaupt
+     * etwas sagen kann. Was zaehlt, ist der kleinere der beiden Werte.
      *
      * Der bisherige Regler verglich nur die letzte Bildzeit mit dem Budget.
      * Das reicht, solange die Arbeit je Bildpunkt gleich bleibt - tut sie aber
@@ -5197,6 +5238,7 @@ function mandelbrotZeichnen(stift, lage) {
      */
     mandelGuete = Math.min(
       stufe.fraktal,
+      stufe.fraktal * mandelBremse,
       Math.max(MANDEL_GUETE_MIN, Math.min(gueteWunsch, mandelGuete * regelGpu)),
     );
 
