@@ -378,11 +378,11 @@ export class Visualisierung {
 
     stift.clearRect(0, 0, breite, hoehe);
 
-    // Die Lava bleibt immer im Hintergrund - sie ist die Stimmung im Raum,
-    // kein Effekt. Davor laeuft genau ein Modus, und der wechselt je Track.
-    this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
-
     const modus = MODI[this.modusFuer(aktiv?.track)] ?? MODI.iris;
+    // Die Lava bleibt im Hintergrund - sie ist die Stimmung im Raum, kein
+    // Effekt. Bringt ein Modus seine eigene Ebene mit, liegt sie unter dieser
+    // Ebene und waere unsichtbar; dann wird sie gar nicht erst gerechnet.
+    if (!modus.eigeneEbene) this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
     const bildBegonnen = performance.now();
     this.letzterModusName = modus.name;
     modus.zeichne(stift, {

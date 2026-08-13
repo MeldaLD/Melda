@@ -13,7 +13,9 @@
 // auf Positionen ab - Oktaven liegen dadurch immer gleich weit auseinander,
 // egal welcher Track laeuft.
 
-import { gpuBereit, gpuFarben, gpuZeichnen, gpuProbe, gpuProbeVergessen } from './mandelgpu.js';
+import {
+  gpuBereit, gpuFarben, gpuZeichnen, gpuProbe, gpuProbeVergessen, gpuLeinwand,
+} from './mandelgpu.js';
 
 export const TAU = Math.PI * 2;
 
@@ -692,6 +694,50 @@ let mandelSeitGpu = 0;
  * ersten Mal falsch war, ist es nach neunzig Sekunden geheilt.
  */
 let mandelSeitAufgabe = 1e9;
+/*
+ * Die Leinwand der Grafikkarte haengt selbst in der Seite - sie wird nicht
+ * mehr kopiert.
+ *
+ * Bisher wurde jedes Bild vom Grafikspeicher in die 2D-Leinwand uebertragen,
+ * in voller Bildschirmgroesse. Das ist auf jedem Geraet Arbeit und auf einem
+ * Tablet eine der teuersten Zeilen ueberhaupt - und sie ist vollstaendig
+ * entbehrlich: Der Browser setzt die Seite ohnehin aus Ebenen zusammen. Liegt
+ * die Leinwand als eigene Ebene darin, uebernimmt er das Vergroessern beim
+ * Zusammensetzen, und das kostet nichts extra.
+ *
+ * Die Lava faellt gleich mit weg. Sie lag unter dem Fraktal, das mit 92 bis
+ * 100 Prozent Deckung darueber gezeichnet wurde - zu sehen war sie also
+ * ohnehin kaum, gerechnet wurde sie trotzdem.
+ */
+let mandelEbeneDrin = false;
+
+function mandelEbeneSichern(sichtbar) {
+  const leinwand = gpuLeinwand();
+  if (!leinwand) return;
+  if (!mandelEbeneDrin) {
+    leinwand.id = 'fraktal';
+    Object.assign(leinwand.style, {
+      position: 'fixed',
+      inset: '0',
+      width: '100%',
+      height: '100%',
+      display: 'block',
+      zIndex: '0',
+      // Die kleine Rechenleinwand wird auf Bildschirmgroesse gezogen. Genau
+      // wie vorher beim Kopieren, nur macht es jetzt der Browser nebenbei.
+      imageRendering: 'auto',
+      pointerEvents: 'none',
+    });
+    const ziel = document.getElementById('visual');
+    if (ziel) {
+      // Die 2D-Leinwand darueber, das Fraktal darunter.
+      ziel.style.zIndex = '1';
+      ziel.parentNode.insertBefore(leinwand, ziel);
+      mandelEbeneDrin = true;
+    }
+  }
+  leinwand.style.visibility = sichtbar ? 'visible' : 'hidden';
+}
 const MANDEL_SCHONZEIT = 5;
 /*
  * Die Sperrfrist war zwanzig Sekunden lang, weil das Mass unzuverlaessig war
@@ -1693,7 +1739,10 @@ function mandelbrotZeichnen(stift, lage) {
       };
     }
 
-    mandelAufsBild(stift, bild.leinwand, bild.breite, bild.hoehe, breite, hoehe, wucht, sekunden);
+    mandelEbeneSichern(true);
+    // Auf die 2D-Leinwand kommt nur noch, was ueber dem Fraktal liegt: die
+    // Ueberblendung beim Stellenwechsel und der Schleier fuer die Schrift.
+    mandelUeberlagern(stift, breite, hoehe, sekunden, bild.leinwand, bild.breite, bild.hoehe);
 
     const gebrauchtGpu = Math.max(0.2, performance.now() - begonnenGpu - bild.bahnMs);
     // Punkt-Schritte je Millisekunde. Die Bahnrechnung zaehlt nicht mit - sie
@@ -2123,6 +2172,8 @@ function mandelbrotZeichnen(stift, lage) {
 
   // --- Aufs Bild --------------------------------------------------------
 
+  // Ohne Grafikkarte gibt es keine eigene Ebene - dann wie bisher uebertragen.
+  mandelEbeneSichern(false);
   mandelAufsBild(stift, mandelLeinwand, MANDEL_BREITE, MANDEL_HOEHE, breite, hoehe, wucht, sekunden);
 }
 
@@ -2131,6 +2182,60 @@ function mandelbrotZeichnen(stift, lage) {
  * Stelle, damit Ueberblendung und Schleier nicht zweimal dastehen und
  * auseinanderlaufen.
  */
+/*
+ * Was ueber dem Fraktal liegt, wenn es als eigene Ebene laeuft: die
+ * Ueberblendung beim Stellenwechsel und der Schleier fuer die Schrift. Das
+ * Fraktal selbst wird nicht angefasst - es steht schon da.
+ */
+function mandelUeberlagern(stift, breite, hoehe, sekunden, quelle, qb, qh) {
+  stift.save();
+  stift.imageSmoothingEnabled = true;
+  if (mandelUeberblendung > 0 && mandelSchnappschuss) {
+    stift.globalAlpha = mandelUeberblendung;
+    stift.drawImage(
+      mandelSchnappschuss, 0, 0, mandelSchnappschuss.width, mandelSchnappschuss.height,
+      0, 0, breite, hoehe,
+    );
+    mandelUeberblendung = Math.max(0, mandelUeberblendung - sekunden / MANDEL_UEBERBLEND);
+  } else {
+    if (!mandelSchnappschuss) {
+      mandelSchnappschuss = document.createElement('canvas');
+      mandelSchnappschuss.width = 480;
+      mandelSchnappschuss.height = 300;
+      mandelSchnappStift = mandelSchnappschuss.getContext('2d');
+    }
+    mandelSchnappStift.drawImage(quelle, 0, 0, qb, qh, 0, 0, 480, 300);
+    if (++mandelWacheZaehler % 6 === 0) {
+      const feld = mandelSchnappStift.getImageData(60, 60, 360, 180).data;
+      let summe = 0;
+      let summeQuadrat = 0;
+      let proben = 0;
+      for (let i = 0; i < feld.length; i += 32) {
+        const w = (feld[i] + feld[i + 1] + feld[i + 2]) / 3;
+        summe += w;
+        summeQuadrat += w * w;
+        proben++;
+      }
+      const mittel = summe / proben;
+      mandelStreuung = Math.sqrt(Math.max(0, summeQuadrat / proben - mittel * mittel));
+    }
+  }
+  mandelSchleier(stift, breite, hoehe);
+  stift.restore();
+}
+
+/** Oben und unten abdunkeln, damit die Schrift lesbar bleibt. */
+function mandelSchleier(stift, breite, hoehe) {
+  stift.globalAlpha = 1;
+  const schleier = stift.createLinearGradient(0, 0, 0, hoehe);
+  schleier.addColorStop(0, 'rgba(0,0,0,0.62)');
+  schleier.addColorStop(0.16, 'rgba(0,0,0,0.06)');
+  schleier.addColorStop(0.66, 'rgba(0,0,0,0.06)');
+  schleier.addColorStop(1, 'rgba(0,0,0,0.72)');
+  stift.fillStyle = schleier;
+  stift.fillRect(0, 0, breite, hoehe);
+}
+
 function mandelAufsBild(stift, quelle, qb, qh, breite, hoehe, wucht, sekunden) {
   stift.save();
   stift.imageSmoothingEnabled = true;
@@ -2189,14 +2294,7 @@ function mandelAufsBild(stift, quelle, qb, qh, breite, hoehe, wucht, sekunden) {
 
   // Oben und unten abdunkeln. Dort stehen Titel, Uhr und Pegel, und ein
   // Fraktal in voller Pracht direkt dahinter macht beides unlesbar.
-  stift.globalAlpha = 1;
-  const schleier = stift.createLinearGradient(0, 0, 0, hoehe);
-  schleier.addColorStop(0, 'rgba(0,0,0,0.62)');
-  schleier.addColorStop(0.16, 'rgba(0,0,0,0.06)');
-  schleier.addColorStop(0.66, 'rgba(0,0,0,0.06)');
-  schleier.addColorStop(1, 'rgba(0,0,0,0.72)');
-  stift.fillStyle = schleier;
-  stift.fillRect(0, 0, breite, hoehe);
+  mandelSchleier(stift, breite, hoehe);
   stift.restore();
 }
 
@@ -2215,5 +2313,12 @@ export const MODI = {
    * jeder Ring, der von der Mitte nach aussen laeuft, zieht es wieder heraus.
    * Genau die hypnotische Wirkung, um die es hier geht, wird davon zerstoert.
    */
-  mandelbrot: { name: 'Mandelbrot', zeichne: mandelbrotZeichnen, schmuck: false },
+  mandelbrot: {
+    name: 'Mandelbrot',
+    zeichne: mandelbrotZeichnen,
+    schmuck: false,
+    // Das Fraktal liegt als eigene Ebene unter der Leinwand. Die Lava darunter
+    // waere unsichtbar und wird deshalb gar nicht erst gerechnet.
+    eigeneEbene: true,
+  },
 };

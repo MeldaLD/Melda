@@ -456,6 +456,14 @@ function bahnSichern(ziel, gebraucht) {
 }
 
 /** Die Farbtabelle hochladen. 512 Stufen, drei Kanaele. */
+/**
+ * Die Leinwand der Grafikkarte selbst - damit sie in die Seite gehaengt werden
+ * kann, statt jedes Bild kopiert zu werden.
+ */
+export function gpuLeinwand() {
+  return leinwand;
+}
+
 export function gpuFarben(tabelle) {
   if (!gl) return;
   const n = tabelle.length / 3;
