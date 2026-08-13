@@ -365,6 +365,7 @@ export class Visualisierung {
 
     const takt = this.taktLage(aktiv);
     const spannung = this.spannungBis(aktiv, takt);
+    const abbau = this.abbauBei(aktiv, takt);
     const wucht = this.pegelWucht(spektrum);
 
     // Beim Drop: alles auf einmal. Das Signal geht auch an den Modus - das
@@ -395,6 +396,7 @@ export class Visualisierung {
       spannung,
       wucht,
       drop: dropJetzt,
+      abbau,
       guetestufe: this.guetestufe,
       palette: this.paletteFuer(aktiv?.track),
       paletteB: zweit ? this.paletteFuer(zweit.track) : null,
@@ -462,6 +464,36 @@ export class Visualisierung {
     const roh = 1 - abstand / anlauf;
     // Hinten steiler: die letzten Takte sollen sich deutlich anders anfuehlen.
     return roh * roh;
+  }
+
+  /*
+   * Der Breakdown - die Gegenbewegung zur Spannung.
+   *
+   * Bisher kannte das Bild nur das Anziehen vor dem Drop. Ein Stueck besteht
+   * aber aus beidem, und der Breakdown ist die Stelle, an der die Leute Luft
+   * holen. Wenn das Bild da genauso weitertreibt wie vorher, laeuft es gegen
+   * die Musik - und die Zuschauer merken es, ohne sagen zu koennen, woran.
+   *
+   * Die Analyse hat die Stelle laengst gefunden und als Marke abgelegt; sie
+   * lag nur ungenutzt herum. Der Wert steht auf 1, sobald ein Breakdown
+   * beginnt, und faellt bis zur naechsten Marke wieder auf null.
+   */
+  abbauBei(deck, takt) {
+    if (!takt || !deck?.track?.marken?.length) return 0;
+    const marken = deck.track.marken;
+    let laufend = null;
+    let naechste = null;
+    for (const m of marken) {
+      if (m.beat <= takt.beat && (!laufend || m.beat > laufend.beat)) laufend = m;
+      if (m.beat > takt.beat && (!naechste || m.beat < naechste.beat)) naechste = m;
+    }
+    if (!laufend || laufend.name !== 'breakdown') return 0;
+    const ende = naechste ? naechste.beat : laufend.beat + 64;
+    const laenge = Math.max(8, ende - laufend.beat);
+    const gelaufen = (takt.beat - laufend.beat) / laenge;
+    // Voll da, solange der Abschnitt laeuft, und zum Ende hin ausklingend -
+    // dann zieht die Spannung ohnehin schon wieder an.
+    return Math.max(0, Math.min(1, 1 - gelaufen * gelaufen));
   }
 
   dropErreicht(deck, takt) {

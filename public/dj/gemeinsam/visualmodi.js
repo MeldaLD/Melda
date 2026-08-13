@@ -1281,7 +1281,7 @@ if (typeof window !== 'undefined') window.__mandelNeuAnsetzen = () => mandelNeuA
 function mandelbrotZeichnen(stift, lage) {
   const {
     breite, hoehe, sekunden, takt, spektrum, spannung, wucht, drop,
-    palette: paletteA, paletteB, anteilB,
+    palette: paletteA, paletteB, anteilB, abbau = 0,
   } = lage;
 
   // --- Die Fahrt ---------------------------------------------------------
@@ -1342,7 +1342,7 @@ function mandelbrotZeichnen(stift, lage) {
    */
   mandelMandalaHalt *= Math.pow(0.55, sekunden);
   mandelFangHalt *= Math.pow(0.4, sekunden);
-  const mandalaZiel = Math.min(1, Math.max(spannung * 0.9, mandelMandalaHalt));
+  const mandalaZiel = Math.min(1, Math.max(spannung * 0.9, mandelMandalaHalt)) * (1 - abbau * 0.8);
   mandelMandala += (mandalaZiel - mandelMandala) * Math.min(1, sekunden * 1.6);
   // Die Achsenzahl wandert weich, damit aus sechs nicht ruckartig zwoelf wird.
   mandelSterne += (mandelSterneZiel - mandelSterne) * Math.min(1, sekunden * 2.2);
@@ -1380,13 +1380,19 @@ function mandelbrotZeichnen(stift, lage) {
    * lassen, nicht setzen. Mit 0,07 hebt ein Schlag das Tempo kurz um gut die
    * Haelfte an, im Mittel aber nur um ein Drittel des Grundwerts.
    */
-  const tempo = MANDEL_GRUNDZOOM * (1 + spannung * 2.2) + mandelSchwung * 0.07;
+  /*
+   * Der Breakdown bremst. Er ist die Gegenbewegung zur Spannung: Dort zieht
+   * es an, hier laesst es los. Ohne ihn treibt das Bild in der Atempause
+   * genauso weiter wie vorher, und das laeuft gegen die Musik.
+   */
+  const tempo =
+    MANDEL_GRUNDZOOM * (1 + spannung * 2.2) * (1 - abbau * 0.72) + mandelSchwung * 0.07;
   mandelTiefe += tempo * sekunden;
 
   // Die Drehung: eine ruhige Grundbewegung, die mit der Spannung anzieht, plus
   // der Ruck vom Drop, der wieder ausklingt.
   mandelDrehTempo *= Math.pow(0.25, sekunden);
-  mandelDrehung += (0.035 + spannung * 0.22 + mandelDrehTempo) * sekunden;
+  mandelDrehung += (0.035 + spannung * 0.22 + mandelDrehTempo) * (1 - abbau * 0.6) * sekunden;
 
   /*
    * Die Farbwanderung haengt am Raster, nicht an der Uhr.
@@ -1479,16 +1485,32 @@ function mandelbrotZeichnen(stift, lage) {
 
   // --- Die Farbtabelle, fuer beide Wege dieselbe --------------------------
 
-  const grundton = paletteB && anteilB > 0.5 ? paletteB.grundton : paletteA.grundton;
+  /*
+   * Die Palette wandert waehrend der Ueberblendung mit - sie springt nicht.
+   *
+   * Vorher wurde bei fuenfzig Prozent umgeschaltet: Bis dahin die Farben des
+   * alten Stuecks, danach die des neuen, in einem Bild. Damit war der
+   * Songwechsel im Bild entweder unsichtbar oder ein Ruck - obwohl er das
+   * groesste musikalische Ereignis des Abends nach dem Drop ist. Jetzt
+   * wandert der Farbton ueber den ganzen Uebergang, auf dem kuerzeren Bogen,
+   * und man *sieht* den Wechsel kommen.
+   */
+  const bogenAB = (a, b2) => a + (((b2 - a + 540) % 360) - 180) * (anteilB ?? 0);
+  const grundton = paletteB
+    ? bogenAB(paletteA.grundton, paletteB.grundton)
+    : paletteA.grundton;
   // Jedes Bild neu: Sie traegt jetzt das Spektrum, und das aendert sich mit
   // jedem Bild. 512 Stufen kosten weniger als ein Zehntel einer Millisekunde.
-  const akzent = paletteB && anteilB > 0.5 ? paletteB.akzent : paletteA.akzent;
+  const akzent = paletteB ? bogenAB(paletteA.akzent, paletteB.akzent) : paletteA.akzent;
   mandelFarbtabelle = mandelTabelleBauen(
     grundton + mandelTonDreh,
     akzent + mandelTonDreh,
     spektrum,
     0.6 + wucht * 0.6,
-    (paletteB && anteilB > 0.5 ? paletteB.baender : paletteA.baender) ?? 3,
+    Math.round(
+      ((paletteA.baender ?? 3) * (1 - (anteilB ?? 0)) +
+        ((paletteB?.baender ?? paletteA.baender ?? 3) * (anteilB ?? 0))),
+    ),
   );
   mandelFarbtonZuletzt = grundton;
 
@@ -1496,7 +1518,9 @@ function mandelbrotZeichnen(stift, lage) {
   const versatzJetzt = mandelFarbe - Math.floor(mandelFarbe);
   // Enger werdende Ringe, je naeher der Drop. Das ist die zweite Haelfte der
   // Vorbereitung - die erste ist die Drehung.
-  const dichte = (0.85 + spannung * 0.85) * (1 + mandelEnge * 1.6);
+  // Im Breakdown gehen die Ringe auf - das Gegenstueck zum Zusammenziehen
+  // vor dem Drop. Das Auge liest Weite als Entspannung.
+  const dichte = (0.85 + spannung * 0.85) * (1 + mandelEnge * 1.6) * (1 - abbau * 0.42);
 
   // --- Der schnelle Weg: Grafikkarte --------------------------------------
 
