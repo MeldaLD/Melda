@@ -262,6 +262,8 @@ export class Visualisierung {
     }
     // Geglaettete Bildzeit, damit man auf dem Geraet sieht, was die Stufe tut.
     this.bildMs = 16;
+    // Geglaetteter Abstand zwischen zwei Bildern - die Zahl, die zaehlt.
+    this.abstandMs = 16.7;
 
     // Drei Rauschquellen, damit sich die Bewegungen nicht synchronisieren.
     this.n1 = rauschen(7919);
@@ -299,6 +301,8 @@ export class Visualisierung {
     // Umschalten noch sekundenlang die Zeit der alten Stufe - samt der Spitze,
     // die der neue Versuch auf der Grafikkarte kurz verursacht.
     this.bildMs = 16;
+    // Geglaetteter Abstand zwischen zwei Bildern - die Zahl, die zaehlt.
+    this.abstandMs = 16.7;
   }
 
   static guetestufen() {
@@ -430,6 +434,17 @@ export class Visualisierung {
     // Anzeige lesbar bleibt statt zu zappeln.
     const gebraucht = performance.now() - bildBegonnen;
     this.bildMs = this.bildMs * 0.9 + gebraucht * 0.1;
+    /*
+     * Der *Bildabstand* ist die ehrliche Zahl, nicht die Zeichendauer.
+     *
+     * Seit das Fraktal auf einer eigenen Ebene liegt, misst die Zeichendauer
+     * nur noch den Ueberzug - Schleier und Schrift - und meldet deshalb
+     * Traumwerte: auf dem Telefon 0,9 ms und 1088 Bilder je Sekunde. Das ist
+     * keine Leistung, sondern eine Luecke in der Messung. Was der Zuschauer
+     * sieht, ist der Abstand zwischen zwei Bildern, und der enthaelt alles:
+     * die Grafikkarte, den Ueberzug und das Zusammensetzen der Ebenen.
+     */
+    this.abstandMs = this.abstandMs * 0.9 + Math.min(200, sekunden * 1000) * 0.1;
   }
 
   // --- Wo stehen wir im Takt? ---------------------------------------------

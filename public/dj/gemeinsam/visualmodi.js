@@ -476,6 +476,7 @@ export function gueteZuruecksetzen() {
   mandelBremse = 0.6;
   mandelAbstandMittel = 16.7;
   mandelTaktMs = 16.7;
+  mandelTaktRing.fill(0);
   mandelGpuZaeh = 0;
   mandelDauer = 8;
   mandelUeberblendung = 0;
@@ -630,6 +631,8 @@ let mandelBremse = 0.6;
 let mandelAbstandMittel = 16.7;
 // Die gemessene Bildschirmperiode - siehe Begruendung beim Regler.
 let mandelTaktMs = 16.7;
+const mandelTaktRing = new Float32Array(64);
+let mandelTaktZeiger = 0;
 let mandelAufGpu = null;
 // Zaehlt aufeinanderfolgende zu langsame Bilder auf der Grafikkarte.
 let mandelGpuZaeh = 0;
@@ -1889,18 +1892,18 @@ function mandelbrotZeichnen(stift, lage) {
      */
     const abstandMs = Math.min(200, sekunden * 1000);
     /*
-     * Geglaettet und mit totem Band - sonst pumpt der Regler.
+     * Geglaettet - sonst pumpt der Regler.
      *
-     * Der Bildabstand ist an den Bildschirm gekoppelt: Er betraegt 16,7 ms
-     * oder 33,3, nie etwas dazwischen. Ein Regler mit dem Ziel 16,7 sieht
-     * deshalb in jedem Bild entweder "zu schnell" oder "doppelt so lang" und
-     * korrigiert dauernd - die Aufloesung wandert auf und ab, und mit ihr
-     * erscheint und verschwindet Zeichnung. Genau das war das Flackern in den
-     * neu auftauchenden Teilen.
+     * Der Bildabstand ist an den Bildschirm gekoppelt und deshalb gestuft: Er
+     * betraegt eine Bildschirmperiode oder zwei, selten etwas dazwischen. Ein
+     * Regler, der jedes einzelne Bild bewertet, sieht darum abwechselnd "zu
+     * schnell" und "doppelt so lang" und korrigiert dauernd - die Aufloesung
+     * wandert auf und ab, und mit ihr erscheint und verschwindet Zeichnung.
+     * Genau das war das Flackern in den neu auftauchenden Teilen.
      *
-     * Also wird ueber acht Bilder gemittelt, und zwischen 15,5 und 19 ms
-     * passiert gar nichts. Erst ausserhalb dieses Bandes wird nachgeregelt,
-     * und dann in kleinen Schritten.
+     * Also wird ueber acht Bilder gemittelt, und unten steht ein totes Band
+     * um das Ziel herum (1,02 bis 1,14 Perioden), in dem gar nichts passiert.
+     * Erst ausserhalb wird nachgeregelt, und dann in kleinen Schritten.
      */
     mandelAbstandMittel = mandelAbstandMittel * 0.875 + abstandMs * 0.125;
 
@@ -1912,20 +1915,43 @@ function mandelbrotZeichnen(stift, lage) {
      * der Bildtakt aber alle 6,9 ms - der Regler sah "viel zu schnell" und
      * drehte die Aufloesung hoch, bis ein Bild 16,7 ms brauchte. Damit wird
      * jede zweite Aktualisierung verpasst, und zwar unregelmaessig: Das ist
-     * genau das Ruckeln, das auf einem Spiele-Rechner gemeldet wurde,
-     * waehrend ein Tablet mit sechzig Hertz sauber lief.
+     * genau das Ruckeln, das auf einem Spiele-Rechner gemeldet wurde.
      *
-     * Der Takt laesst sich nicht erfragen, aber messen: Der kleinste je
-     * beobachtete Bildabstand *ist* die Bildschirmperiode - schneller als der
-     * Bildschirm kann niemand liefern. Der Wert wird langsam nach oben
-     * losgelassen, damit er sich anpasst, wenn das Fenster auf einen anderen
-     * Bildschirm wandert.
+     * Erfragen laesst sich der Takt nicht, also wird er geschaetzt - aber
+     * nicht aus dem kleinsten je gesehenen Abstand. Dieser erste Versuch war
+     * falsch, und ein iPhone 14 Pro Max hat es gezeigt: Das Geraet hat
+     * ProMotion, also eine Bildwiederholrate, die *das Geraet selbst*
+     * zwischen 10 und 120 Hz verschiebt. Angezeigt wurden 14,4 ms. Diese Zahl
+     * ist keine Periode irgendeines Bildschirms - sie liegt zwischen 8,3 und
+     * 16,7 und entsteht als Mischung: ein Teil der Bilder kommt im
+     * 120-Hz-Takt, der groessere Teil nicht. Das Minimum greift sich davon
+     * die schnellsten heraus und behauptet, so laufe das Geraet. Auf einem
+     * Bildschirm mit fester Rate waere das noch verzeihlich, auf einem mit
+     * gleitender Rate ist es schlicht die falsche Frage.
      *
-     * Nach oben gedeckelt auf 16,8 ms: Ein Rechner, der nie schneller als
-     * dreissig Bilder schafft, soll daraus nicht schliessen, dreissig seien
-     * das Ziel - sonst hoert der Regler auf zu bremsen.
+     * Gefragt wird deshalb nach dem unteren Fuenftel von vierundsechzig
+     * Messungen. Das ist eine Aussage, die haelt: Ein Ziel von 8,3 ms kommt
+     * nur zustande, wenn wenigstens jedes fuenfte Bild wirklich so schnell
+     * ankommt - dann laeuft der Bildschirm auch tatsaechlich mit 120 Hz, und
+     * es ist richtig, darauf hinzuarbeiten. Ein einzelner kurzer Abstand
+     * dagegen zieht nichts mehr mit.
+     *
+     * Die beiden Klammern sind nur Notbremsen, keine Ziele: Nach unten 4 ms,
+     * weil darunter kein Bildschirm laeuft (240 Hz sind 4,2). Nach oben
+     * 16,8 ms, damit ein Rechner, der nie mehr als dreissig Bilder schafft,
+     * daraus nicht schliesst, dreissig seien das Ziel - sonst hoert der
+     * Regler auf zu bremsen. Ein echtes 8,3-ms-Geraet geht durch beide
+     * Klammern unveraendert hindurch.
      */
-    mandelTaktMs = Math.min(16.8, Math.max(4, Math.min(mandelTaktMs * 1.003, abstandMs)));
+    mandelTaktRing[mandelTaktZeiger] = abstandMs;
+    mandelTaktZeiger = (mandelTaktZeiger + 1) % mandelTaktRing.length;
+    if (mandelTaktZeiger % 20 === 0) {
+      const sortiert = Array.from(mandelTaktRing).filter((x) => x > 0).sort((a, b) => a - b);
+      if (sortiert.length >= 16) {
+        const fuenftel = sortiert[Math.floor(sortiert.length * 0.2)];
+        mandelTaktMs = Math.min(16.8, Math.max(4, fuenftel));
+      }
+    }
     if (mandelAbstandMittel > mandelTaktMs * 1.14) mandelBremse *= 0.94;
     else if (mandelAbstandMittel < mandelTaktMs * 1.02) mandelBremse *= 1.012;
     mandelBremse = Math.min(1, Math.max(0.05, mandelBremse));
