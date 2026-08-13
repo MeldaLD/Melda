@@ -17,6 +17,9 @@ import {
   gpuBereit, gpuFarben, gpuZeichnen, gpuProbe, gpuProbeVergessen, gpuLeinwand, gpuName,
   reiheAuskunft,
 } from './mandelgpu.js';
+import { dolceZeichnen, dolceZuruecksetzen } from './dolce.js';
+
+export { dolceZuruecksetzen };
 
 /*
  * Die Reihenentwicklung laesst sich abschalten.
@@ -2544,5 +2547,20 @@ export const MODI = {
     // Das Fraktal liegt als eigene Ebene unter der Leinwand. Die Lava darunter
     // waere unsichtbar und wird deshalb gar nicht erst gerechnet.
     eigeneEbene: true,
+  },
+  /*
+   * Das versteckte Bild - siehe dolce.js.
+   *
+   * "geheim" heisst: Es steht nicht in der Auswahl auf der Buehne und kommt
+   * auch nicht von selbst dran. Wer weiss, wie man es aufruft, ruft es auf.
+   *
+   * Auch hier kein Schmuck: Ringe und Funken der Grundschicht wuerden ueber
+   * gezeichneten Szenen wie ein zweites, fremdes Bild liegen.
+   */
+  dolce: {
+    name: 'La Dolce Trenta',
+    zeichne: dolceZeichnen,
+    schmuck: false,
+    geheim: true,
   },
 };

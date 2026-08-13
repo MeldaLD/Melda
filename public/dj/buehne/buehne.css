@@ -141,6 +141,26 @@ main :is(button, select, input, label) {
   pointer-events: auto;
 }
 
+/*
+ * Die Ueberschrift nimmt Tipper an - sonst gingen sie durch sie hindurch.
+ *
+ * main ist fuer Zeiger durchlaessig, damit die Visualisierung dahinter nicht
+ * hinter einer unsichtbaren Scheibe liegt. Nur Bedienelemente holen sich das
+ * zurueck. Die Ueberschrift war keines - und fuenf Tipper darauf oeffnen das
+ * versteckte Bild. Auf einem Telefon ist das der einzige Weg dorthin, denn
+ * getippte Woerter gibt es dort nicht.
+ *
+ * Etwas Innenabstand dazu: Ein Ziel von zwoelf Pixeln Hoehe trifft niemand
+ * mit dem Daumen.
+ */
+#anlass {
+  pointer-events: auto;
+  padding: 0.5rem 0.4rem;
+  margin: -0.5rem -0.4rem;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
 header {
   display: flex;
   justify-content: space-between;
@@ -608,4 +628,38 @@ header {
   font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* Die kurze Einblendung beim Freischalten des versteckten Bildes. */
+.zuruf {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 8;
+  padding: 1rem 2rem;
+  border-radius: 999px;
+  background: rgba(242, 236, 218, 0.95);
+  color: #3a4a26;
+  font: 600 1.4rem/1 Georgia, 'Times New Roman', serif;
+  letter-spacing: 0.06em;
+  pointer-events: none;
+  animation: zurufKommt 2.6s ease forwards;
+}
+
+@keyframes zurufKommt {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
 }

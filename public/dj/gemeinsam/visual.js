@@ -20,7 +20,15 @@
 // aus seiner Kennung, und die Bewegung laeuft ueber langsames Rauschen, das nie
 // denselben Weg nimmt.
 
-import { MODI, GUETESTUFEN, gueteZuruecksetzen, oklabZuRgb, TAU } from './visualmodi.js';
+import {
+  MODI,
+  GUETESTUFEN,
+  gueteZuruecksetzen,
+  dolceZuruecksetzen,
+  oklabZuRgb,
+  TAU,
+} from './visualmodi.js';
+import { beatBei } from './takt.js';
 
 // Die Reihenfolge, in der die Modi durchgewechselt werden. Nicht zufaellig
 // gezogen, sondern reihum: So sieht man zwei gleiche nie hintereinander, und
@@ -336,11 +344,23 @@ export class Visualisierung {
   /** Von Hand festlegen, oder mit null zurueck auf automatisch. */
   modusSetzen(name) {
     this.modusZwang = name && MODI[name] ? name : null;
+    // Die Szenenfolge faengt von vorne an. Ohne das stuende beim Aufrufen
+    // noch die Szene von vorhin im Bild, mitten in ihrer Bewegung.
+    if (this.modusZwang === 'dolce') dolceZuruecksetzen();
   }
 
   /** Die Namen aller Modi - fuer die Auswahl auf der Buehne. */
-  static modusnamen() {
-    return Object.entries(MODI).map(([schluessel, m]) => ({ schluessel, name: m.name }));
+  /*
+   * Die Modi fuer die Auswahl auf der Buehne.
+   *
+   * Geheime bleiben draussen, solange sie nicht freigeschaltet sind. Ein
+   * Easter Egg, das in einer Auswahlliste steht, ist keines - und der Sinn
+   * dieses einen ist, dass jemand es findet.
+   */
+  static modusnamen(mitGeheimen = false) {
+    return Object.entries(MODI)
+      .filter(([, m]) => mitGeheimen || !m.geheim)
+      .map(([schluessel, m]) => ({ schluessel, name: m.name }));
   }
 
   paletteFuer(track) {
@@ -451,8 +471,17 @@ export class Visualisierung {
 
   taktLage(deck) {
     if (!deck?.laeuft || !deck.track?.bpm) return null;
-    const beatLaenge = 60 / deck.track.bpm;
-    const beat = (deck.stelle - (deck.track.raster ?? 0)) / beatLaenge;
+    /*
+     * Ueber die Tempo-Karte, nicht linear.
+     *
+     * Hier stand die alte Rechnung "(Stelle - Raster) / Beatdauer" - und die
+     * gilt nur, wenn die ganze Datei ein Tempo hat. Bei einem Stundenmix aus
+     * zwanzig Stuecken laeuft das Bild damit nach dem ersten Wechsel neben der
+     * Musik, und zwar immer weiter daneben. Die Marken kommen aus derselben
+     * Zaehlung wie beatBei; wer sie hier anders ausrechnet, sucht Drops auf
+     * einer anderen Zeitachse, als sie eingetragen sind.
+     */
+    const beat = beatBei(deck.track, deck.stelle);
     return {
       beat,
       // Nachkommastelle: 0 direkt auf dem Schlag, 1 kurz davor.

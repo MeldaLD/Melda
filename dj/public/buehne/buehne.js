@@ -263,13 +263,97 @@ document.addEventListener('visibilitychange', () => {
 $('jetztUeberblenden').addEventListener('click', () => ueberblenden($('artWahl').value));
 
 
-// Die Auswahl fuellt sich aus den Modi selbst - so taucht ein neuer Modus
-// hier von allein auf, statt an zwei Stellen gepflegt werden zu muessen.
-for (const { schluessel, name } of Visualisierung.modusnamen()) {
-  const eintrag = document.createElement('option');
-  eintrag.value = schluessel;
-  eintrag.textContent = `Bild: ${name}`;
-  $('modusWahl').append(eintrag);
+/*
+ * Die Auswahl fuellt sich aus den Modi selbst - so taucht ein neuer Modus hier
+ * von allein auf, statt an zwei Stellen gepflegt werden zu muessen.
+ *
+ * Ausser den geheimen. Die stehen erst drin, wenn jemand sie gefunden hat -
+ * siehe weiter unten.
+ */
+/*
+ * Solange getestet wird, steht das versteckte Bild offen in der Auswahl.
+ *
+ * Getippte Woerter gibt es auf einem Telefon nicht - dort ist keine Tastatur,
+ * und ein Osterei, das die Haelfte der Geraete nicht oeffnen kann, ist keins,
+ * sondern ein Fehler. Fuer die Testphase steht es deshalb schlicht in der
+ * Liste.
+ *
+ * Vor der Party auf false stellen: Dann verschwindet es wieder, und es
+ * oeffnen nur noch die beiden Wege unten - das getippte Wort und fuenf Tipper
+ * auf die Ueberschrift. Beide funktionieren dann weiterhin, auch auf dem
+ * Telefon.
+ */
+const GEHEIM_OFFEN = true;
+
+const geheimFrei = GEHEIM_OFFEN || localStorage.getItem('djGeheim') === 'ja';
+function modiEintragen(mitGeheimen) {
+  const gewaehlt = $('modusWahl').value;
+  $('modusWahl').length = 1;
+  for (const { schluessel, name } of Visualisierung.modusnamen(mitGeheimen)) {
+    const eintrag = document.createElement('option');
+    eintrag.value = schluessel;
+    eintrag.textContent = `Bild: ${name}`;
+    $('modusWahl').append(eintrag);
+  }
+  $('modusWahl').value = gewaehlt;
+}
+modiEintragen(geheimFrei);
+
+/*
+ * Das versteckte Bild.
+ *
+ * Tippt jemand "trenta", schaltet die Buehne auf die Szenenfolge zur Party um
+ * - Oliven, ein ueberlaufendes Weinglas, das Meer bei Sonnenuntergang. Danach
+ * steht sie auch in der Auswahl und bleibt dort.
+ *
+ * Warum ein getipptes Wort und keine Taste: Tasten sind hier schon vergeben
+ * (Leertaste, 1 bis 4, T), und ein Wort findet niemand aus Versehen. Genau das
+ * ist der Punkt an einem Osterei.
+ */
+function geheimOeffnen() {
+  localStorage.setItem('djGeheim', 'ja');
+  modiEintragen(true);
+  $('modusWahl').value = 'dolce';
+  bild?.modusSetzen('dolce');
+  zuruf('🍋 La Dolce Trenta');
+}
+
+/*
+ * Der Weg fuer Finger: fuenf Tipper auf die Ueberschrift.
+ *
+ * Die Ueberschrift ist auf jedem Geraet da und wird sonst fuer nichts
+ * gebraucht. Fuenf Tipper innerhalb von zwei Sekunden passieren nicht
+ * versehentlich - und wer davon gehoert hat, findet es sofort.
+ */
+let tipper = 0;
+let tipperZeit = 0;
+$('anlass')?.addEventListener('click', () => {
+  const jetzt = performance.now();
+  tipper = jetzt - tipperZeit > 2000 ? 1 : tipper + 1;
+  tipperZeit = jetzt;
+  if (tipper >= 5) {
+    tipper = 0;
+    geheimOeffnen();
+  }
+});
+
+let getippt = '';
+function geheimPruefen(taste) {
+  if (taste.length !== 1) return;
+  getippt = (getippt + taste.toLowerCase()).slice(-12);
+  if (!getippt.endsWith('trenta')) return;
+  getippt = '';
+  geheimOeffnen();
+}
+
+// Eine kurze Einblendung in der Mitte. Nur fuer diesen einen Moment - dafuer
+// lohnt kein eigenes Bedienelement.
+function zuruf(text) {
+  const knoten = document.createElement('div');
+  knoten.className = 'zuruf';
+  knoten.textContent = text;
+  document.body.append(knoten);
+  setTimeout(() => knoten.remove(), 2600);
 }
 
 $('modusWahl').addEventListener('change', (e) => {
@@ -340,6 +424,7 @@ document.addEventListener('keydown', (e) => {
   if (arten[e.key]) ueberblenden(arten[e.key]);
   if (e.key === 't' || e.key === 'T') technikUmschalten();
   if (e.key === 'Escape' && !$('technik').hidden) technikUmschalten();
+  geheimPruefen(e.key);
 });
 
 /* --- Wer rechnet hier? ----------------------------------------------------
