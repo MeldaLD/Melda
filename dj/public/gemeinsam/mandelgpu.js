@@ -460,6 +460,20 @@ function bahnSichern(ziel, gebraucht) {
  * Die Leinwand der Grafikkarte selbst - damit sie in die Seite gehaengt werden
  * kann, statt jedes Bild kopiert zu werden.
  */
+/*
+ * Wer rechnet hier eigentlich?
+ *
+ * Auf einem fremden Rechner ist das die erste Frage, und sie laesst sich aus
+ * der Ferne nicht raten. Der Name der Grafikkarte steht im Treiber; ohne die
+ * Erweiterung liefert der Browser nur "WebKit WebGL" und verschweigt ihn.
+ */
+export function gpuName() {
+  if (!gl) return null;
+  const ext = gl.getExtension('WEBGL_debug_renderer_info');
+  const roh = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+  return String(roh || '').slice(0, 60);
+}
+
 export function gpuLeinwand() {
   return leinwand;
 }

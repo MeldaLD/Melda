@@ -14,7 +14,7 @@
 // egal welcher Track laeuft.
 
 import {
-  gpuBereit, gpuFarben, gpuZeichnen, gpuProbe, gpuProbeVergessen, gpuLeinwand,
+  gpuBereit, gpuFarben, gpuZeichnen, gpuProbe, gpuProbeVergessen, gpuLeinwand, gpuName,
 } from './mandelgpu.js';
 
 export const TAU = Math.PI * 2;
@@ -475,6 +475,7 @@ export function gueteZuruecksetzen() {
   mandelDurchsatz = 4e5;
   mandelBremse = 0.6;
   mandelAbstandMittel = 16.7;
+  mandelTaktMs = 16.7;
   mandelGpuZaeh = 0;
   mandelDauer = 8;
   mandelUeberblendung = 0;
@@ -627,6 +628,8 @@ let mandelDurchsatz = 4e5;
  */
 let mandelBremse = 0.6;
 let mandelAbstandMittel = 16.7;
+// Die gemessene Bildschirmperiode - siehe Begruendung beim Regler.
+let mandelTaktMs = 16.7;
 let mandelAufGpu = null;
 // Zaehlt aufeinanderfolgende zu langsame Bilder auf der Grafikkarte.
 let mandelGpuZaeh = 0;
@@ -1823,6 +1826,7 @@ function mandelbrotZeichnen(stift, lage) {
         durchsatz: mandelDurchsatz,
         bremse: mandelBremse,
         abstandMittel: mandelAbstandMittel,
+        taktMs: mandelTaktMs,
         // Nicht abstandMs: das wird erst weiter unten berechnet, und ein Zugriff
         // davor wirft in jedem Bild.
         abstandMs: sekunden * 1000,
@@ -1835,6 +1839,7 @@ function mandelbrotZeichnen(stift, lage) {
         sterne: mandelSterne,
         fang: mandelFang,
         aufGpu: true,
+        karte: gpuName(),
         dauerMs: mandelDauer,
         schwung: mandelSchwung,
       };
@@ -1898,8 +1903,31 @@ function mandelbrotZeichnen(stift, lage) {
      * und dann in kleinen Schritten.
      */
     mandelAbstandMittel = mandelAbstandMittel * 0.875 + abstandMs * 0.125;
-    if (mandelAbstandMittel > 19) mandelBremse *= 0.94;
-    else if (mandelAbstandMittel < 15.5) mandelBremse *= 1.012;
+
+    /*
+     * Das Ziel ist der Takt *dieses* Bildschirms, nicht sechzig Bilder.
+     *
+     * Hier steckte ein Fehler, der ausgerechnet gute Rechner bestraft. Der
+     * Regler zielte fest auf 16,7 ms. Auf einem Bildschirm mit 144 Hz kommt
+     * der Bildtakt aber alle 6,9 ms - der Regler sah "viel zu schnell" und
+     * drehte die Aufloesung hoch, bis ein Bild 16,7 ms brauchte. Damit wird
+     * jede zweite Aktualisierung verpasst, und zwar unregelmaessig: Das ist
+     * genau das Ruckeln, das auf einem Spiele-Rechner gemeldet wurde,
+     * waehrend ein Tablet mit sechzig Hertz sauber lief.
+     *
+     * Der Takt laesst sich nicht erfragen, aber messen: Der kleinste je
+     * beobachtete Bildabstand *ist* die Bildschirmperiode - schneller als der
+     * Bildschirm kann niemand liefern. Der Wert wird langsam nach oben
+     * losgelassen, damit er sich anpasst, wenn das Fenster auf einen anderen
+     * Bildschirm wandert.
+     *
+     * Nach oben gedeckelt auf 16,8 ms: Ein Rechner, der nie schneller als
+     * dreissig Bilder schafft, soll daraus nicht schliessen, dreissig seien
+     * das Ziel - sonst hoert der Regler auf zu bremsen.
+     */
+    mandelTaktMs = Math.min(16.8, Math.max(4, Math.min(mandelTaktMs * 1.003, abstandMs)));
+    if (mandelAbstandMittel > mandelTaktMs * 1.14) mandelBremse *= 0.94;
+    else if (mandelAbstandMittel < mandelTaktMs * 1.02) mandelBremse *= 1.012;
     mandelBremse = Math.min(1, Math.max(0.05, mandelBremse));
 
     /*

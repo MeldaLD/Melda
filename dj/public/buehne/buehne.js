@@ -299,8 +299,24 @@ setInterval(() => {
   if (!bild) return;
   $('gueteWahl').value = bild.guetestufe;
   const ms = bild.bildMs;
-  const bilder = ms > 0.01 ? Math.min(60, Math.round(1000 / ms)) : 60;
-  $('bildTempo').textContent = `${ms.toFixed(1)} ms · ${bilder}/s`;
+  /*
+   * Die Bildrate wird nicht mehr bei sechzig gedeckelt.
+   *
+   * Der Deckel war eine stille Annahme: Auf einem Bildschirm mit 144 Hz zeigte
+   * die Anzeige "60/s", obwohl das Bild in Wahrheit schneller oder eben
+   * ruckelig lief - und damit verschwieg sie genau das Problem, das man an ihr
+   * ablesen wollte.
+   */
+  const bilder = ms > 0.01 ? Math.round(1000 / ms) : 0;
+  const m = window.__mandel;
+  const takt = m?.taktMs ? ` · Takt ${m.taktMs.toFixed(1)} ms` : '';
+  $('bildTempo').textContent = `${ms.toFixed(1)} ms · ${bilder}/s${takt}`;
+  // Ausfuehrlich nur im Tooltip - auf der Buehne soll es nicht stoeren, aber
+  // aus der Ferne ist es die erste Frage: Rechnet die Grafikkarte mit?
+  $('bildTempo').title = m
+    ? `${m.aufGpu ? `Grafikkarte: ${m.karte ?? 'unbekannt'}` : 'Hauptprozessor (Notfassung)'}\n` +
+      `Aufloesung ${(m.guete ?? 0).toFixed(2)} · Schritte ${m.schritte} · Tiefe ${(m.tiefe ?? 0).toFixed(1)}`
+    : '';
 }, 500);
 
 $('angleichAn').addEventListener('change', (e) => {
