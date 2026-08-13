@@ -37,32 +37,30 @@ const BPM_BIS = 185;
 export async function analysiere(puffer, beiSchritt = () => {}) {
   const dauer = puffer.duration;
 
-  beiSchritt('Lautheit');
-  const lufs = await lautheitMessen(puffer);
+  // Ein einziger Durchgang durch den Ton, in Scheiben. Danach ist nur noch die
+  // Huellkurve im Speicher, und alles Weitere rechnet auf ihr.
+  const messung = await messungSammeln(puffer, beiSchritt);
+  const { huellen, hops } = messung;
 
-  beiSchritt('Frequenzbaender');
-  const baender = await baenderRendern(puffer);
-  // Das Tiefband wird fuer Aufbau und Energie gebraucht. Es kommt aus
-  // derselben Bank - ein eigener Rendervorgang dafuer waere verschenkt.
-  const bass = baender[0];
+  beiSchritt('Lautheit');
+  const lufs = lautheitAusBloecken(messung.blockLautheiten);
 
   beiSchritt('Tempo');
-  const { bpm, raster, vertrauen, anschlaege, hops } = rasterBestimmen(baender, puffer.sampleRate);
+  const { bpm, raster, vertrauen, anschlaege } = rasterBestimmen(huellen, hops);
   const ohneRaster = vertrauen < VERTRAUENSSCHWELLE;
 
   beiSchritt('Verlauf');
-  const profil = profilBauen(baender, anschlaege, hops, bpm, raster, puffer.sampleRate, ohneRaster);
+  const profil = profilBauen(huellen, anschlaege, hops, bpm, raster, ohneRaster);
 
   beiSchritt('Aufbau');
-  const takte = taktEnergien(bass, puffer.sampleRate, bpm, raster);
+  const takte = taktEnergien(huellen[0], hops, bpm, raster);
   const einstiegBeat = ohneRaster ? 0 : einstiegFinden(takte);
   const { marken, phrasenVersatz } = ohneRaster
     ? { marken: [], phrasenVersatz: 0 }
     : strukturErkennen(profil, bpm, raster);
 
   beiSchritt('Energie');
-  const hoehen = await bandRendern(puffer, 'highpass', 3000);
-  const energie = energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops, vertrauen);
+  const energie = energieSchaetzen(messung, bpm, anschlaege, vertrauen);
 
   return {
     dauer,
@@ -115,22 +113,22 @@ function angleichBegrenzen(db) {
 //   b  Bassanteil - laeuft hier ein Fundament oder schwebt es nur?
 //   h  Hoehenanteil - Hi-Hats und Percussion, das Kennzeichen von Fahrt
 //   d  Anschlaege je Beat - wie dicht ist es hier?
-function profilBauen(baender, anschlaege, hops, bpm, raster, rate, ohneRaster) {
+function profilBauen(huellen, anschlaege, hops, bpm, raster, ohneRaster) {
   // Ohne Raster gibt es keine Takte. Dann wird in festen Zwei-Sekunden-
   // Abschnitten gerechnet, damit wenigstens der Verlauf stimmt.
   const taktSekunden = ohneRaster ? 2 : (60 / bpm) * 4;
   const versatz = ohneRaster ? 0 : raster;
-  const laenge = baender[0].length;
-  const takte = Math.floor((laenge / rate - versatz) / taktSekunden);
+  const laenge = huellen[0].length;
+  const takte = Math.floor((laenge / hops - versatz) / taktSekunden);
   if (!Number.isFinite(takte) || takte < 2) return [];
 
-  const tief = [baender[0], baender[1]];
-  const hoch = [baender[4], baender[5]];
+  const tief = [huellen[0], huellen[1]];
+  const hoch = [huellen[4], huellen[5]];
   const effektiv = (felder, von, bis) => {
     let summe = 0;
     let zahl = 0;
     for (const feld of felder) {
-      for (let i = von; i < bis; i += 4) {
+      for (let i = von; i < bis; i++) {
         summe += feld[i] * feld[i];
         zahl++;
       }
@@ -140,19 +138,18 @@ function profilBauen(baender, anschlaege, hops, bpm, raster, rate, ohneRaster) {
 
   const roh = [];
   for (let t = 0; t < takte; t++) {
-    const von = Math.max(0, Math.floor((versatz + t * taktSekunden) * rate));
-    const bis = Math.min(laenge, Math.floor((versatz + (t + 1) * taktSekunden) * rate));
-    if (bis - von < rate * 0.05) break;
+    const von = Math.max(0, Math.floor((versatz + t * taktSekunden) * hops));
+    const bis = Math.min(laenge, Math.floor((versatz + (t + 1) * taktSekunden) * hops));
+    if (bis - von < 2) break;
 
-    const gesamt = effektiv(baender, von, bis);
+    const gesamt = effektiv(huellen, von, bis);
     const unten = effektiv(tief, von, bis);
     const oben = effektiv(hoch, von, bis);
 
-    // Anschlaege im selben Fenster zaehlen.
+    // Anschlaege im selben Fenster zaehlen - dieselbe Zeitachse, dieselben
+    // Grenzen.
     let dichte = 0;
-    const hVon = Math.floor(((versatz + t * taktSekunden) * hops));
-    const hBis = Math.floor(((versatz + (t + 1) * taktSekunden) * hops));
-    for (let i = Math.max(0, hVon); i < Math.min(anschlaege.length, hBis); i++) {
+    for (let i = von; i < Math.min(anschlaege.length, bis); i++) {
       if (anschlaege[i] > 0.08) dichte++;
     }
 
@@ -394,24 +391,23 @@ function strukturErkennen(profil, bpm, raster) {
 //
 // Bewertet wird immer auf *beiden* Kurven. Sonst gewaenne jeder Anlauf auf
 // seiner eigenen Kurve, und der Vergleich waere keiner.
-function rasterBestimmen(baender, rate) {
-  const breit = anschlagskurve(baender, rate, true);
+function rasterBestimmen(huellen, hops, von = 0, bis = -1) {
+  const breit = anschlagskurve(huellen, true, von, bis);
   // Der zweite Anlauf ist bewusst das alte Verfahren: nur der Bassbereich,
   // roher Effektivwert. Es war jahrelang richtig und ist es bei Material mit
   // klarer Bassdrum immer noch - nur eben nicht bei allem.
-  const tief = anschlagskurve([baender[0], baender[1]], rate, false);
+  const tief = anschlagskurve([huellen[0], huellen[1]], false, von, bis);
 
-  const anlauf = (kurve, hops) => {
+  const anlauf = (kurve) => {
     const grob = tempoFinden(kurve, hops);
     const grobesRaster = rasterFinden(kurve, grob.bpm, grob.phase, hops);
     const { bpm, raster } = ausgleichen(kurve, grob.bpm, grobesRaster, hops);
     const punkte =
-      rasterVertrauen(breit.kurve, bpm, raster, breit.hops) +
-      rasterVertrauen(tief.kurve, bpm, raster, tief.hops);
+      rasterVertrauen(breit, bpm, raster, hops) + rasterVertrauen(tief, bpm, raster, hops);
     return { bpm, raster, punkte };
   };
 
-  const kandidaten = [anlauf(breit.kurve, breit.hops), anlauf(tief.kurve, tief.hops)];
+  const kandidaten = [anlauf(breit), anlauf(tief)];
   const sieger = kandidaten[0].punkte >= kandidaten[1].punkte ? kandidaten[0] : kandidaten[1];
 
   // Gemeldet wird der bessere der beiden Werte, nicht der der breiten Kurve.
@@ -425,11 +421,11 @@ function rasterBestimmen(baender, rate) {
     bpm: sieger.bpm,
     raster: sieger.raster,
     vertrauen: Math.max(
-      rasterVertrauen(breit.kurve, sieger.bpm, sieger.raster, breit.hops),
-      rasterVertrauen(tief.kurve, sieger.bpm, sieger.raster, tief.hops),
+      rasterVertrauen(breit, sieger.bpm, sieger.raster, hops),
+      rasterVertrauen(tief, sieger.bpm, sieger.raster, hops),
     ),
-    anschlaege: breit.kurve,
-    hops: breit.hops,
+    anschlaege: breit,
+    hops,
   };
 }
 
@@ -512,51 +508,10 @@ function rasterVertrauen(kurve, bpm, raster, hops) {
 // ein (die Ohren hoeren Baesse leiser) und laesst dann die stillen Stellen
 // weg. Beides bilden wir nach - die Filter mit dem Browser, das Tor in JS.
 
-async function lautheitMessen(puffer) {
-  const ctx = new OfflineAudioContext(
-    puffer.numberOfChannels,
-    puffer.length,
-    puffer.sampleRate,
-  );
-  const quelle = ctx.createBufferSource();
-  quelle.buffer = puffer;
-
-  // Stufe 1: Hochtonanhebung, die den Kopf des Hoerers nachbildet.
-  const regal = ctx.createBiquadFilter();
-  regal.type = 'highshelf';
-  regal.frequency.value = 1681.97;
-  regal.gain.value = 3.999;
-  regal.Q.value = 0.7071;
-
-  // Stufe 2: Hochpass, der die untersten Frequenzen herausnimmt.
-  const hochpass = ctx.createBiquadFilter();
-  hochpass.type = 'highpass';
-  hochpass.frequency.value = 38.13;
-  hochpass.Q.value = 0.5003;
-
-  quelle.connect(regal).connect(hochpass).connect(ctx.destination);
-  quelle.start();
-  const gewichtet = await ctx.startRendering();
-
-  // Bloecke von 400 ms mit 75 Prozent Ueberlappung, wie in der Norm.
-  const rate = gewichtet.sampleRate;
-  const blockLaenge = Math.round(0.4 * rate);
-  const schritt = Math.round(blockLaenge / 4);
-  const kanaele = [];
-  for (let k = 0; k < gewichtet.numberOfChannels; k++) kanaele.push(gewichtet.getChannelData(k));
-
-  const blockLautheiten = [];
-  for (let start = 0; start + blockLaenge <= gewichtet.length; start += schritt) {
-    let summe = 0;
-    for (const daten of kanaele) {
-      let teil = 0;
-      for (let i = start; i < start + blockLaenge; i++) teil += daten[i] * daten[i];
-      // Alle Kanaele mit Gewicht 1 - bei Stereo entspricht das der Norm.
-      summe += teil / blockLaenge;
-    }
-    blockLautheiten.push(-0.691 + 10 * Math.log10(summe + 1e-12));
-  }
-
+// Die K-Bewertung und die 400-ms-Bloecke stehen in messungSammeln - dort
+// laeuft der Ton ohnehin scheibenweise vorbei. Hier bleibt nur die Torschaltung
+// der Norm, und die rechnet auf der Liste der Bloecke, nicht auf dem Ton.
+function lautheitAusBloecken(blockLautheiten) {
   if (blockLautheiten.length === 0) return -70;
 
   // Erstes Tor: alles unter -70 LUFS ist Stille und zaehlt nicht.
@@ -575,28 +530,6 @@ async function lautheitMessen(puffer) {
   const schwelle = mittel(ueberAbsolut) - 10;
   const uebrig = ueberAbsolut.filter((l) => l > schwelle);
   return uebrig.length > 0 ? mittel(uebrig) : mittel(ueberAbsolut);
-}
-
-// --- Ein Frequenzband herausrechnen ---------------------------------------
-
-async function bandRendern(puffer, art, frequenz) {
-  // Mono reicht und halbiert die Arbeit.
-  const ctx = new OfflineAudioContext(1, puffer.length, puffer.sampleRate);
-  const quelle = ctx.createBufferSource();
-  quelle.buffer = puffer;
-
-  // Zweimal filtern: eine einzelne Stufe laesst zu viel durch, und ein
-  // weicher Uebergang verwischt genau die Kanten, die wir suchen.
-  const a = ctx.createBiquadFilter();
-  const b = ctx.createBiquadFilter();
-  a.type = b.type = art;
-  a.frequency.value = b.frequency.value = frequenz;
-  a.Q.value = b.Q.value = 0.7071;
-
-  quelle.connect(a).connect(b).connect(ctx.destination);
-  quelle.start();
-  const fertig = await ctx.startRendering();
-  return fertig.getChannelData(0);
 }
 
 // --- Die Filterbank -------------------------------------------------------
@@ -623,36 +556,226 @@ const ANSCHLAG_BAENDER = [
   [5000, 12000],
 ];
 
-async function baenderRendern(puffer) {
+// --- Messen in Scheiben ---------------------------------------------------
+//
+// Warum ueberhaupt in Scheiben - und nicht, wie vorher, am Stueck:
+//
+// Die Filterbank legte einen OfflineAudioContext mit sechs Kanaelen ueber die
+// *volle* Laenge. Bei einem Sechsminueter sind das 190 MB und niemandem faellt
+// etwas auf. Bei einem Mix von einer Stunde sind es
+//
+//     3600 s * 22050 Hz * 4 Byte * 6 Kanaele = 1,9 GB,
+//
+// dazu der dekodierte Puffer und nochmal ein Vollpass fuer die Hoehen und
+// einer fuer die Lautheit. Das ist kein Geraet-Problem, das ist Bauart: Der
+// Bedarf waechst mit der Laenge, und ab etwa zwanzig Minuten ist Schluss.
+//
+// Der Ausweg liegt darin, was wir eigentlich brauchen. Kein Mensch braucht
+// die gefilterten Abtastwerte - gebraucht wird die *Huellkurve*: ein
+// Effektivwert je Fuenf-Millisekunden-Fenster. Das sind 200 Zahlen je Sekunde
+// statt 22050, ein Zweihundertstel. Fuer eine Stunde und sieben Baender:
+//
+//     3600 s * 200 * 4 Byte * 7 = 20 MB.
+//
+// Also wird der Ton in Scheiben von dreissig Sekunden durch die Filterbank
+// geschickt, jede Scheibe sofort zur Huellkurve eingedampft und der Ton
+// weggeworfen. Der Bedarf haengt damit an der Scheibe, nicht an der Datei -
+// eine Stunde kostet nicht mehr als eine Minute.
+//
+// Nebenbei faellt ein Vollpass weg: Hoehen und K-Bewertung fuer die Lautheit
+// laufen als weitere Kanaele in derselben Scheibe mit. Wo vorher drei Mal
+// ueber die ganze Datei gerechnet wurde, wird jetzt ein Mal darueber
+// gegangen.
+const SCHEIBE_SEKUNDEN = 30;
+// Ein Vorlauf, den wir wieder wegwerfen. Ein Biquad-Filter hat ein Gedaechtnis;
+// faengt eine Scheibe bei null Zustand an, schwingt er sich erst ein, und
+// dieser Einschwinger sieht in der Huellkurve aus wie ein Anschlag. Eine
+// Sekunde Vorlauf ist fuer jeden dieser Filter mehr als genug.
+const VORLAUF_SEKUNDEN = 1;
+
+// Ab hier gilt es als "Hoehen" - Hi-Hats, Percussion, verzerrte Synths.
+const HOEHEN_AB = 3000;
+
+// Kanalbelegung einer Scheibe.
+const KANAL_HOEHEN = ANSCHLAG_BAENDER.length; // 6
+const KANAL_LAUT = ANSCHLAG_BAENDER.length + 1; // 7 und 8
+const KANAELE_JE_SCHEIBE = ANSCHLAG_BAENDER.length + 3;
+
+/**
+ * Eine Scheibe durch die Filterbank schicken.
+ *
+ * Gibt einen Puffer mit KANAELE_JE_SCHEIBE Kanaelen zurueck: sechs
+ * Anschlagsbaender, ein Hochpass fuer die Helligkeit und zwei K-bewertete
+ * Kanaele fuer die Lautheit.
+ */
+async function scheibeRendern(puffer, von, bis) {
   const rate = puffer.sampleRate;
+  const laenge = bis - von;
   const hoechste = rate * 0.47; // knapp unter Nyquist, sonst rechnet der Filter Unsinn
-  const ctx = new OfflineAudioContext(ANSCHLAG_BAENDER.length, puffer.length, rate);
+  const ctx = new OfflineAudioContext(KANAELE_JE_SCHEIBE, laenge, rate);
   const quelle = ctx.createBufferSource();
   quelle.buffer = puffer;
+  const verteiler = ctx.createChannelMerger(KANAELE_JE_SCHEIBE);
 
-  const verteiler = ctx.createChannelMerger(ANSCHLAG_BAENDER.length);
-
-  ANSCHLAG_BAENDER.forEach(([von, bis], nummer) => {
-    const stufe = (art, hz) => {
-      const f = ctx.createBiquadFilter();
-      f.type = art;
-      f.frequency.value = Math.min(hz, hoechste);
-      f.Q.value = 0.7071;
-      return f;
-    };
-    // Je zwei Stufen pro Flanke - eine einzelne laesst zu viel vom Nachbarband
-    // durch, und dann waere die Trennung wertlos.
-    const kette = [stufe('highpass', von), stufe('highpass', von), stufe('lowpass', bis), stufe('lowpass', bis)];
+  const stufe = (art, hz, guete = 0.7071, verstaerkung = 0) => {
+    const f = ctx.createBiquadFilter();
+    f.type = art;
+    f.frequency.value = Math.min(hz, hoechste);
+    f.Q.value = guete;
+    if (verstaerkung) f.gain.value = verstaerkung;
+    return f;
+  };
+  const kette = (knoten, ziel) => {
     let letzter = quelle;
-    for (const knoten of kette) letzter = letzter.connect(knoten);
-    letzter.connect(verteiler, 0, nummer);
+    for (const k of knoten) letzter = letzter.connect(k);
+    return letzter.connect(verteiler, 0, ziel);
+  };
+
+  // Je zwei Stufen pro Flanke - eine einzelne laesst zu viel vom Nachbarband
+  // durch, und dann waere die Trennung wertlos.
+  ANSCHLAG_BAENDER.forEach(([vonHz, bisHz], nummer) => {
+    kette(
+      [stufe('highpass', vonHz), stufe('highpass', vonHz), stufe('lowpass', bisHz), stufe('lowpass', bisHz)],
+      nummer,
+    );
   });
 
+  // Die Helligkeit. Zweimal filtern, aus demselben Grund.
+  kette([stufe('highpass', HOEHEN_AB), stufe('highpass', HOEHEN_AB)], KANAL_HOEHEN);
+
+  /*
+   * Die K-Bewertung nach EBU R128 - Kopfnachbildung und Hochpass.
+   *
+   * Sie braucht die Kanaele einzeln, weil die Norm die Energie je Kanal
+   * aufsummiert. Eine Mono-Summe waere etwas anderes: Bei breit abgemischtem
+   * Material heben sich Anteile gegenseitig auf, und der Track kaeme leiser
+   * heraus, als er ist.
+   */
+  const regal = stufe('highshelf', 1681.97, 0.7071, 3.999);
+  const hochpass = stufe('highpass', 38.13, 0.5003);
+  const teiler = ctx.createChannelSplitter(2);
+  quelle.connect(regal).connect(hochpass).connect(teiler);
+  teiler.connect(verteiler, 0, KANAL_LAUT);
+  teiler.connect(verteiler, 1, KANAL_LAUT + 1);
+
   verteiler.connect(ctx.destination);
-  quelle.start();
-  const fertig = await ctx.startRendering();
-  return ANSCHLAG_BAENDER.map((_, i) => fertig.getChannelData(i));
+  quelle.start(0, von / rate, laenge / rate);
+  return ctx.startRendering();
 }
+
+/**
+ * Einmal ueber die ganze Datei, in Scheiben, und alles einsammeln, was danach
+ * gebraucht wird. Der Ton selbst wird dabei nicht behalten.
+ *
+ * Zurueck kommt:
+ *   hops            tatsaechliche Fenster je Sekunde (siehe anschlagskurve)
+ *   huellen         je Anschlagsband ein Effektivwert pro Fenster
+ *   hoehenHuelle    dasselbe fuer den Hochpass ueber 3 kHz
+ *   blockLautheiten 400-ms-Bloecke nach EBU R128, ungefiltert
+ *   rohEffektiv, rohSpitze   fuer den Scheitelfaktor in der Energie
+ */
+async function messungSammeln(puffer, beiSchritt = () => {}) {
+  const rate = puffer.sampleRate;
+  const laenge = puffer.length;
+  // Die Fensterlaenge muss eine ganze Zahl von Abtastwerten sein, also ist die
+  // tatsaechliche Aufloesung nie genau HOPS_PRO_SEKUNDE. Bei 44,1 kHz sind es
+  // 220 statt 220,5 Abtastwerte - und damit 200,45 statt 200 Punkte je
+  // Sekunde. Wer weiter mit dem Sollwert rechnet, misst jedes Tempo um 0,23
+  // Prozent zu hoch. Deshalb wird die echte Rate zurueckgegeben und ueberall
+  // sie benutzt.
+  const fenster = Math.round(rate / HOPS_PRO_SEKUNDE);
+  const hops = rate / fenster;
+  const hopsGesamt = Math.floor(laenge / fenster);
+
+  const huellen = ANSCHLAG_BAENDER.map(() => new Float32Array(hopsGesamt));
+  const hoehenHuelle = new Float32Array(hopsGesamt);
+  const blockLautheiten = [];
+
+  /*
+   * Der Rohwert fuer den Scheitelfaktor kommt direkt aus dem dekodierten
+   * Puffer - ungefiltert, ohne Rendern. Jeder siebte Abtastwert reicht: Bei
+   * 22 kHz sind das immer noch dreitausend Stichproben je Sekunde, und
+   * gesucht ist eine Statistik ueber Minuten, kein Einzelereignis.
+   */
+  const roh = puffer.getChannelData(0);
+  let rohSumme = 0;
+  let rohZahl = 0;
+  let rohSpitze = 0;
+  for (let i = 0; i < laenge; i += 7) {
+    const wert = roh[i];
+    rohSumme += wert * wert;
+    rohZahl++;
+    const betrag = wert < 0 ? -wert : wert;
+    if (betrag > rohSpitze) rohSpitze = betrag;
+  }
+
+  // Bloecke von 400 ms mit 75 Prozent Ueberlappung, wie in der Norm.
+  const blockLaenge = Math.round(0.4 * rate);
+  const blockSchritt = Math.round(blockLaenge / 4);
+  const kanaeleEcht = Math.min(2, puffer.numberOfChannels);
+
+  const hopsProScheibe = Math.max(1, Math.floor(SCHEIBE_SEKUNDEN * hops));
+  const vorlauf = Math.round(VORLAUF_SEKUNDEN * rate);
+  const scheiben = Math.max(1, Math.ceil(hopsGesamt / hopsProScheibe));
+
+  for (let nummer = 0; nummer < scheiben; nummer++) {
+    const hopVon = nummer * hopsProScheibe;
+    const hopBis = Math.min(hopsGesamt, hopVon + hopsProScheibe);
+    if (hopBis <= hopVon) break;
+
+    const kernVon = hopVon * fenster;
+    const kernBis = hopBis * fenster;
+    // Der Vorlauf ist zum Einschwingen der Filter da, der Nachlauf, damit ein
+    // Lautheitsblock, der in dieser Scheibe *beginnt*, auch vollstaendig in
+    // ihr liegt.
+    const von = Math.max(0, kernVon - vorlauf);
+    const bis = Math.min(laenge, kernBis + blockLaenge);
+    if (bis - von < fenster) break;
+
+    beiSchritt(`Messen ${Math.round((nummer / scheiben) * 100)} %`);
+    const scheibe = await scheibeRendern(puffer, von, bis);
+
+    // Effektivwert je Fenster, fuer jedes Band.
+    for (let band = 0; band <= ANSCHLAG_BAENDER.length; band++) {
+      const daten = scheibe.getChannelData(band === ANSCHLAG_BAENDER.length ? KANAL_HOEHEN : band);
+      const ziel = band === ANSCHLAG_BAENDER.length ? hoehenHuelle : huellen[band];
+      for (let h = hopVon; h < hopBis; h++) {
+        const start = h * fenster - von;
+        let summe = 0;
+        for (let i = start; i < start + fenster; i++) summe += daten[i] * daten[i];
+        ziel[h] = Math.sqrt(summe / fenster);
+      }
+    }
+
+    // Lautheitsbloecke, die in dieser Scheibe beginnen.
+    const laut = [];
+    for (let k = 0; k < kanaeleEcht; k++) laut.push(scheibe.getChannelData(KANAL_LAUT + k));
+    const erster = Math.ceil(kernVon / blockSchritt);
+    for (let m = erster; m * blockSchritt < kernBis; m++) {
+      const start = m * blockSchritt;
+      if (start + blockLaenge > laenge) break;
+      const inScheibe = start - von;
+      let summe = 0;
+      for (const daten of laut) {
+        let teil = 0;
+        for (let i = inScheibe; i < inScheibe + blockLaenge; i++) teil += daten[i] * daten[i];
+        // Alle Kanaele mit Gewicht 1 - bei Stereo entspricht das der Norm.
+        summe += teil / blockLaenge;
+      }
+      blockLautheiten.push(-0.691 + 10 * Math.log10(summe + 1e-12));
+    }
+  }
+
+  return {
+    hops,
+    huellen,
+    hoehenHuelle,
+    blockLautheiten,
+    rohEffektiv: Math.sqrt(rohSumme / Math.max(1, rohZahl)),
+    rohSpitze,
+  };
+}
+
 
 // --- Anschlagskurve -------------------------------------------------------
 //
@@ -661,10 +784,15 @@ async function baenderRendern(puffer) {
 // behalten, was gegenueber dem Fenster davor zugenommen hat.
 
 /**
- * Anschlagskurve aus einer Reihe von Baendern.
+ * Anschlagskurve aus den Huellkurven einer Reihe von Baendern.
  *
- * @param {Float32Array[]} baender
- * @param {number} rate
+ * `von` und `bis` schneiden ein Stueck heraus - das braucht die Tempo-Karte,
+ * die dieselbe Rechnung fensterweise ueber einen langen Mix laufen laesst. Der
+ * Bezugsmittelwert wird dann nur aus dem Ausschnitt gebildet, und das ist auch
+ * richtig so: Ein leiser Ambient-Teil soll nicht daran gemessen werden, wie
+ * laut es zwanzig Minuten spaeter zugeht.
+ *
+ * @param {Float32Array[]} huellen  je Band ein Effektivwert pro Fenster
  * @param {boolean} logarithmisch
  *        true  - jedes Band auf den gemeinsamen Mittelwert bezogen und
  *                logarithmiert. Bringt leise Baender ueberhaupt erst zur
@@ -674,35 +802,16 @@ async function baenderRendern(puffer) {
  *                gerechnet, und fuer Material mit klarer Bassdrum ist es bis
  *                heute das treffsicherere Verfahren.
  */
-function anschlagskurve(baender, rate, logarithmisch = true) {
-  // Die Fensterlaenge muss eine ganze Zahl von Abtastwerten sein, also ist die
-  // tatsaechliche Aufloesung nie genau HOPS_PRO_SEKUNDE. Bei 44,1 kHz sind es
-  // 220 statt 220,5 Abtastwerte - und damit 200,45 statt 200 Punkte je
-  // Sekunde. Wer weiter mit dem Sollwert rechnet, misst jedes Tempo um 0,23
-  // Prozent zu hoch. Deshalb wird die echte Rate zurueckgegeben und ueberall
-  // sie benutzt.
-  const fenster = Math.round(rate / HOPS_PRO_SEKUNDE);
-  const hops = rate / fenster;
-  const anzahl = Math.floor(baender[0].length / fenster);
+function anschlagskurve(huellen, logarithmisch = true, von = 0, bis = -1) {
+  const ende = bis < 0 ? huellen[0].length : Math.min(bis, huellen[0].length);
+  const anzahl = Math.max(0, ende - von);
   const kurve = new Float32Array(anzahl);
-  const huellen = [];
   const mittelwerte = [];
 
-  for (const band of baender) {
-    // Effektivwert je Fenster.
-    const huelle = new Float32Array(anzahl);
+  for (const huelle of huellen) {
     let mittel = 0;
-    for (let i = 0; i < anzahl; i++) {
-      let summe = 0;
-      const von = i * fenster;
-      for (let j = von; j < von + fenster; j++) summe += band[j] * band[j];
-      huelle[i] = Math.sqrt(summe / fenster);
-      mittel += huelle[i];
-    }
-    mittel = mittel / anzahl || 1e-12;
-
-    huellen.push(huelle);
-    mittelwerte.push(mittel);
+    for (let i = 0; i < anzahl; i++) mittel += huelle[von + i];
+    mittelwerte.push(mittel / anzahl || 1e-12);
   }
 
   // Der Bezugswert ist der Mittelwert *aller* Baender, nicht der des eigenen.
@@ -727,7 +836,8 @@ function anschlagskurve(baender, rate, logarithmisch = true) {
     // Kick von 0,1 auf 0,4.
     let vorher = 0;
     for (let i = 0; i < anzahl; i++) {
-      const jetzt = logarithmisch ? Math.log(1 + huelle[i] / gesamtMittel) : huelle[i];
+      const wert = huelle[von + i];
+      const jetzt = logarithmisch ? Math.log(1 + wert / gesamtMittel) : wert;
       kurve[i] += Math.max(0, jetzt - vorher);
       vorher = jetzt;
     }
@@ -739,7 +849,7 @@ function anschlagskurve(baender, rate, logarithmisch = true) {
   for (const wert of kurve) if (wert > hoechster) hoechster = wert;
   if (hoechster > 0) for (let i = 0; i < kurve.length; i++) kurve[i] /= hoechster;
 
-  return { kurve: zuspitzen(kurve), hops };
+  return zuspitzen(kurve);
 }
 
 // Eine Bassdrum ist im Tiefband kein Nadelstich, sondern ein breiter Huegel -
@@ -1161,15 +1271,20 @@ function einmalAusgleichen(kurve, bpm, raster, anteil, hops) {
 
 // Bassenergie je Takt. Daran haengt alles Weitere: Wo faellt die Bassdrum weg
 // (Breakdown), wo kommt sie schlagartig zurueck (Drop), wo hoert sie auf (Outro).
-function taktEnergien(bass, rate, bpm, raster) {
+// Der Effektivwert eines Taktes kommt jetzt aus der Huellkurve statt aus den
+// Abtastwerten. Das ist keine Naeherung: Die Huelle *ist* der Effektivwert je
+// Fenster, und der Effektivwert ueber mehrere Fenster ist die Wurzel aus ihrem
+// mittleren Quadrat. Bei gleich langen Fenstern kommt exakt dasselbe heraus -
+// nur eben aus zweihundert Zahlen je Sekunde statt aus zweiundzwanzigtausend.
+function taktEnergien(bassHuelle, hops, bpm, raster) {
   const taktSekunden = (60 / bpm) * 4;
-  const anzahl = Math.floor((bass.length / rate - raster) / taktSekunden);
+  const anzahl = Math.floor((bassHuelle.length / hops - raster) / taktSekunden);
   const werte = [];
   for (let t = 0; t < anzahl; t++) {
-    const von = Math.floor((raster + t * taktSekunden) * rate);
-    const bis = Math.min(bass.length, Math.floor((raster + (t + 1) * taktSekunden) * rate));
+    const von = Math.max(0, Math.floor((raster + t * taktSekunden) * hops));
+    const bis = Math.min(bassHuelle.length, Math.floor((raster + (t + 1) * taktSekunden) * hops));
     let summe = 0;
-    for (let i = von; i < bis; i++) summe += bass[i] * bass[i];
+    for (let i = von; i < bis; i++) summe += bassHuelle[i] * bassHuelle[i];
     werte.push(Math.sqrt(summe / Math.max(1, bis - von)));
   }
   return werte;
@@ -1246,23 +1361,15 @@ function einstiegFinden(takte) {
 // allein** aussagekraeftig ist: Frueher wurde er hinterher durch den Rang in
 // der Bibliothek ersetzt, und bei zwei Tracks kamen dabei zwangslaeufig 0 und
 // 100 Prozent heraus. Der Rang darf nachjustieren, nicht bestimmen.
-function energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops, vertrauen = 1) {
-  const daten = puffer.getChannelData(0);
+function energieSchaetzen(messung, bpm, anschlaege, vertrauen = 1) {
+  const { hops, huellen, hoehenHuelle, rohEffektiv, rohSpitze } = messung;
+  const gesamt = rohEffektiv;
+  const spitze = rohSpitze;
 
-  let summe = 0;
-  let spitze = 0;
-  for (let i = 0; i < daten.length; i += 7) {
-    const wert = daten[i];
-    summe += wert * wert;
-    const betrag = Math.abs(wert);
-    if (betrag > spitze) spitze = betrag;
-  }
-  const gesamt = Math.sqrt(summe / (daten.length / 7));
-
-  const effektiv = (band) => {
+  const effektiv = (huelle) => {
     let s = 0;
-    for (let i = 0; i < band.length; i += 7) s += band[i] * band[i];
-    return Math.sqrt(s / (band.length / 7));
+    for (let i = 0; i < huelle.length; i++) s += huelle[i] * huelle[i];
+    return Math.sqrt(s / Math.max(1, huelle.length));
   };
 
   // 1. Tempo. Techno lebt zwischen 125 und 150.
@@ -1277,7 +1384,7 @@ function energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops, vertrauen
   const dichte = spanne(proBeat, 0.8, 3.5);
 
   // 3. Helligkeit: Hihats, Percussion, verzerrte Synths.
-  const hoehenAnteil = gesamt > 0 ? effektiv(hoehen) / gesamt : 0;
+  const hoehenAnteil = gesamt > 0 ? effektiv(hoehenHuelle) / gesamt : 0;
   const helligkeit = spanne(hoehenAnteil, 0.05, 0.45);
 
   // 4. Druck ueber den Scheitelfaktor. Ein totkomprimiertes Master hat wenig
@@ -1288,7 +1395,7 @@ function energieSchaetzen(puffer, bass, hoehen, bpm, anschlaege, hops, vertrauen
 
   // Der Bass traegt, ist aber kein Unterscheidungsmerkmal - fast jeder
   // Clubtrack hat viel davon. Deshalb nur als leichter Zuschlag.
-  const bassAnteil = gesamt > 0 ? effektiv(bass) / gesamt : 0;
+  const bassAnteil = gesamt > 0 ? effektiv(huellen[0]) / gesamt : 0;
   const fundament = spanne(bassAnteil, 0.3, 0.9);
 
   // Tempo und Dichte haengen beide am erkannten Raster. Ist dem nicht zu
