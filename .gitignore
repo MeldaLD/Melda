@@ -44,3 +44,7 @@ next-env.d.ts
 # supabase cli
 /supabase/.temp
 /supabase/.branches
+
+# Die Musik selbst gehoert nicht ins Repo. Fuenf Stundenmixe sind schnell ein
+# halbes Gigabyte, und sie sind ohnehin auf dem Rechner, auf dem gespielt wird.
+/dj/musik/

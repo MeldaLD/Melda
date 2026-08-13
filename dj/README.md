@@ -111,11 +111,44 @@ YouTube-Wunsch wird also nicht abgelehnt, er wartet. Details in
 | Adresse | Wofuer |
 | --- | --- |
 | `/buehne` | Das Fenster fuer den Monitor |
+| `/aufnahme` | Musik aus `musik/` vermessen und in die Bibliothek holen |
 | `/p` | Notfall-Abstimmung im lokalen WLAN |
 | `/` | Uebersicht |
 
 Musik gehoert nach `musik/` (wird nicht mit eingecheckt). Solange die
 Bibliothek leer ist, laeuft der Server, hat aber nichts zu spielen.
+
+## Der Abend selbst: alles auf einem Rechner
+
+Am Partyabend braucht nichts davon Vercel, Supabase oder Netz. Drei Schritte,
+einmal vorher:
+
+```bash
+# 1. Musik nach dj/musik/ legen - kopieren reicht, oder:
+npm run einlesen -- "https://www.youtube.com/watch?v=…"
+
+# 2. Server starten
+npm start
+
+# 3. http://localhost:3000/aufnahme oeffnen, "Vermessen" druecken
+```
+
+Danach `/buehne` oeffnen und loslegen. Die Messung laeuft im Browser, mit
+derselben `analyse.js`, die auch die Buehne benutzt – zwei Fassungen davon
+waeren zwei Fassungen des Beatrasters. Ein Stundenmix braucht dafuer ein bis
+zwei Minuten; das Fenster muss so lange offen bleiben. Das Ergebnis steht in
+`bibliothek.json` und bleibt dort, bis es neu vermessen wird.
+
+**Stundenmixe gehen.** Bei einem DJ-Set von einer Stunde ist "das Tempo der
+Datei" keine sinnvolle Groesse – da laufen zwanzig Stuecke hintereinander,
+jedes mit eigenem Tempo, eigenem Beginn und eigenen Drops. Die Messung legt
+deshalb eine **Tempo-Karte** an: je Stueck ein Abschnitt mit eigenem Raster.
+Die Aufnahmeseite zeigt das an ("16 Stuecke, 128–150 BPM"), und die
+Visualisierung findet ihre Drops ueber die ganze Laenge statt gar keine.
+
+Ein Hinweis zum Browser: **Chrome oder Edge**, nicht Firefox. Das Fraktal
+laeuft auf WebGL 2, und mit AMD-Grafik unter Windows ist der ANGLE-Weg ueber
+Direct3D dort deutlich verlaesslicher.
 
 ## Was du einstellst
 

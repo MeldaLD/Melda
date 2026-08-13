@@ -90,7 +90,8 @@ server.listen(PORT, () => {
   console.log('');
   console.log(`  ${bibliothek.length} Tracks in der Bibliothek`);
   if (bibliothek.length === 0) {
-    console.log('  -> Musik nach musik/ legen und den Analyselauf starten (siehe PLAN.md).');
+    console.log(`  -> Musik nach musik/ legen, dann http://localhost:${PORT}/aufnahme oeffnen`);
+    console.log('     und "Vermessen" druecken. Danach steht sie hier.');
   }
   console.log('');
 });
@@ -107,6 +108,9 @@ async function behandeln(anfrage, antwort) {
   if (weg === '/p' || weg === '/telefon') {
     return datei(antwort, path.join(OEFFENTLICH, 'telefon/index.html'));
   }
+  // Die Bibliothek fuellen, ohne Vercel und ohne Supabase - siehe
+  // public/aufnahme/aufnahme.js.
+  if (weg === '/aufnahme') return datei(antwort, path.join(OEFFENTLICH, 'aufnahme/index.html'));
   // Ein Notenkopf als Symbol im Browsertab. Inline, damit keine Datei fehlen kann.
   if (weg === '/favicon.ico' || weg === '/favicon.svg') {
     const svg =
