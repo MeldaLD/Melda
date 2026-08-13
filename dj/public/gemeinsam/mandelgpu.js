@@ -431,7 +431,9 @@ export function gpuZeichnen(lage) {
     feldHoehe = h;
   }
 
+  const vorBahn = performance.now();
   bahnSichern(ziel, schritte);
+  const bahnMs = performance.now() - vorBahn;
 
   gl.useProgram(programm);
   gl.viewport(0, 0, b, h);
@@ -451,7 +453,7 @@ export function gpuZeichnen(lage) {
   gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
 
-  return { leinwand, breite: b, hoehe: h, bahnSchritte };
+  return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs };
 }
 
 /**

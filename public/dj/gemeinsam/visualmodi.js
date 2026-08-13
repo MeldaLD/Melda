@@ -394,6 +394,9 @@ const MANDEL_BUDGET_MS = 12;
 // auf denselben Wert beziehen wie die Schranke selbst - sonst ist sie nie
 // erfuellt, und es wird nie umgeschaltet.
 const MANDEL_GUETE_MIN = 0.22;
+// Unter diesem Durchsatz ist keine Grafikkarte am Werk. Der Wert steht
+// zwischen den beiden Groessenordnungen und wird in der Abnahme nachgemessen.
+const MANDEL_DURCHSATZ_MIN = 2.5e5;
 /*
  * Das Bild wird nicht mehr in jedem Bild neu gerechnet.
  *
@@ -461,7 +464,8 @@ export function gueteZuruecksetzen() {
   mandelWerteAlt = null;
   mandelSchnappschuss = null;
   mandelGrundierenNoetig = true;
-  mandelGuete = 1;
+  mandelGuete = 0.45;
+  mandelDurchsatz = 4e5;
   mandelGpuZaeh = 0;
   mandelDauer = 8;
   mandelUeberblendung = 0;
@@ -541,7 +545,29 @@ let mandelSchnappschussNehmen = false;
 // So lange dauert die Ueberblendung in Sekunden.
 const MANDEL_UEBERBLEND = 1.5;
 // Der Regler fuer die Grafikkarte: Anteil der vollen Aufloesung.
-let mandelGuete = 1;
+/*
+ * Vorsichtig anfangen.
+ *
+ * Der Regler stand beim Start auf 1, also volle Aufloesung. Auf einem
+ * Bildschirm mit 1920 Punkten und doppelter Punktdichte sind das 8,3
+ * Millionen Bildpunkte, und seit die Schrittzahl aus der Stichprobe kommt,
+ * koennen es 15000 Schritte je Punkt sein. Das erste Bild dauerte damit auf
+ * einem Spiele-Rechner Sekunden - und der Notausgang schloss daraus, es sei
+ * keine Grafikkarte da, und schaltete dauerhaft auf den Hauptprozessor. Von
+ * unten kommt der Regler in zwei, drei Bildern nach oben; von oben kam er nie
+ * zurueck.
+ */
+let mandelGuete = 0.45;
+/*
+ * Der gemessene Durchsatz in Punkt-Schritten je Millisekunde.
+ *
+ * Das ist die Groesse, die eine Grafikkarte von einem Nachbau in Software
+ * unterscheidet - und zwar um Groessenordnungen, nicht um Prozente. Die
+ * Bildzeit taugt dafuer nicht: Sie vermengt die Leistung mit der Arbeit, und
+ * ein langsames Bild kann ebensogut heissen, dass die Stelle gerade 15000
+ * Schritte braucht. Der Durchsatz trennt beides.
+ */
+let mandelDurchsatz = 4e5;
 let mandelAufGpu = null;
 // Zaehlt aufeinanderfolgende zu langsame Bilder auf der Grafikkarte.
 let mandelGpuZaeh = 0;
@@ -595,6 +621,17 @@ let mandelSpreizung = 1;
 let mandelProbeMs = 0;
 // Wie lange die Grafikkarte schon laeuft, seit sie zuletzt gewaehlt wurde.
 let mandelSeitGpu = 0;
+/*
+ * Seit wann laeuft die Notfassung? Der Rueckzug ist widerruflich.
+ *
+ * Er war endgueltig, und das hat auf einem Spiele-Rechner den ganzen Abend
+ * gekostet: ein Fehlurteil in den ersten Sekunden, und danach lief die
+ * Notfassung auf einer Maschine, die das Hundertfache geschafft haette. Alle
+ * anderthalb Minuten wird die Karte deshalb noch einmal gefragt. Faellt das
+ * Urteil wieder gegen sie, kostet das ein paar Bilder - und wenn es beim
+ * ersten Mal falsch war, ist es nach neunzig Sekunden geheilt.
+ */
+let mandelSeitAufgabe = 1e9;
 const MANDEL_SCHONZEIT = 5;
 /*
  * Die Sperrfrist war zwanzig Sekunden lang, weil das Mass unzuverlaessig war
@@ -1376,6 +1413,16 @@ function mandelbrotZeichnen(stift, lage) {
 
   // --- Der schnelle Weg: Grafikkarte --------------------------------------
 
+  if (mandelAufGpu === false) {
+    mandelSeitAufgabe += sekunden;
+    if (mandelSeitAufgabe > 90) {
+      mandelAufGpu = null;
+      mandelSeitGpu = 0;
+      mandelGuete = 0.45;
+      mandelDurchsatz = 4e5;
+      mandelGpuZaeh = 0;
+    }
+  }
   if (mandelAufGpu === null) mandelAufGpu = gpuBereit();
   if (mandelAufGpu) {
     mandelSeitGpu += sekunden;
@@ -1450,6 +1497,7 @@ function mandelbrotZeichnen(stift, lage) {
         schritte: schritteGpu,
         breite: bild.breite,
         guete: Math.min(mandelGuete, stufe.fraktal),
+        durchsatz: mandelDurchsatz,
         dreh: mandelDrehung,
         dichte,
         versatz: versatzJetzt,
@@ -1465,7 +1513,11 @@ function mandelbrotZeichnen(stift, lage) {
 
     mandelAufsBild(stift, bild.leinwand, bild.breite, bild.hoehe, breite, hoehe, wucht, sekunden);
 
-    const gebrauchtGpu = Math.max(0.2, performance.now() - begonnenGpu);
+    const gebrauchtGpu = Math.max(0.2, performance.now() - begonnenGpu - bild.bahnMs);
+    // Punkt-Schritte je Millisekunde. Die Bahnrechnung zaehlt nicht mit - sie
+    // laeuft auf dem Hauptprozessor und sagt ueber die Grafikkarte nichts.
+    const geleistet = mandelPunkte * schritteGpu;
+    mandelDurchsatz = mandelDurchsatz * 0.7 + (geleistet / gebrauchtGpu) * 0.3;
     mandelDauer =
       gebrauchtGpu > mandelDauer
         ? mandelDauer * 0.4 + gebrauchtGpu * 0.6
@@ -1482,7 +1534,27 @@ function mandelbrotZeichnen(stift, lage) {
      * die alle eine Sekunde dauerten. Nach oben bleibt er vorsichtig, damit er
      * nicht ueberschwingt; nach unten muss er springen koennen.
      */
-    const regelGpu = Math.min(1.06, Math.max(0.5, Math.sqrt(stufe.budget / Math.max(1, mandelDauer))));
+    /*
+     * Die Aufloesung wird *vorhergesagt*, nicht nachgeregelt.
+     *
+     * Der bisherige Regler verglich nur die letzte Bildzeit mit dem Budget.
+     * Das reicht, solange die Arbeit je Bildpunkt gleich bleibt - tut sie aber
+     * nicht mehr, seit die Schrittzahl aus der Stichprobe kommt und zwischen
+     * 700 und 15000 springt. Steigt sie um das Zwanzigfache, braucht der alte
+     * Regler ein Dutzend Bilder, um hinterherzukommen, und die sind alle zu
+     * langsam.
+     *
+     * Aus gemessenem Durchsatz und bekannter Schrittzahl laesst sich die
+     * Aufloesung dagegen direkt ausrechnen, bevor das Bild gerechnet wird.
+     * Das Kostenmodell ist diesmal zulaessig, weil es sich am Ergebnis
+     * kalibriert: Vorhergesagt und gemessen wird dieselbe Groesse.
+     */
+    const flaeche = Math.max(1, breite * hoehe);
+    const bezahlbar = (mandelDurchsatz * stufe.budget) / Math.max(1, schritteGpu);
+    const gueteWunsch = Math.sqrt(bezahlbar / flaeche);
+    // Traege nach oben, zuegig nach unten - ein zu grosses Bild kostet sofort,
+    // ein zu kleines nur Schaerfe.
+    const regelGpu = gueteWunsch > mandelGuete ? 1.08 : 0.7;
     /*
      * Die Obergrenze liegt bei 2, nicht bei 1.
      *
@@ -1493,7 +1565,10 @@ function mandelbrotZeichnen(stift, lage) {
      * deshalb oben und rechnet vierfach; wo die Kraft fehlt, faellt er unter 1
      * und das Bild wird weicher statt ruckelig.
      */
-    mandelGuete = Math.min(stufe.fraktal, Math.max(MANDEL_GUETE_MIN, mandelGuete * regelGpu));
+    mandelGuete = Math.min(
+      stufe.fraktal,
+      Math.max(MANDEL_GUETE_MIN, Math.min(gueteWunsch, mandelGuete * regelGpu)),
+    );
 
     /*
      * Der Notausgang.
@@ -1508,34 +1583,23 @@ function mandelbrotZeichnen(stift, lage) {
      * einzeln.
      */
     /*
-     * Zwei Wege zum Notausgang, und der zweite ist der wichtige.
+     * Der Notausgang haengt am Durchsatz, nicht an der Bildzeit.
      *
-     * Der erste ist der geduldige: Der Regler steht unten und es reicht immer
-     * noch nicht. Der braucht aber Bilder, um zu urteilen - und wenn ein Bild
-     * eine Sekunde dauert, sind acht Bilder acht Sekunden Ruckeln, bevor
-     * ueberhaupt entschieden wird. Nachgemessen hing die Stufe "mittel" nach
-     * zwoelf Sekunden immer noch bei 1216 ms je Bild.
+     * "Ein Bild ueber 250 ms" war das falsche Kennzeichen. Es trifft auch
+     * einen Spiele-Rechner, sobald die Stelle viele Schritte braucht oder die
+     * Aufloesung noch zu hoch steht - und weil der Rueckzug endgueltig war,
+     * lief danach die Notfassung auf einer Maschine, die das Hundertfache
+     * geschafft haette. Genau das ist passiert.
      *
-     * Der zweite ist der kurze: Ein einzelnes Bild ueber 250 ms braucht keine
-     * Beratung. Kein Regler der Welt macht daraus 12 ms - vier Mal weniger
-     * Aufloesung waeren immer noch 300. Zwei solche Bilder genuegen.
+     * Der Durchsatz trennt sauber: Eine Grafikkarte schafft Millionen
+     * Punkt-Schritte je Millisekunde, ein Nachbau in Software einige
+     * zehntausend. Dazwischen liegen Groessenordnungen, keine Prozente.
      */
-    /*
-     * Der kurze Weg gilt nur am Anfang.
-     *
-     * "Ein Bild ueber 250 ms" beantwortet die Frage, *ob* eine Grafikkarte da
-     * ist - die stellt sich in den ersten Sekunden. Spaeter kann dasselbe Bild
-     * auch daher kommen, dass eine Stelle sehr viele Schritte braucht; dann
-     * ist die Antwort weniger Aufloesung und nicht der Rueckzug. Ohne diese
-     * Frist haette eine anspruchsvolle Stelle mitten im Abend die Fassung auf
-     * den Hauptprozessor geworfen und die Tiefe gleich mit verloren.
-     */
-    if (mandelDauer > 250 && mandelSeitGpu < 10) mandelGpuZaeh += 3;
-    else if (mandelDauer > stufe.budget * 4 + 12 && mandelGuete <= MANDEL_GUETE_MIN * 1.05) {
-      mandelGpuZaeh++;
-    } else mandelGpuZaeh = 0;
-    if (mandelGpuZaeh > 3) {
+    if (mandelDurchsatz < MANDEL_DURCHSATZ_MIN && mandelSeitGpu > 2) mandelGpuZaeh++;
+    else mandelGpuZaeh = 0;
+    if (mandelGpuZaeh > 8) {
       mandelAufGpu = false;
+      mandelSeitAufgabe = 0;
       mandelTiefe = Math.min(mandelTiefe, MANDEL_MAX_TIEFE - 0.5);
       mandelGrundierenNoetig = true;
       mandelDauer = 8;
