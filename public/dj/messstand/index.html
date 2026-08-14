@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" />
+    <title>resident-dj · Messstand</title>
+    <!-- Relativ, nicht absolut. Diese Seite laeuft unter zwei Adressen:
+         /messstand/ auf dem eigenen Server und /dj/messstand/index.html in
+         der gebauten Fassung. Ein absoluter Pfad trifft nur eine von beiden -
+         genau daran ist die Aufnahmeseite schon einmal haengengeblieben. -->
+    <link rel="stylesheet" href="messstand.css" />
+  </head>
+  <body>
+    <!--
+      Der Messstand.
+
+      Er beantwortet eine einzige Frage, und zwar fuer *dieses* Geraet: Was
+      laesst sich hier in guter Qualitaet zuverlaessig abspielen? Auf der
+      Buehne ist das nicht zu messen - dort aendern sich Tiefe, Aufloesung und
+      Mandala staendig, und jede Zahl ist eine Mischung aus allen dreien.
+
+      Hier wird jede Groesse einzeln festgehalten und die anderen durchgefahren.
+    -->
+    <header>
+      <h1>Messstand</h1>
+      <p class="unterzeile">
+        Was schafft dieses Gerät? Der Messstand fährt jede Zoomstufe und jedes
+        Mandala einmal ab und rechnet daraus aus, was in flüssiger Bildfolge
+        läuft. Nichts davon ist geschätzt.
+      </p>
+    </header>
+
+    <main>
+      <section class="steuerung">
+        <div class="knoepfe">
+          <button id="kurz" class="gross"><strong>Kurzer Durchgang</strong><span>rund zwei Minuten</span></button>
+          <button id="voll" class="gross"><strong>Gründlich</strong><span>alle Mandalas mal alle Tiefen, rund zehn Minuten</span></button>
+          <button id="abbrechen" hidden>Abbrechen</button>
+        </div>
+        <p class="warnung">
+          Bitte währenddessen nicht wegschalten: Im Hintergrund drosseln Browser
+          die Grafik, und dann misst der Messstand die Drosselung.
+        </p>
+      </section>
+
+      <section class="fortschritt" id="laufAnzeige" hidden>
+        <div class="balken"><i id="balken"></i></div>
+        <p id="laufText">…</p>
+      </section>
+
+      <section id="ergebnis" hidden>
+        <div class="urteil" id="urteil"></div>
+
+        <h2>Was hier rechnet</h2>
+        <pre id="geraet"></pre>
+
+        <h2>Tiefe gegen Auflösung</h2>
+        <p class="hinweis">
+          Millisekunden je Bild, nur die Grafikkarte. Grün heißt: passt ins
+          Bildbudget dieses Bildschirms. Die Zeile ist die Zoomtiefe – je tiefer,
+          desto mehr Schritte braucht jeder einzelne Bildpunkt.
+        </p>
+        <div class="tabellenkasten"><table id="tiefeTabelle"></table></div>
+
+        <h2>Die Mandalas</h2>
+        <p class="hinweis">
+          Aufwand im Verhältnis zur einfachen Rosette, an derselben Stelle
+          gemessen. Rechts steht, bis zu welcher Tiefe das Mandala auf diesem
+          Gerät flüssig bleibt.
+        </p>
+        <div class="tabellenkasten"><table id="mandalaTabelle"></table></div>
+
+        <h2>Nachrechnen</h2>
+        <p class="hinweis" id="probeText"></p>
+
+        <div class="knoepfe">
+          <button id="kopieren">Bericht kopieren</button>
+          <button id="uebernehmen">Empfehlung in die Bühne übernehmen</button>
+        </div>
+        <pre id="bericht"></pre>
+      </section>
+    </main>
+
+    <script type="module" src="messstand.js"></script>
+  </body>
+</html>

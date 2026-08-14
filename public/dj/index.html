@@ -397,6 +397,7 @@ header {
 }
 
 .steuerung button,
+.steuerung .knopfartig,
 .steuerung select {
   padding: 0.4rem 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -408,8 +409,17 @@ header {
   cursor: pointer;
 }
 
-.steuerung button:hover {
+.steuerung button:hover,
+.steuerung .knopfartig:hover {
   border-color: var(--akzent);
+}
+
+/* Ein Link, der wie ein Knopf aussieht - er fuehrt weg von der Buehne, und
+   dafuer ist ein Link das richtige Element. Nur unterstrichen soll er nicht
+   sein. */
+.steuerung .knopfartig {
+  text-decoration: none;
+  display: inline-block;
 }
 
 .schieber {
@@ -856,6 +866,10 @@ header {
         <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
         <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik</button>
         <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas</button>
+        <!-- Das Ziel wird erst im Browser gesetzt: Die Bühne läuft unter /buehne
+             und als gebaute Einzeldatei unter /dj, und der Messstand liegt
+             jeweils woanders. Siehe messstandVerlinken() in buehne.js. -->
+        <a id="messstandLink" class="knopfartig" title="Was schafft dieses Gerät?">Messstand</a>
         <label class="schieber">
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
@@ -4487,6 +4501,7 @@ function uhrAbholen() {
   const ms = Number(gl.getQueryParameter(uhrFrage, gl.QUERY_RESULT)) / 1e6;
   uhrOffen = false;
   uhrGemessen++;
+  rohGpuMs = ms;
   // Traege glaetten, sonst zappelt die Anzeige unlesbar.
   letzteGpuMs = letzteGpuMs === null ? ms : letzteGpuMs * 0.8 + ms * 0.2;
 }
@@ -4494,6 +4509,46 @@ function uhrAbholen() {
 /** Die zuletzt gemessene reine Rechenzeit der Grafikkarte, oder null. */
 function gpuZeitMs() {
   return letzteGpuMs;
+}
+
+/*
+ * Dasselbe, aber ungeglaettet - fuer den Messstand.
+ *
+ * Die Anzeige auf der Buehne braucht eine ruhige Zahl, deshalb laeuft
+ * letzteGpuMs durch einen Tiefpass. Eine Messreihe braucht das Gegenteil: Wer
+ * glaettet, mischt die vorige Messung in die naechste, und bei einem Wechsel
+ * von Mandala oder Tiefe stehen dann fuenf Bilder lang beide Werte
+ * uebereinander. Genau so entstehen Messreihen, die einen sanften Anstieg
+ * zeigen, wo in Wirklichkeit ein Sprung ist.
+ *
+ * Der Zaehler kommt mit, damit der Aufrufer sieht, ob ueberhaupt eine neue
+ * Messung vorliegt - die Uhr misst nicht jedes Bild.
+ */
+let rohGpuMs = null;
+function gpuZeitRoh() {
+  return { ms: rohGpuMs, messungen: uhrGemessen, uhrDa: Boolean(uhrExt) };
+}
+
+/*
+ * Warten, bis die Karte wirklich fertig ist.
+ *
+ * Ohne das misst eine Stoppuhr um drawArrays nur, wie lange das Einreihen in
+ * die Warteschlange dauert - ein paar Mikrosekunden, voellig unabhaengig
+ * davon, wie schwer das Bild war. gl.finish() waere der naheliegende Griff,
+ * ist aber in mehreren Browsern ein Vorschlag und keine Zusage.
+ *
+ * Ein Lesezugriff dagegen kann nicht anders: Der Browser muss das Ergebnis
+ * herausgeben, also muss er es vorher fertigrechnen. Ein einziger Bildpunkt
+ * reicht dafuer, und der kostet nichts.
+ *
+ * Das ist der Weg, auf dem der Messstand auch auf dem iPad und dem iPhone
+ * zu Zahlen kommt: Safari gibt die Zeitmess-Erweiterung nicht heraus, und
+ * ohne sie waere dort sonst gar nichts zu messen.
+ */
+function gpuAbwarten() {
+  if (!gl) return;
+  const punkt = new Uint8Array(4);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, punkt);
 }
 
 /**
@@ -6502,6 +6557,9 @@ const MANDEL_ZIELE0 = [
     start: 3.4,
   },
 ];
+// Exportiert, weil der Messstand dieselben Stellen fahren muss wie die
+// Buehne. Eine Messung an einer erfundenen Stelle sagt nichts darueber aus,
+// was am Abend wirklich gerechnet wird.
 const MANDEL_ZIELE = MANDEL_ZIELE0.map((z) => ({ ...z, zx: Number(z.x), zy: Number(z.y) }));
 
 
@@ -10906,6 +10964,25 @@ $('mandalaLeichte').addEventListener('click', () => {
     `${behalten.size} von ${bericht.length} bleiben an – die teurere Haelfte der` +
     ` ${mitZahl.length} gemessenen ist ab.`;
 });
+
+/*
+ * Der Weg zum Messstand.
+ *
+ * Das Ziel steht nicht im HTML, weil es davon abhaengt, wie diese Seite
+ * gerade ausgeliefert wird. Auf dem eigenen Server liegt die Buehne unter
+ * /buehne und der Messstand unter /messstand/. In der gebauten Fassung ist
+ * die Buehne die Einzeldatei /dj, und der Messstand liegt daneben unter
+ * /dj/messstand/index.html. Ein fester Pfad traefe genau eine der beiden
+ * Fassungen - und in der anderen waere es ein toter Link, den niemand
+ * bemerkt, bis er ihn braucht.
+ */
+function messstandVerlinken() {
+  const link = $('messstandLink');
+  if (!link) return;
+  const gebaut = location.pathname === '/dj' || location.pathname.startsWith('/dj/');
+  link.href = gebaut ? '/dj/messstand/index.html' : '/messstand/';
+}
+messstandVerlinken();
 
 $('technikKnopf').addEventListener('click', technikUmschalten);
 $('technikZu').addEventListener('click', technikUmschalten);

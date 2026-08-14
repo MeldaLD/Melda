@@ -79,6 +79,7 @@ server.listen(PORT, () => {
   console.log(`  ${konfiguration.anlass} - resident-dj laeuft`);
   console.log('');
   console.log(`  Buehne (Monitor)   http://localhost:${PORT}/buehne`);
+  console.log(`  Messstand          http://localhost:${PORT}/messstand`);
   console.log('');
   console.log('  Notfall-Abstimmung im lokalen WLAN (normal laeuft das ueber Supabase):');
   for (const adresse of adressen) {
@@ -111,6 +112,22 @@ async function behandeln(anfrage, antwort) {
   // Die Bibliothek fuellen, ohne Vercel und ohne Supabase - siehe
   // public/aufnahme/aufnahme.js.
   if (weg === '/aufnahme') return datei(antwort, path.join(OEFFENTLICH, 'aufnahme/index.html'));
+  /*
+   * Der Messstand - mit Schraegstrich am Ende, und der ist kein Schoenheitsfehler.
+   *
+   * Die Seite laedt ihr Beiwerk relativ, weil sie unter zwei Adressen laufen
+   * muss: hier und als /dj/messstand/index.html in der gebauten Fassung. Ohne
+   * den Schraegstrich waere "/messstand" fuer den Browser eine Datei, und
+   * "messstand.css" daneben landete bei "/messstand.css" - vierhundertvier.
+   * Deshalb umgeleitet statt ausgeliefert.
+   */
+  if (weg === '/messstand') {
+    antwort.writeHead(302, { Location: '/messstand/' });
+    return antwort.end();
+  }
+  if (weg === '/messstand/') {
+    return datei(antwort, path.join(OEFFENTLICH, 'messstand/index.html'));
+  }
   // Ein Notenkopf als Symbol im Browsertab. Inline, damit keine Datei fehlen kann.
   if (weg === '/favicon.ico' || weg === '/favicon.svg') {
     const svg =

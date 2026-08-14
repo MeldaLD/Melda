@@ -1,0 +1,211 @@
+/* Der Messstand ist keine Buehne. Hier darf es hell, eng und tabellarisch
+   sein - gelesen wird das im Stehen vor dem Geraet, nicht aus fuenf Metern. */
+
+:root {
+  --grund: #0a0a0f;
+  --feld: #14141c;
+  --rand: #262633;
+  --schrift: #e9e7e2;
+  --leise: #9a97a5;
+  --gut: #58d6a0;
+  --mittel: #e8c15a;
+  --schlecht: #e8695a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.4rem;
+  background: var(--grund);
+  color: var(--schrift);
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+h1 {
+  margin: 0 0 0.2rem;
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
+}
+
+h2 {
+  margin: 2rem 0 0.4rem;
+  font-size: 1.05rem;
+}
+
+.unterzeile,
+.hinweis,
+.warnung {
+  margin: 0.2rem 0 0;
+  color: var(--leise);
+  font-size: 0.9rem;
+  max-width: 46rem;
+}
+
+main {
+  max-width: 62rem;
+}
+
+section {
+  margin-top: 1.6rem;
+}
+
+.knoepfe {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: stretch;
+}
+
+button {
+  font: inherit;
+  color: var(--schrift);
+  background: var(--feld);
+  border: 1px solid var(--rand);
+  border-radius: 0.6rem;
+  padding: 0.6rem 0.9rem;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--gut);
+}
+
+button.gross {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  text-align: left;
+  padding: 0.8rem 1.1rem;
+}
+
+button.gross span {
+  color: var(--leise);
+  font-size: 0.82rem;
+}
+
+button[disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.balken {
+  height: 0.5rem;
+  background: var(--feld);
+  border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.balken i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--gut);
+  transition: width 0.2s linear;
+}
+
+.fortschritt p {
+  margin: 0.5rem 0 0;
+  color: var(--leise);
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+pre {
+  background: var(--feld);
+  border: 1px solid var(--rand);
+  border-radius: 0.6rem;
+  padding: 0.8rem 0.9rem;
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+/* Tabellen duerfen breiter sein als das Telefon. Sie scrollen dann fuer sich,
+   damit nicht die ganze Seite seitlich wandert. */
+.tabellenkasten {
+  overflow-x: auto;
+  border: 1px solid var(--rand);
+  border-radius: 0.6rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+th,
+td {
+  padding: 0.35rem 0.6rem;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--rand);
+}
+
+th:first-child,
+td:first-child {
+  text-align: left;
+}
+
+thead th {
+  color: var(--leise);
+  font-weight: 500;
+  position: sticky;
+  top: 0;
+  background: var(--feld);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+td.gut {
+  color: var(--gut);
+}
+
+td.mittel {
+  color: var(--mittel);
+}
+
+td.schlecht {
+  color: var(--schlecht);
+}
+
+.urteil {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.9rem 1rem;
+  background: var(--feld);
+  border: 1px solid var(--rand);
+  border-radius: 0.6rem;
+}
+
+.urteil .satz {
+  display: flex;
+  gap: 0.6rem;
+  align-items: baseline;
+}
+
+.urteil b {
+  width: 1rem;
+  flex: none;
+}
+
+.urteil .gut b {
+  color: var(--gut);
+}
+
+.urteil .schlecht b {
+  color: var(--schlecht);
+}
+
+.urteil .offen b {
+  color: var(--leise);
+}

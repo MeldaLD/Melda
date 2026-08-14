@@ -38,8 +38,29 @@ const { stdout } = await ausfuehren(
 );
 process.stdout.write(stdout);
 
+/*
+ * Nachpruefen, dass der Messstand mitgekommen ist.
+ *
+ * Er ist die einzige Seite, die *neben* der Einzeldatei stehen bleibt und
+ * ihre Module aus /dj/gemeinsam/ nachlaedt. Faellt sie einmal aus der
+ * Verteilung, merkt das niemand: Die Buehne laeuft weiter, und der Link
+ * dorthin fuehrt ins Leere - genau dann, wenn jemand auf einem fremden
+ * Geraet wissen will, was es schafft.
+ */
+for (const noetig of ['messstand/index.html', 'messstand/messstand.js', 'messstand/messstand.css']) {
+  try {
+    await fs.access(path.join(ZIEL, noetig));
+  } catch {
+    console.error(`FEHLT in public/dj/: ${noetig}`);
+    process.exit(1);
+  }
+}
+
 const dateien = await zaehlen(ZIEL);
-console.log(`public/dj/ enthaelt ${dateien} Dateien – /dj laeuft allein, /dj/gemeinsam/ liegt fuer die Aufnahmeseite bereit.`);
+console.log(
+  `public/dj/ enthaelt ${dateien} Dateien – /dj laeuft allein, /dj/gemeinsam/ liegt fuer die ` +
+    'Aufnahmeseite bereit, /dj/messstand/index.html ist der Messstand.',
+);
 
 async function zaehlen(ordner) {
   let summe = 0;

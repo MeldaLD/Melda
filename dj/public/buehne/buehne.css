@@ -389,6 +389,7 @@ header {
 }
 
 .steuerung button,
+.steuerung .knopfartig,
 .steuerung select {
   padding: 0.4rem 0.75rem;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -400,8 +401,17 @@ header {
   cursor: pointer;
 }
 
-.steuerung button:hover {
+.steuerung button:hover,
+.steuerung .knopfartig:hover {
   border-color: var(--akzent);
+}
+
+/* Ein Link, der wie ein Knopf aussieht - er fuehrt weg von der Buehne, und
+   dafuer ist ein Link das richtige Element. Nur unterstrichen soll er nicht
+   sein. */
+.steuerung .knopfartig {
+  text-decoration: none;
+  display: inline-block;
 }
 
 .schieber {

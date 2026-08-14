@@ -129,6 +129,10 @@
         <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
         <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik</button>
         <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas</button>
+        <!-- Das Ziel wird erst im Browser gesetzt: Die Bühne läuft unter /buehne
+             und als gebaute Einzeldatei unter /dj, und der Messstand liegt
+             jeweils woanders. Siehe messstandVerlinken() in buehne.js. -->
+        <a id="messstandLink" class="knopfartig" title="Was schafft dieses Gerät?">Messstand</a>
         <label class="schieber">
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />

@@ -384,7 +384,10 @@ const MANDEL_ZIELE0 = [
     start: 3.4,
   },
 ];
-const MANDEL_ZIELE = MANDEL_ZIELE0.map((z) => ({ ...z, zx: Number(z.x), zy: Number(z.y) }));
+// Exportiert, weil der Messstand dieselben Stellen fahren muss wie die
+// Buehne. Eine Messung an einer erfundenen Stelle sagt nichts darueber aus,
+// was am Abend wirklich gerechnet wird.
+export const MANDEL_ZIELE = MANDEL_ZIELE0.map((z) => ({ ...z, zx: Number(z.x), zy: Number(z.y) }));
 
 
 // Bis hierher traegt doppelte Genauigkeit. Darueber zerfaellt das Bild in

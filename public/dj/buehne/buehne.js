@@ -621,6 +621,25 @@ $('mandalaLeichte').addEventListener('click', () => {
     ` ${mitZahl.length} gemessenen ist ab.`;
 });
 
+/*
+ * Der Weg zum Messstand.
+ *
+ * Das Ziel steht nicht im HTML, weil es davon abhaengt, wie diese Seite
+ * gerade ausgeliefert wird. Auf dem eigenen Server liegt die Buehne unter
+ * /buehne und der Messstand unter /messstand/. In der gebauten Fassung ist
+ * die Buehne die Einzeldatei /dj, und der Messstand liegt daneben unter
+ * /dj/messstand/index.html. Ein fester Pfad traefe genau eine der beiden
+ * Fassungen - und in der anderen waere es ein toter Link, den niemand
+ * bemerkt, bis er ihn braucht.
+ */
+function messstandVerlinken() {
+  const link = $('messstandLink');
+  if (!link) return;
+  const gebaut = location.pathname === '/dj' || location.pathname.startsWith('/dj/');
+  link.href = gebaut ? '/dj/messstand/index.html' : '/messstand/';
+}
+messstandVerlinken();
+
 $('technikKnopf').addEventListener('click', technikUmschalten);
 $('technikZu').addEventListener('click', technikUmschalten);
 $('technikKopieren').addEventListener('click', async () => {

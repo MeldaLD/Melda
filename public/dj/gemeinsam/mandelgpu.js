@@ -1271,6 +1271,7 @@ function uhrAbholen() {
   const ms = Number(gl.getQueryParameter(uhrFrage, gl.QUERY_RESULT)) / 1e6;
   uhrOffen = false;
   uhrGemessen++;
+  rohGpuMs = ms;
   // Traege glaetten, sonst zappelt die Anzeige unlesbar.
   letzteGpuMs = letzteGpuMs === null ? ms : letzteGpuMs * 0.8 + ms * 0.2;
 }
@@ -1278,6 +1279,46 @@ function uhrAbholen() {
 /** Die zuletzt gemessene reine Rechenzeit der Grafikkarte, oder null. */
 export function gpuZeitMs() {
   return letzteGpuMs;
+}
+
+/*
+ * Dasselbe, aber ungeglaettet - fuer den Messstand.
+ *
+ * Die Anzeige auf der Buehne braucht eine ruhige Zahl, deshalb laeuft
+ * letzteGpuMs durch einen Tiefpass. Eine Messreihe braucht das Gegenteil: Wer
+ * glaettet, mischt die vorige Messung in die naechste, und bei einem Wechsel
+ * von Mandala oder Tiefe stehen dann fuenf Bilder lang beide Werte
+ * uebereinander. Genau so entstehen Messreihen, die einen sanften Anstieg
+ * zeigen, wo in Wirklichkeit ein Sprung ist.
+ *
+ * Der Zaehler kommt mit, damit der Aufrufer sieht, ob ueberhaupt eine neue
+ * Messung vorliegt - die Uhr misst nicht jedes Bild.
+ */
+let rohGpuMs = null;
+export function gpuZeitRoh() {
+  return { ms: rohGpuMs, messungen: uhrGemessen, uhrDa: Boolean(uhrExt) };
+}
+
+/*
+ * Warten, bis die Karte wirklich fertig ist.
+ *
+ * Ohne das misst eine Stoppuhr um drawArrays nur, wie lange das Einreihen in
+ * die Warteschlange dauert - ein paar Mikrosekunden, voellig unabhaengig
+ * davon, wie schwer das Bild war. gl.finish() waere der naheliegende Griff,
+ * ist aber in mehreren Browsern ein Vorschlag und keine Zusage.
+ *
+ * Ein Lesezugriff dagegen kann nicht anders: Der Browser muss das Ergebnis
+ * herausgeben, also muss er es vorher fertigrechnen. Ein einziger Bildpunkt
+ * reicht dafuer, und der kostet nichts.
+ *
+ * Das ist der Weg, auf dem der Messstand auch auf dem iPad und dem iPhone
+ * zu Zahlen kommt: Safari gibt die Zeitmess-Erweiterung nicht heraus, und
+ * ohne sie waere dort sonst gar nichts zu messen.
+ */
+export function gpuAbwarten() {
+  if (!gl) return;
+  const punkt = new Uint8Array(4);
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, punkt);
 }
 
 /**
