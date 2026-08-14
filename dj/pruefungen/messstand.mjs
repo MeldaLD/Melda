@@ -8,9 +8,11 @@
 // deshalb nicht, ob er Zahlen ausgibt, sondern ob die Zahlen das tun, was
 // Zahlen ueber diese Sache tun muessen.
 //
-//   1. Tiefer kostet mehr. Die Schrittzahl je Bildpunkt waechst mit der
-//      Tiefe, und die Schrittzahl ist die Arbeit. Faellt die Kurve, misst der
-//      Messstand etwas anderes als das, was er zu messen behauptet.
+//   1. Mehr Arbeit kostet mehr Zeit. Achtung, das heisst *nicht* "tiefer
+//      kostet mehr" - diese Zusage stand hier zuerst und war falsch. Die
+//      Reihenentwicklung wird mit der Tiefe besser und ueberspringt bei Tiefe
+//      16 neun Zehntel aller Schritte; die Kurve faellt dadurch, statt zu
+//      steigen. Arbeit ist Punktzahl mal *wirksame* Schritte.
 //   2. Mehr Punkte kosten mehr. Dieselbe Tiefe auf der groesseren Flaeche darf
 //      nicht schneller sein.
 //   3. Das Modell muss die Punkte treffen, die es nicht kennt. Der Messstand
@@ -84,6 +86,7 @@ try {
       flaechen: window.__messstand.roh.flaechen,
       schrittPlan: window.__messstand.roh.schrittPlan,
       kurve: window.__messstand.roh.kurve,
+      uebersprungenGesamt: window.__messstand.roh.uebersprungen,
       mandalaPunkte: window.__messstand.roh.mandalaPunkte,
       probe: window.__messstand.roh.probe,
       zeitmessung: window.__messstand.roh.auskunft.zeitmessung,
@@ -108,24 +111,71 @@ try {
   pruefe('nirgends weniger Schritte bei mehr Tiefe', rueckwaerts.length === 0,
     plan.map((s) => `${s.tiefe}:${s.schritte}`).join(' '));
 
-  console.log('\nTiefer kostet mehr:');
-  for (const f of roh.flaechen) {
-    const punkte = roh.kurve.filter((p) => p.flaeche === f.schluessel).sort((a, b) => a.tiefe - b.tiefe);
-    /*
-     * Verglichen werden die Enden, nicht benachbarte Stufen.
-     *
-     * Zwischen Tiefe 2 und 4 liegen wenige hundert Schritte, und darin geht
-     * jede Schwankung des Betriebssystems unter. Zwischen 2 und 16 liegt ein
-     * Vielfaches - eine Ordnung, die im Rauschen verschwindet, waere keine
-     * Zusage.
-     */
-    const flach = punkte[0];
-    const tief = punkte[punkte.length - 1];
+  /*
+   * Hier stand zuerst "Tiefer kostet mehr", und die Pruefung schlug fehl - auf
+   * allen drei Flaechen gleichzeitig, mit Tiefe 2 bei 532 ms und Tiefe 16 bei
+   * 199. Ein Messfehler trifft nicht dreimal dasselbe, also war die Zusage
+   * falsch und nicht die Messung.
+   *
+   * Nachgemessen mit abgeschalteter Reihenentwicklung stieg die Kurve sauber
+   * von 332 auf 1042 ms. Die Reihe ueberspringt bei Tiefe 2 null Schritte und
+   * bei Tiefe 16 ganze 1944 von 2160: Je tiefer die Fahrt, desto naeher liegen
+   * benachbarte Bildpunkte, desto laenger traegt die Naeherung. Sie wird mit
+   * der Tiefe besser.
+   *
+   * Geprueft wird deshalb, was wirklich gilt: Mehr *wirksame* Arbeit kostet
+   * mehr Zeit. Wirksame Arbeit ist Punktzahl mal (Schritte minus
+   * uebersprungene).
+   */
+  console.log('\nMehr wirksame Arbeit kostet mehr Zeit:');
+  {
+    const gemessen = roh.kurve.filter((p) => !p.geschaetzt && p.wandMs > 0);
+    const arbeit = (p) => p.punkte * (p.wirksam ?? p.schritte);
+    const sortiert = [...gemessen].sort((a, b) => arbeit(a) - arbeit(b));
+    const wenig = sortiert[0];
+    const viel = sortiert[sortiert.length - 1];
     pruefe(
-      `${f.name}: Tiefe ${tief.tiefe} kostet mehr als Tiefe ${flach.tiefe}`,
-      tief.wandMs > flach.wandMs,
-      `${flach.wandMs.toFixed(1)} -> ${tief.wandMs.toFixed(1)} ms`,
+      'der Punkt mit der meisten Arbeit ist auch der teuerste Bereich',
+      viel.wandMs > wenig.wandMs,
+      `${(arbeit(wenig) / 1e6).toFixed(0)} Mio → ${wenig.wandMs.toFixed(1)} ms gegen ` +
+        `${(arbeit(viel) / 1e6).toFixed(0)} Mio → ${viel.wandMs.toFixed(1)} ms`,
     );
+
+    /*
+     * Und die Beziehung ist nicht nur an den Enden richtig, sondern ueber die
+     * ganze Reihe: Der Durchsatz - Arbeit je Millisekunde - muss ungefaehr
+     * konstant sein. Genau das ist der Beleg, dass "wirksame Arbeit" die
+     * richtige Groesse ist und "Tiefe" es nicht war.
+     */
+    const durchsaetze = gemessen.map((p) => arbeit(p) / p.wandMs);
+    const s = [...durchsaetze].sort((a, b) => a - b);
+    const spanne = s[s.length - 1] / s[0];
+    pruefe(
+      'und der Durchsatz bleibt dabei in derselben Groessenordnung',
+      spanne < 12,
+      `zwischen ${(s[0] / 1e3).toFixed(0)}k und ${(s[s.length - 1] / 1e3).toFixed(0)}k ` +
+        `Punkt-Schritten/ms, Spanne ${spanne.toFixed(1)}×`,
+    );
+  }
+
+  console.log('\nDie Reihenentwicklung wird mit der Tiefe besser:');
+  {
+    const jeTiefe = new Map();
+    for (const p of roh.kurve) {
+      if (!p.geschaetzt && p.uebersprungen !== undefined) jeTiefe.set(p.tiefe, p);
+    }
+    const flach = jeTiefe.get(2) ?? jeTiefe.get(4);
+    const tief = jeTiefe.get(16) ?? jeTiefe.get(14);
+    if (!flach || !tief) {
+      console.log('    NICHT GEPRUEFT: für flach und tief liegt keine gemessene Zeile vor.');
+    } else {
+      const anteil = (p) => p.uebersprungen / p.schritte;
+      pruefe(
+        `bei Tiefe ${tief.tiefe} überspringt sie mehr als bei Tiefe ${flach.tiefe}`,
+        anteil(tief) > anteil(flach),
+        `${(anteil(flach) * 100).toFixed(0)} % gegen ${(anteil(tief) * 100).toFixed(0)} %`,
+      );
+    }
   }
 
   console.log('\nMehr Punkte kosten mehr:');

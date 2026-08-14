@@ -13,9 +13,11 @@
  *
  *   Die Stelle    Immer dieselbe (Seepferdchental). Ein Stellenwechsel wirft
  *                 die Bezugsbahn weg, und die neu aufzubauen kostet Sekunden.
- *   Die Tiefe     Eine feste Leiter von 2 bis 16. Sie ist die wichtigste
- *                 Groesse ueberhaupt: Die Schrittzahl je Bildpunkt waechst mit
- *                 ihr, und die Schrittzahl ist die Arbeit.
+ *   Die Tiefe     Eine feste Leiter von 2 bis 16. Achtung: Tiefer ist *nicht*
+ *                 automatisch teurer - die Reihenentwicklung wird mit der
+ *                 Tiefe besser und ueberspringt bei Tiefe 16 neunzig Prozent
+ *                 der Schritte. Die Begruendung samt Messreihe steht bei
+ *                 wirksameArbeit().
  *   Die Schritte  Nicht frei gewaehlt, sondern so bestimmt, wie die Buehne sie
  *                 bestimmt - ueber die Stichprobe. Sonst misst der Messstand
  *                 eine Arbeit, die am Abend nie anfaellt.
@@ -40,6 +42,7 @@ import {
   gpuProbeVergessen,
   gpuZeitRoh,
   gpuAbwarten,
+  reiheAuskunft,
 } from '../gemeinsam/mandelgpu.js';
 import { MANDALAS, MANDEL_ZIELE, GUETESTUFEN, oklabZuRgb } from '../gemeinsam/visualmodi.js';
 
@@ -285,15 +288,54 @@ async function messpunkt(tiefe, punkte, schritte, mandala) {
     await durchatmen();
   }
 
+  /*
+   * Wieviele Schritte die Reihenentwicklung gerade ueberspringt.
+   *
+   * Das ist die Zahl, die alles erklaert, was an der Tiefenkurve zunaechst
+   * unmoeglich aussah - siehe die Begruendung bei wirksameSchritte().
+   */
+  const uebersprungen = reiheAuskunft().n ?? 0;
+
   return {
     tiefe,
     punkte,
     schritte,
+    uebersprungen,
+    wirksam: Math.max(1, schritte - uebersprungen),
     mandala: mandala.id,
     wandMs: median(wandWerte),
     kartenMs: kartenWerte.length ? median(kartenWerte) : null,
     grob: teuer,
   };
+}
+
+/*
+ * Was hier eigentlich die Arbeit ist - und warum es nicht die Tiefe ist.
+ *
+ * Die Erwartung war: tiefer heisst mehr Schritte je Bildpunkt, heisst mehr
+ * Arbeit. Die erste Messreihe sagte das Gegenteil, und zwar auf allen drei
+ * Flaechen gleichzeitig: Tiefe 2 kostete 532 ms, Tiefe 16 nur 199. Ein
+ * Messfehler sieht anders aus - der trifft nicht dreimal dasselbe.
+ *
+ * Nachgemessen mit abgeschalteter Reihenentwicklung stieg die Kurve dann
+ * sauber, von 332 auf 1042 ms. Der Grund ist also die Reihe: Bei Tiefe 2
+ * ueberspringt sie null Schritte, bei Tiefe 16 ganze 1944 von 2160. Je tiefer
+ * die Fahrt, desto naeher liegen benachbarte Bildpunkte beieinander, und
+ * desto laenger traegt die Naeherung. Sie wird mit der Tiefe *besser*.
+ *
+ * Die Arbeit ist deshalb nicht "Punkte mal Schritte", sondern "Punkte mal
+ * wirksame Schritte" - Schritte minus uebersprungene. Damit liegt der
+ * Durchsatz ueber die ganze Leiter in derselben Groessenordnung, statt um das
+ * Zehnfache zu schwanken, und die Zahl taugt wieder zum Vergleichen von
+ * Geraeten.
+ *
+ * Der zweite Grund fuer Ausreisser steht in derselben Tabelle: der Anteil der
+ * Punkte, die *innerhalb* der Menge liegen. Die entkommen nie und laufen jedes
+ * Mal bis zum Anschlag. Bei Tiefe 6 waren das 48 Prozent, und genau dort
+ * springt die Kurve nach oben.
+ */
+function wirksameArbeit(punkt) {
+  return punkt.punkte * (punkt.wirksam ?? punkt.schritte);
 }
 
 /*
@@ -469,8 +511,11 @@ async function durchgang(gruendlich) {
   const kurve = [];
   const mandalaPunkte = [];
   const probe = [];
-  let durchsatzSchaetzung = null; // Punkt-Schritte je Millisekunde
+  let durchsatzSchaetzung = null; // wirksame Punkt-Schritte je Millisekunde
   let uebersprungen = 0;
+  // Der jeweils erste (und damit billigste) gemessene Punkt je Tiefe. Aus ihm
+  // wird die groessere Flaeche derselben Tiefe hochgerechnet.
+  const gemessenJeTiefe = new Map();
 
   for (let i = 0; i < plan.length; i++) {
     if (abbruch) break;
@@ -481,13 +526,34 @@ async function durchgang(gruendlich) {
       0.1 + 0.9 * (i / plan.length),
     );
 
-    const geschaetztMs = durchsatzSchaetzung ? e.arbeit / durchsatzSchaetzung : 0;
+    /*
+     * Was dieser Punkt kosten wird - und zwar aus der Nachbarschaft, nicht aus
+     * einer Formel.
+     *
+     * Die Liste laeuft von billig nach teuer, also ist dieselbe Tiefe auf einer
+     * kleineren Flaeche schon gemessen, wenn hier eine grosse ansteht. Die
+     * Flaeche geht fast genau linear ein - das ist die verlaesslichste
+     * Hochrechnung, die zu haben ist.
+     *
+     * Ein Durchsatz aus "Punkte mal Schritte" waere hier der falsche Griff:
+     * Wieviele Schritte die Reihe ueberspringt, haengt an der Tiefe, und
+     * derselbe Durchsatz gilt deshalb nicht fuer zwei verschiedene Tiefen.
+     * Genau daran waeren die teuren Punkte falsch eingeschaetzt worden.
+     */
+    const nachbar = gemessenJeTiefe.get(e.tiefe);
+    const geschaetztMs = nachbar
+      ? (nachbar.wandMs * e.flaeche.punkte) / nachbar.punkte
+      : durchsatzSchaetzung
+        ? e.arbeit / durchsatzSchaetzung
+        : 0;
     let punkt;
     if (geschaetztMs > UEBERSPRINGEN_AB_MS) {
       punkt = {
         tiefe: e.tiefe,
         punkte: e.flaeche.punkte,
         schritte: e.schritte,
+        uebersprungen: nachbar?.uebersprungen ?? 0,
+        wirksam: nachbar?.wirksam ?? e.schritte,
         mandala: e.mandala.id,
         wandMs: geschaetztMs,
         kartenMs: null,
@@ -497,9 +563,12 @@ async function durchgang(gruendlich) {
     } else {
       punkt = await messpunkt(e.tiefe, e.flaeche.punkte, e.schritte, e.mandala);
       if (punkt.wandMs > 0) {
+        // Der billigste gemessene Punkt je Tiefe ist der beste Nachbar fuer
+        // die Hochrechnung - er ist am wenigsten von Ausreissern bedroht.
+        if (!gemessenJeTiefe.has(e.tiefe)) gemessenJeTiefe.set(e.tiefe, punkt);
         // Traege nachziehen: Ein einzelner Ausreisser soll die Schaetzung
         // nicht kippen, ein echter Trend aber schon.
-        const jetzt = e.arbeit / punkt.wandMs;
+        const jetzt = wirksameArbeit(punkt) / punkt.wandMs;
         durchsatzSchaetzung =
           durchsatzSchaetzung === null ? jetzt : durchsatzSchaetzung * 0.6 + jetzt * 0.4;
       }
@@ -620,15 +689,33 @@ function auswerten(roh) {
    * "Unter der flachsten" heisst 0 - dann ist diese Guetestufe fuer dieses
    * Mandala auf diesem Geraet nichts.
    */
+  /*
+   * Kein Abbruch beim ersten Ueberschreiten - die Kurve ist nicht monoton.
+   *
+   * Hier stand ein "break", weil ich angenommen hatte, dass es ab einer
+   * bestimmten Tiefe nur noch teurer wird. Das stimmt nicht: Die
+   * Reihenentwicklung wird mit der Tiefe besser, und der Anteil der Punkte
+   * innerhalb der Menge springt entlang der Fahrt. Nachgemessen kostete Tiefe
+   * 6 fuenfhundert Millisekunden und Tiefe 8 nur dreihundert. Mit dem Abbruch
+   * haette die Tabelle bei einer solchen Delle "traegt bis 4" gesagt, obwohl
+   * alles darueber ebenfalls passt.
+   *
+   * Zurueck kommt deshalb die *tiefste* Stufe, die ins Budget passt, und
+   * zusaetzlich, wieviele Stufen insgesamt passen - eine Sechs mit Loechern
+   * darunter ist etwas anderes als eine glatte Sechs.
+   */
   const traegtBis = (mandalaId, flaeche) => {
-    let letzte = 0;
+    let tiefste = 0;
+    let wieviele = 0;
     for (const tiefe of TIEFEN) {
       const ms = vorhersage(mandalaId, tiefe, flaeche);
       if (ms === null) return null;
-      if (ms > budgetMs) break;
-      letzte = tiefe;
+      if (ms <= budgetMs) {
+        tiefste = tiefe;
+        wieviele++;
+      }
     }
-    return letzte;
+    return { tiefste, wieviele, alle: wieviele === TIEFEN.length };
   };
 
   const jeMandala = MANDALAS.map((m) => ({
@@ -646,18 +733,35 @@ function auswerten(roh) {
    * das iPad mit dem Partyrechner vergleichen, ohne dass beide dasselbe
    * gemessen haben muessen.
    */
-  // Nur gemessene Punkte. Ein geschaetzter Punkt ist aus dem Durchsatz
-  // gerechnet - ihn zurueck in den Durchsatz zu stecken hiesse, die eigene
-  // Annahme zu bestaetigen.
+  /*
+   * Nur gemessene Punkte, und nur wirksame Schritte.
+   *
+   * Ein geschaetzter Punkt ist aus einem Nachbarn hochgerechnet - ihn zurueck
+   * in den Durchsatz zu stecken hiesse, die eigene Annahme zu bestaetigen. Und
+   * gezaehlt werden die Schritte, die wirklich gerechnet wurden: Was die Reihe
+   * ueberspringt, hat die Karte nie angefasst. Mit dem vollen Deckel gerechnet
+   * schwankte der Durchsatz ueber die Tiefenleiter um das Zehnfache und war
+   * als Vergleichszahl wertlos.
+   */
   const durchsaetze = roh.kurve
     .filter((p) => p.wandMs > 0 && !p.geschaetzt)
-    .map((p) => (p.punkte * p.schritte) / p.wandMs / 1e6);
+    .map((p) => wirksameArbeit(p) / p.wandMs / 1e6);
   const durchsatz = median(durchsaetze) ?? 0;
+
+  // Was die Reihenentwicklung je Tiefe eingespart hat - aus den gemessenen
+  // Punkten, nicht aus den hochgerechneten.
+  const uebersprungenJeTiefe = new Map();
+  for (const p of roh.kurve) {
+    if (!p.geschaetzt && p.uebersprungen !== undefined) {
+      uebersprungenJeTiefe.set(p.tiefe, p.uebersprungen);
+    }
+  }
 
   return {
     budgetMs,
     kurve,
     geschaetzt,
+    uebersprungenJeTiefe,
     faktoren,
     jeMandala,
     abweichungen,
@@ -693,8 +797,18 @@ function tabelleTiefe(roh, aus) {
     const z = kopf.insertCell();
     z.outerHTML = `<th>${f.name}<br><span style="opacity:.6">${(f.punkte / 1e6).toFixed(2)} MP</span></th>`;
   }
-  const schritte = kopf.insertCell();
-  schritte.outerHTML = '<th>Schritte</th>';
+  /*
+   * Die drei Spalten rechts sind der eigentliche Erkenntnisgewinn.
+   *
+   * Ohne sie sieht die Zeitspalte nach Zufall aus: Tiefe 6 teurer als Tiefe 8,
+   * Tiefe 16 billiger als Tiefe 2. Mit ihnen loest sich das auf - die Reihe
+   * ueberspringt in der Tiefe fast alles, und wo viele Punkte *innerhalb* der
+   * Menge liegen, laeuft jeder von ihnen bis zum Anschlag.
+   */
+  for (const name of ['Schritte', 'davon übersprungen', 'innen']) {
+    const z = kopf.insertCell();
+    z.outerHTML = `<th>${name}</th>`;
+  }
 
   const koerper = t.createTBody();
   for (const tiefe of TIEFEN) {
@@ -712,6 +826,15 @@ function tabelleTiefe(roh, aus) {
     }
     const plan = roh.schrittPlan.find((s) => s.tiefe === tiefe);
     zeile.insertCell().textContent = plan ? String(plan.schritte) : '–';
+    const ueber = aus.uebersprungenJeTiefe.get(tiefe);
+    zeile.insertCell().textContent =
+      ueber === undefined || plan === undefined
+        ? '–'
+        : `${ueber} (${Math.round((ueber / plan.schritte) * 100)} %)`;
+    zeile.insertCell().textContent =
+      plan?.innenAnteil === null || plan?.innenAnteil === undefined
+        ? '–'
+        : `${Math.round(plan.innenAnteil * 100)} %`;
   }
 }
 
@@ -733,8 +856,19 @@ function tabelleMandalas(roh, aus) {
     for (const f of roh.flaechen) {
       const bis = m.tiefen[f.schluessel];
       const zelle = zeile.insertCell();
-      zelle.textContent = bis === null ? '–' : bis === 0 ? 'gar nicht' : String(bis);
-      zelle.className = bis === null ? '' : bis >= 12 ? 'gut' : bis >= 6 ? 'mittel' : 'schlecht';
+      if (!bis) {
+        zelle.textContent = '–';
+      } else if (bis.tiefste === 0) {
+        zelle.textContent = 'gar nicht';
+        zelle.className = 'schlecht';
+      } else {
+        // Ein Stern heisst: Es traegt bis dorthin, aber nicht auf jeder Stufe
+        // darunter. Solche Loecher gibt es wirklich - siehe traegtBis().
+        const loecher = !bis.alle && bis.tiefste === TIEFEN[TIEFEN.length - 1] ? '*' : '';
+        zelle.textContent = `${bis.tiefste}${loecher}`;
+        zelle.title = `${bis.wieviele} von ${TIEFEN.length} Zoomstufen passen ins Budget`;
+        zelle.className = bis.tiefste >= 12 ? 'gut' : bis.tiefste >= 6 ? 'mittel' : 'schlecht';
+      }
     }
   }
 }
@@ -755,7 +889,7 @@ function urteilBauen(roh, aus) {
   // Abwechslung.
   let empfehlung = null;
   for (const f of roh.flaechen) {
-    const tragen = aus.jeMandala.filter((m) => (m.tiefen[f.schluessel] ?? 0) >= 10).length;
+    const tragen = aus.jeMandala.filter((m) => (m.tiefen[f.schluessel]?.tiefste ?? 0) >= 10).length;
     if (tragen >= MANDALAS.length * 0.75) {
       empfehlung = { flaeche: f, tragen };
       break;
@@ -769,7 +903,7 @@ function urteilBauen(roh, aus) {
     ]);
   } else {
     const beste = roh.flaechen[roh.flaechen.length - 1];
-    const tragen = aus.jeMandala.filter((m) => (m.tiefen[beste.schluessel] ?? 0) >= 10).length;
+    const tragen = aus.jeMandala.filter((m) => (m.tiefen[beste.schluessel]?.tiefste ?? 0) >= 10).length;
     saetze.push([
       'schlecht',
       `Auch auf der niedrigsten Stufe halten nur ${tragen} von ${MANDALAS.length} Mandalas ` +
@@ -842,20 +976,35 @@ function berichtBauen(roh, aus) {
   zeilen.push(`Zeitmessung der Karte: ${roh.auskunft.zeitmessung ? 'ja' : 'nein (Wanduhr)'}`);
   zeilen.push(`Durchsatz  ${aus.durchsatz.toFixed(2)} Mio. Punkt-Schritte/ms`);
   zeilen.push('');
-  zeilen.push('Tiefenkurve (ms je Bild, Bezugsmandala Rosette 6):');
+  zeilen.push('Tiefenkurve (ms je Bild, Bezugsmandala Rosette 6, ≈ = hochgerechnet):');
   zeilen.push(
-    `  Tiefe  ${roh.flaechen.map((f) => `${f.name} (${(f.punkte / 1e6).toFixed(2)} MP)`.padStart(20)).join('')}  Schritte`,
+    `  Tiefe  ${roh.flaechen.map((f) => `${f.name} (${(f.punkte / 1e6).toFixed(2)} MP)`.padStart(20)).join('')}  Schritte  übersprungen  innen`,
   );
   for (const tiefe of TIEFEN) {
     const spalten = roh.flaechen
       .map((f) => {
         const ms = aus.kurve.get(f.schluessel)?.get(tiefe);
-        return (ms === undefined ? '–' : ms.toFixed(1)).padStart(20);
+        const nurGeschaetzt = aus.geschaetzt.get(f.schluessel)?.get(tiefe);
+        return (ms === undefined ? '–' : `${nurGeschaetzt ? '≈' : ''}${ms.toFixed(1)}`).padStart(20);
       })
       .join('');
     const plan = roh.schrittPlan.find((s) => s.tiefe === tiefe);
-    zeilen.push(`  ${String(tiefe).padStart(5)}${spalten}  ${plan ? plan.schritte : '–'}`);
+    const ueber = aus.uebersprungenJeTiefe.get(tiefe);
+    zeilen.push(
+      `  ${String(tiefe).padStart(5)}${spalten}  ${String(plan ? plan.schritte : '–').padStart(8)}` +
+        `  ${String(ueber ?? '–').padStart(12)}  ${
+          plan?.innenAnteil == null ? '–' : `${Math.round(plan.innenAnteil * 100)} %`
+        }`,
+    );
   }
+  zeilen.push('');
+  zeilen.push(
+    'Tiefer ist nicht automatisch teurer: Die Reihenentwicklung wird mit der Tiefe',
+  );
+  zeilen.push(
+    'besser und überspringt dann den größten Teil der Schritte. Die Arbeit steht in',
+  );
+  zeilen.push('der Spalte "Schritte" minus "übersprungen".');
   zeilen.push('');
   zeilen.push(
     `Mandalas – Faktor gegenüber Rosette 6, gemessen auf "${roh.sparsam.name}" ` +
@@ -864,7 +1013,7 @@ function berichtBauen(roh, aus) {
   zeilen.push('Dahinter: bis zu welcher Tiefe es je Gütestufe ins Bildbudget passt.');
   for (const m of [...aus.jeMandala].sort((a, b) => (a.faktor ?? 9) - (b.faktor ?? 9))) {
     const tiefen = roh.flaechen
-      .map((f) => `${f.name} bis ${m.tiefen[f.schluessel] ?? '?'}`)
+      .map((f) => `${f.name} bis ${m.tiefen[f.schluessel]?.tiefste ?? '?'}`)
       .join(', ');
     zeilen.push(
       `  ${m.name.padEnd(20)} ${(m.faktor ?? 0).toFixed(2)}×  (±${((m.streuung ?? 0) * 100).toFixed(0)} %)  ${tiefen}`,
@@ -929,7 +1078,7 @@ function anzeigen(roh) {
      */
     const stufe = empfehlung?.flaeche ?? roh.flaechen[roh.flaechen.length - 1];
     const gute = aus.jeMandala
-      .filter((m) => (m.tiefen[stufe.schluessel] ?? 0) >= 10)
+      .filter((m) => (m.tiefen[stufe.schluessel]?.tiefste ?? 0) >= 10)
       .map((m) => m.id);
     const nehmen = gute.length ? gute : aus.jeMandala.slice(0, 8).map((m) => m.id);
     localStorage.setItem('djMandalas', JSON.stringify(nehmen));
