@@ -35,6 +35,15 @@ import { beatBei } from './takt.js';
 // ueber einen Abend kommt jeder gleich oft dran.
 const MODUSFOLGE = ['mandelbrot', 'iris', 'tunnel', 'strahlen'];
 
+// Wie lang ein Breakdown hoechstens dauern darf - zweiunddreissig Takte.
+// Die Begruendung steht bei abbauBei(); kurz: In Stundenmixen klaffen Luecken
+// zwischen den Marken, und eine Luecke ist kein Breakdown.
+const BREAKDOWN_HOECHSTENS = 128;
+// Und wie weit der naechste Drop hoechstens weg sein darf, damit das Bild auf
+// ihn hin schwarz werden darf. Weiter als achtundvierzig Takte heisst: Es
+// kommt nichts, worauf sich das Warten lohnt.
+const DROP_IN_SICHT = 192;
+
 /**
  * Welcher Modus passt zu diesem Track?
  *
@@ -421,6 +430,8 @@ export class Visualisierung {
       wucht,
       drop: dropJetzt,
       abbau,
+      // Ob ueberhaupt noch ein Drop kommt, auf den das Bild hinarbeiten kann.
+      dropInSicht: this.dropVoraus(aktiv, takt) <= DROP_IN_SICHT,
       guetestufe: this.guetestufe,
       palette: this.paletteFuer(aktiv?.track),
       paletteB: zweit ? this.paletteFuer(zweit.track) : null,
@@ -533,11 +544,47 @@ export class Visualisierung {
     }
     if (!laufend || laufend.name !== 'breakdown') return 0;
     const ende = naechste ? naechste.beat : laufend.beat + 64;
-    const laenge = Math.max(8, ende - laufend.beat);
+    /*
+     * Nach oben begrenzt - und das ist keine Vorsicht, sondern ein Fehler, den
+     * die Stundenmixe sichtbar gemacht haben.
+     *
+     * In einem Stueck folgt auf eine Marke bald die naechste, und der Abstand
+     * ist die Laenge des Breakdowns. In einem einstuendigen Mix findet die
+     * Analyse stellenweise minutenlang keine Marke mehr - dann waere "die
+     * Laenge bis zur naechsten Marke" ploetzlich vierhundert Beats, und das
+     * Bild bliebe drei Minuten lang im Breakdown haengen. Mit der
+     * Schwarzblende heisst das: drei Minuten Schwarz.
+     *
+     * Zweiunddreissig Takte sind das Laengste, was in dieser Musik ein
+     * Breakdown ist. Was darueber hinausgeht, ist keine Atempause mehr,
+     * sondern eine Luecke in den Marken - und eine Luecke soll nichts
+     * ausloesen. Was dort wirklich still ist, faengt ohnehin die gemessene
+     * Flaute ab (siehe FLAUTE_UNTER in visualmodi.js); die misst den Ton,
+     * statt sich auf eine fehlende Marke zu verlassen.
+     */
+    const laenge = Math.min(BREAKDOWN_HOECHSTENS, Math.max(8, ende - laufend.beat));
     const gelaufen = (takt.beat - laufend.beat) / laenge;
     // Voll da, solange der Abschnitt laeuft, und zum Ende hin ausklingend -
     // dann zieht die Spannung ohnehin schon wieder an.
     return Math.max(0, Math.min(1, 1 - gelaufen * gelaufen));
+  }
+
+  /*
+   * Wie weit ist der naechste Drop, in Beats? Unendlich, wenn keiner kommt.
+   *
+   * Das Bild braucht diese Zahl, um zu entscheiden, ob es im Breakdown ganz
+   * auf Schwarz gehen darf. Der harte Einschlag lebt davon, dass danach etwas
+   * kommt; ohne Drop ist er nur ein Bild, das ausgegangen ist.
+   */
+  dropVoraus(deck, takt) {
+    if (!takt || !deck?.track?.marken?.length) return Infinity;
+    let naechster = Infinity;
+    for (const m of deck.track.marken) {
+      if (m.name === 'drop' && m.beat > takt.beat) {
+        naechster = Math.min(naechster, m.beat - takt.beat);
+      }
+    }
+    return naechster;
   }
 
   dropErreicht(deck, takt) {

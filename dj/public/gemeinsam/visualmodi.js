@@ -610,6 +610,210 @@ let mandelWelleZeit = 0;
  */
 let mandelMandala = 0;
 let mandelMandalaHalt = 0;
+/* --- Der Mandala-Katalog --------------------------------------------------
+ *
+ * Vorher gab es genau eine Faltung - Spiegelung an n Achsen - und "ein anderes
+ * Mandala" hiess: eine andere Zahl von Achsen. Das sind acht Varianten
+ * derselben Figur.
+ *
+ * Jetzt sind es vierzehn Faltungsarten mal ihre Achsenzahlen. Was dabei
+ * herauskommt, sind wirklich verschiedene Bilder: eine Rosette hat
+ * Spiegelachsen, ein Windrad nicht und dreht sich deshalb sichtbar; eine
+ * Wabe fuellt die Flaeche, wo eine Rosette Strahlen hat; die Ringe laufen
+ * beim Zoomen ineinander statt vorbeizuziehen.
+ *
+ * Zum Aufwand, denn danach war gefragt: Die Faltung selbst kostet bei allen
+ * praktisch dasselbe - sie laeuft einmal je Bildpunkt, davor liegen Tausende
+ * Iterationen. Was den Unterschied macht, ist *wohin* sie greift; die
+ * Begruendung steht im Schattierer bei falten(). Deshalb steht hier auch keine
+ * geschaetzte Kostenzahl: Der wirkliche Preis haengt am Geraet und an der
+ * Stelle der Fahrt, und beides misst die Buehne inzwischen selbst. Was sie
+ * misst, steht in der Auswahl neben dem Namen.
+ *
+ * Geloescht wird nichts. Was zu teuer ist fuer das, was es zeigt, schaltet man
+ * ab - und das entscheidet, wer davorsteht, nicht ich.
+ */
+export const MANDALAS = [
+  { id: 'rosette6', name: 'Rosette 6', art: 0, achsen: 6 },
+  { id: 'rosette8', name: 'Rosette 8', art: 0, achsen: 8 },
+  { id: 'rosette12', name: 'Rosette 12', art: 0, achsen: 12 },
+  { id: 'rosette5', name: 'Rosette 5', art: 0, achsen: 5 },
+  { id: 'windrad5', name: 'Windrad 5', art: 1, achsen: 5 },
+  { id: 'windrad9', name: 'Windrad 9', art: 1, achsen: 9 },
+  { id: 'feinrosette6', name: 'Feinrosette 6', art: 2, achsen: 6 },
+  { id: 'feinrosette8', name: 'Feinrosette 8', art: 2, achsen: 8 },
+  { id: 'fliese', name: 'Fliese', art: 3, achsen: 4 },
+  { id: 'wabe', name: 'Wabe', art: 4, achsen: 6 },
+  { id: 'spirale6', name: 'Spirale 6', art: 5, achsen: 6 },
+  { id: 'spirale8', name: 'Spirale 8', art: 5, achsen: 8 },
+  { id: 'gegenspirale', name: 'Gegenspirale 6', art: 6, achsen: 6 },
+  { id: 'droste6', name: 'Droste 6', art: 7, achsen: 6 },
+  { id: 'droste10', name: 'Droste 10', art: 7, achsen: 10 },
+  { id: 'feinringe', name: 'Feinringe 6', art: 8, achsen: 6 },
+  { id: 'stern5', name: 'Stern 5', art: 9, achsen: 5 },
+  { id: 'stern7', name: 'Stern 7', art: 9, achsen: 7 },
+  { id: 'stern12', name: 'Stern 12', art: 9, achsen: 12 },
+  { id: 'bluete6', name: 'Bluete 6', art: 10, achsen: 6 },
+  { id: 'bluete9', name: 'Bluete 9', art: 10, achsen: 9 },
+  { id: 'kelch6', name: 'Kelch 6', art: 11, achsen: 6 },
+  { id: 'linse6', name: 'Linse 6', art: 12, achsen: 6 },
+  { id: 'linse10', name: 'Linse 10', art: 12, achsen: 10 },
+  { id: 'fliesenstern', name: 'Fliesenstern 8', art: 13, achsen: 8 },
+  { id: 'wabenstern', name: 'Wabenstern 6', art: 14, achsen: 6 },
+];
+
+/*
+ * Welche davon laufen duerfen.
+ *
+ * Die Wahl gehoert zum Geraet, nicht zum Track - deshalb liegt sie im Browser
+ * und nicht in der Datenbank. Wer auf einem schwachen Rechner die Haelfte
+ * abschaltet, will das beim naechsten Start immer noch so haben.
+ */
+let mandalaAktiv = new Set(MANDALAS.map((m) => m.id));
+let mandalaJetzt = MANDALAS[0];
+// Was jedes Mandala auf *diesem* Geraet wirklich gekostet hat. Gemessen, nicht
+// geschaetzt - die Zahl kommt aus der Uhr in der Grafikkarte.
+const mandalaKosten = new Map();
+
+export function mandalasSetzen(ids) {
+  const gueltig = MANDALAS.filter((m) => ids.includes(m.id)).map((m) => m.id);
+  // Ganz abschalten geht nicht - dann bliebe die Symmetrie einfach aus, und
+  // das sieht aus wie ein Fehler. Wer keine will, dreht die Symmetrie herunter.
+  mandalaAktiv = new Set(gueltig.length ? gueltig : [MANDALAS[0].id]);
+  if (!mandalaAktiv.has(mandalaJetzt.id)) mandalaWechseln();
+}
+
+export function mandalasAktive() {
+  return [...mandalaAktiv];
+}
+
+/** Name, Zustand und gemessener Aufwand - fuer die Auswahl auf der Buehne. */
+export function mandalaBericht() {
+  return MANDALAS.map((m) => {
+    const k = mandalaKosten.get(m.id);
+    return {
+      ...m,
+      an: mandalaAktiv.has(m.id),
+      ms: k && k.zahl > 0 ? k.summe / k.zahl : null,
+      messungen: k?.zahl ?? 0,
+      laeuft: m.id === mandalaJetzt.id,
+    };
+  });
+}
+
+// Wenn eines von aussen festgehalten wird, wechselt nichts mehr. Das ist nur
+// fuer den Blick von aussen da - siehe mandalaZwingen().
+let mandalaGezwungen = false;
+
+function mandalaWechseln() {
+  if (mandalaGezwungen) return;
+  const frei = MANDALAS.filter((m) => mandalaAktiv.has(m.id) && m.id !== mandalaJetzt.id);
+  const liste = frei.length ? frei : MANDALAS.filter((m) => mandalaAktiv.has(m.id));
+  mandalaJetzt = liste[Math.floor(Math.random() * liste.length)] ?? MANDALAS[0];
+  mandelSterneZiel = mandalaJetzt.achsen;
+}
+
+/**
+ * Ein bestimmtes Mandala festhalten - oder mit `null` wieder loslassen.
+ *
+ * Das braucht am Abend niemand. Es braucht das Werkzeug, das von jedem
+ * Mandala ein Bild macht: Ohne Zwang wuerde beim naechsten Drop gewechselt,
+ * und aufgenommen waere dann irgendeines. Der Zwang haelt auch die
+ * Symmetriestaerke oben, sonst zeigt das Bild eine halb aufgeloeste Figur.
+ */
+export function mandalaZwingen(id) {
+  if (id === null) {
+    mandalaGezwungen = false;
+    return null;
+  }
+  const gewaehlt = MANDALAS.find((m) => m.id === id);
+  if (!gewaehlt) return null;
+  mandalaGezwungen = true;
+  mandalaJetzt = gewaehlt;
+  mandelSterneZiel = gewaehlt.achsen;
+  mandelSterne = gewaehlt.achsen;
+  mandelMandalaHalt = 1;
+  mandelMandala = 1;
+  // Auch die Schwarzblende weg - ein Bild von einem Mandala soll das Mandala
+  // zeigen und nicht den Breakdown, in dem es gerade zufaellig steckt.
+  mandelLeere = 0;
+  mandelLeereZiel = 0;
+  mandelFlaute = 0;
+  return gewaehlt;
+}
+
+/* --- Stille im Bild -------------------------------------------------------
+ *
+ * Wenn im Stueck nichts los ist, darf auch im Bild nichts los sein. Das ist
+ * kein Ausfall, sondern die staerkste Karte, die eine Visualisierung hat: Ein
+ * Bild, das nie aufhoert, hat keinen Hoehepunkt mehr. Wer im Breakdown auf
+ * Schwarz geht, macht den Drop danach doppelt so gross - und zwar ohne ihn
+ * lauter zu machen.
+ *
+ * Ganz schwarz wird es nie: Ein sehr dunkles Wabern auf dem Schlag bleibt
+ * stehen. Es sagt "hier laeuft noch etwas" statt "der Beamer ist aus".
+ *
+ * Das Zurueckkommen ist der eigentliche Punkt, und dafuer gibt es zwei Wege.
+ * Beide enden *genau* auf dem Drop - das koennen wir, weil er in der Analyse
+ * steht und nicht erkannt werden muss:
+ *
+ *   Aufblenden  Das Bild waechst ueber die letzte Phrase zurueck, gefuehrt von
+ *               derselben Spannungskurve, die auch den Zoom anzieht. Bei der
+ *               Ankunft ist es voll da.
+ *   Einschlag   Es bleibt schwarz bis zum letzten Moment und ist auf dem Drop
+ *               schlagartig da. Das ist der Hammer - und er sitzt auf dem
+ *               Schlag, nicht daneben.
+ *
+ * Welcher von beiden, entscheidet sich beim Eintritt in den Breakdown und
+ * wechselt sich ab. Zweimal derselbe Einschlag hintereinander ist keiner mehr.
+ */
+// Wie dunkel es im Breakdown hoechstens wird. Nicht ganz null - siehe oben.
+const LEERE_TIEF = 0.94;
+// Unter dieser Wucht gilt ein Stueck als still, auch ohne Marke. Damit sind
+// Intros und ruhige Stellen abgedeckt, die niemand als Breakdown eingetragen
+// hat.
+const FLAUTE_UNTER = 0.1;
+const FLAUTE_AB_SEKUNDEN = 4;
+
+let mandelLeere = 0;
+let mandelLeereZiel = 0;
+let mandelLeereArt = 'aufblenden';
+let mandelImAbbau = false;
+let mandelFlaute = 0;
+let mandelEinschlag = 0;
+let mandelLetztesBild = null;
+// Der langsame Atem hinter dem Vorhang, unabhaengig vom Takt.
+let mandelWabern = 0;
+
+/**
+ * Wie leer das Bild gerade ist - fuer die Abnahme.
+ *
+ * Von aussen ist das sonst nicht zu sehen: Der Vorhang liegt auf derselben
+ * Leinwand wie alles andere, und ein Bild, das gerade schwarz ist, sieht
+ * genauso aus wie eines, das kaputt ist. Diese Zahlen trennen die beiden
+ * Faelle - und nur mit ihnen laesst sich pruefen, dass das Zurueckkommen
+ * wirklich auf dem Drop landet und nicht irgendwann daneben.
+ */
+export function leereBericht() {
+  return {
+    leere: mandelLeere,
+    ziel: mandelLeereZiel,
+    art: mandelLeereArt,
+    flaute: mandelFlaute,
+    einschlag: mandelEinschlag,
+  };
+}
+
+/** Die Stille auf Anfang - damit jede Pruefung von derselben Stelle startet. */
+export function leereZuruecksetzen() {
+  mandelLeere = 0;
+  mandelLeereZiel = 0;
+  mandelLeereArt = 'aufblenden';
+  mandelImAbbau = false;
+  mandelFlaute = 0;
+  mandelEinschlag = 0;
+}
+
 let mandelSterne = 6;
 let mandelSterneZiel = 6;
 let mandelFang = 0;
@@ -621,6 +825,38 @@ let mandelUeberblendung = 0;
 let mandelSchnappschussNehmen = false;
 // So lange dauert die Ueberblendung in Sekunden.
 const MANDEL_UEBERBLEND = 1.5;
+
+/**
+ * Ein grober Abdruck des Fraktals - fuer die Abnahme.
+ *
+ * Von aussen ist an das Bild nicht heranzukommen. Die Fraktalebene ist eine
+ * WebGL-Leinwand, und deren Zeichenpuffer ist nach dem Zusammensetzen leer;
+ * wer sie von aussen kopiert, bekommt Schwarz. Beim ersten Anlauf sah der
+ * Vergleich "sind die sechsundzwanzig Faltungen wirklich verschieden?"
+ * deshalb sechsundzwanzigmal dasselbe - naemlich nichts.
+ *
+ * Der Schnappschuss dagegen wird *innerhalb* des Bildes genommen, im selben
+ * Zug wie das Zeichnen, und liegt als gewoehnliche Leinwand vor. Er ist
+ * ohnehin da: Die Ueberblendung beim Stellenwechsel braucht ihn.
+ */
+export function mandelAbdruck(spalten = 48, zeilen = 30) {
+  if (!mandelSchnappschuss || !mandelSchnappStift) return null;
+  const b = mandelSchnappschuss.width;
+  const h = mandelSchnappschuss.height;
+  const d = mandelSchnappStift.getImageData(0, 0, b, h).data;
+  const aus = new Array(spalten * zeilen).fill(0);
+  const zahl = new Array(spalten * zeilen).fill(0);
+  for (let y = 0; y < h; y++) {
+    const zy = Math.min(zeilen - 1, Math.floor((y / h) * zeilen));
+    for (let x = 0; x < b; x++) {
+      const zx = Math.min(spalten - 1, Math.floor((x / b) * spalten));
+      const i = (y * b + x) * 4;
+      aus[zy * spalten + zx] += (d[i] + d[i + 1] + d[i + 2]) / 3;
+      zahl[zy * spalten + zx]++;
+    }
+  }
+  return aus.map((s, i) => (zahl[i] ? s / zahl[i] : 0));
+}
 // Der Regler fuer die Grafikkarte: Anteil der vollen Aufloesung.
 /*
  * Vorsichtig anfangen.
@@ -705,6 +941,27 @@ let mandelTaktZeiger = 0;
 let mandelAufGpu = null;
 // Zaehlt aufeinanderfolgende zu langsame Bilder auf der Grafikkarte.
 let mandelGpuZaeh = 0;
+/*
+ * Den Rueckzug auf den Hauptprozessor abstellen.
+ *
+ * Nur fuer Werkzeuge und Pruefungen. Auf einem Rechner ohne Grafikkarte
+ * springt in der Pruefumgebung ein Nachbau in Software ein (SwiftShader). Der
+ * ist langsam genug, dass der Notausgang zuschlaegt - und dann zeichnet die
+ * Ersatzfassung auf dem Hauptprozessor, die nur die eine, alte Faltung kennt.
+ * Ein Bild davon zeigt nicht das Mandala, nach dem gefragt war, sondern immer
+ * dieselbe Rosette.
+ *
+ * Am Abend darf das niemals an sein: Der Rueckzug ist genau die Versicherung
+ * dagegen, dass eine schwache Karte das Bild stehenbleiben laesst.
+ */
+let mandelGpuZwang = false;
+export function gpuZwingen(an) {
+  mandelGpuZwang = !!an;
+  if (an) {
+    mandelAufGpu = null;
+    mandelGpuZaeh = 0;
+  }
+}
 /*
  * Der Wachdienst gegen das tote Bild.
  *
@@ -1460,7 +1717,7 @@ if (typeof window !== 'undefined') window.__mandelNeuAnsetzen = () => mandelNeuA
 function mandelbrotZeichnen(stift, lage) {
   const {
     breite, hoehe, sekunden, takt, spektrum, spannung, wucht, drop,
-    palette: paletteA, paletteB, anteilB, abbau = 0,
+    palette: paletteA, paletteB, anteilB, abbau = 0, dropInSicht = true,
   } = lage;
 
   // --- Die Fahrt ---------------------------------------------------------
@@ -1535,12 +1792,9 @@ function mandelbrotZeichnen(stift, lage) {
     }
     if (griff.mandala) mandelMandalaHalt = Math.max(mandelMandalaHalt, ausSpanne(griff.mandala));
     if (griff.fang) mandelFangHalt = Math.max(mandelFangHalt, ausSpanne(griff.fang));
-    if (griff.sterneNeu) {
-      // Andere Zahl von Spiegelachsen - das Motiv bleibt, die Ordnung wechselt.
-      // Nie dieselbe wie eben, sonst sieht man nichts.
-      const auswahl = [4, 5, 6, 7, 8, 9, 10, 12].filter((z) => z !== mandelSterneZiel);
-      mandelSterneZiel = auswahl[Math.floor(Math.random() * auswahl.length)];
-    }
+    // Ein anderes Mandala - andere Faltung, andere Ordnung. Nie dasselbe wie
+    // eben, sonst sieht man den Wechsel nicht.
+    if (griff.sterneNeu) mandalaWechseln();
   }
 
   // Alle Nachwirkungen klingen ab - unterschiedlich schnell, damit sie sich
@@ -1550,6 +1804,9 @@ function mandelbrotZeichnen(stift, lage) {
    * Uebergang laeuft traege - eine Symmetrie, die zappelt, ist keine.
    */
   mandelMandalaHalt *= Math.pow(0.55, sekunden);
+  // Festgehalten heisst festgehalten: kein Abklingen, sonst zeigt das
+  // Werkzeug eine halb aufgeloeste Figur statt des Mandalas.
+  if (mandalaGezwungen) mandelMandalaHalt = 1;
   mandelFangHalt *= Math.pow(0.4, sekunden);
   const mandalaZiel =
     Math.min(1, Math.max(spannung * 0.9, mandelMandalaHalt, mandelPhasenPuls * 0.3)) *
@@ -1574,6 +1831,67 @@ function mandelbrotZeichnen(stift, lage) {
   }
   mandelFaltStaerke = mandelMandala;
   mandelFaltAchsen = mandelSterne;
+
+  /*
+   * Wie leer das Bild sein darf - siehe die Begruendung bei LEERE_TIEF.
+   *
+   * Zwei Quellen: die eingetragene Breakdown-Marke, und eine gemessene Flaute
+   * fuer alles, was niemand eingetragen hat. Die Marke ist die bessere, weil
+   * sie weiss, was danach kommt; die Flaute faengt den Rest.
+   */
+  mandelFlaute = wucht < FLAUTE_UNTER ? mandelFlaute + sekunden : 0;
+  const flauteAnteil = Math.min(1, Math.max(0, (mandelFlaute - FLAUTE_AB_SEKUNDEN) / 3));
+
+  const imAbbau = abbau > 0.35;
+  if (imAbbau && !mandelImAbbau) {
+    // Beim Eintritt entscheiden - und abwechseln, damit der Einschlag einer
+    // bleibt.
+    /*
+     * Der Einschlag nur, wenn ueberhaupt ein Drop kommt.
+     *
+     * Er besteht daraus, dass es schwarz bleibt *und dann* schlagartig da
+     * ist. Ohne den zweiten Teil ist er kein Einschlag, sondern ein Bild, das
+     * ausgegangen ist - und in einem Stundenmix kommt genau das vor: Die
+     * Analyse setzt eine Breakdown-Marke, findet danach aber minutenlang
+     * keinen Drop mehr. Dann wird aufgeblendet, denn das Aufblenden braucht
+     * kein Versprechen; es kommt von selbst zurueck, wenn der Abbau abklingt.
+     */
+    mandelLeereArt =
+      mandelLeereArt === 'einschlag' || !dropInSicht ? 'aufblenden' : 'einschlag';
+  }
+  mandelImAbbau = imAbbau;
+
+  /*
+   * Die Spannung fuehrt das Zurueckkommen. Sie steht sechzehn Takte vor dem
+   * Drop bei null und auf dem Drop bei eins - eine fertige Blendkurve, die
+   * nichts erraten muss.
+   */
+  const zurueck = Math.min(1, Math.max(0, (spannung - 0.2) / 0.75));
+  const weich = zurueck * zurueck * (3 - 2 * zurueck);
+  // Auch waehrend des Breakdowns nachgeprueft, nicht nur beim Eintritt: Wenn
+  // das Deck wechselt oder der Mix in einen Abschnitt ohne Marken laeuft,
+  // verschwindet der Drop, auf den gewartet wurde. Dann blendet das Bild auf,
+  // statt auf etwas zu warten, das nicht mehr kommt.
+  const haerte = mandelLeereArt === 'einschlag' && dropInSicht;
+  const ausMarke = abbau * LEERE_TIEF * (haerte ? 1 : 1 - weich);
+  const ausFlaute = flauteAnteil * LEERE_TIEF * (1 - weich);
+  mandelLeereZiel = Math.max(ausMarke, ausFlaute);
+  // Wer ein Mandala festhaelt, will es sehen. Siehe mandalaZwingen().
+  if (mandalaGezwungen) mandelLeereZiel = 0;
+
+  if (drop) {
+    // Der Hammer sitzt auf dem Schlag. Was jetzt noch dunkel war, ist weg.
+    mandelEinschlag = mandelLeere > 0.35 ? 1 : 0;
+    mandelLeere = 0;
+    mandelLeereZiel = 0;
+    mandelFlaute = 0;
+  }
+  mandelEinschlag = Math.max(0, mandelEinschlag - sekunden * 2.2);
+  mandelWabern += sekunden * 0.9;
+  // Hinein langsam, heraus schneller: Dunkelwerden darf man merken,
+  // Zurueckkommen soll ziehen.
+  const leereTempo = mandelLeereZiel > mandelLeere ? 0.9 : 2.6;
+  mandelLeere += (mandelLeereZiel - mandelLeere) * Math.min(1, sekunden * leereTempo);
 
   mandelTonDreh *= Math.pow(0.32, sekunden);
   mandelEnge *= Math.pow(0.2, sekunden);
@@ -1866,6 +2184,23 @@ function mandelbrotZeichnen(stift, lage) {
       ),
     );
     gpuFarben(mandelFarbtabelle);
+    /*
+     * Ist das Bild ohnehin verdeckt, wird es nicht gerechnet.
+     *
+     * Das ist der schoene Nebeneffekt der Stille: Im Breakdown liegt ein
+     * schwarzer Vorhang darueber, und was dahinter passiert, sieht niemand.
+     * Die Grafikkarte macht dann Pause - genau in dem Moment, in dem der
+     * Regler sich sonst muehsam erholen muesste. Der Zustand laeuft weiter,
+     * damit die Fahrt beim Zurueckkommen dort steht, wo sie hingehoert.
+     */
+    if (mandelLeere > 0.985 && mandelLetztesBild) {
+      mandelUeberlagern(
+        stift, breite, hoehe, sekunden,
+        mandelLetztesBild.leinwand, mandelLetztesBild.breite, mandelLetztesBild.hoehe,
+      );
+      leereZeichnen(stift, breite, hoehe, takt, paletteA);
+      return;
+    }
     const bild = gpuZeichnen({
       breite, hoehe,
       ziel: zielGpu,
@@ -1879,11 +2214,22 @@ function mandelbrotZeichnen(stift, lage) {
       welleZeit: mandelWelleZeit,
       mandala: mandelMandala,
       sterne: mandelSterne,
+      faltArt: mandalaJetzt.art,
       fangAnteil: mandelFang,
       guete: Math.min(mandelGuete, stufe.fraktal),
       reihe: mandelReihe,
     });
     mandelPunkte = bild.breite * bild.hoehe;
+    mandelLetztesBild = bild;
+
+    // Was dieses Mandala auf *diesem* Geraet gekostet hat. Nur echte
+    // Messungen zaehlen - ohne die Uhr in der Karte bleibt die Zahl leer.
+    if (typeof bild.gpuMs === 'number' && bild.gpuMs > 0) {
+      const k = mandalaKosten.get(mandalaJetzt.id) ?? { summe: 0, zahl: 0 };
+      k.summe += bild.gpuMs;
+      k.zahl++;
+      mandalaKosten.set(mandalaJetzt.id, k);
+    }
 
     if (typeof window !== 'undefined') {
       window.__mandel = {
@@ -1916,6 +2262,10 @@ function mandelbrotZeichnen(stift, lage) {
         reihe: reiheAuskunft(),
         dauerMs: mandelDauer,
         schwung: mandelSchwung,
+        // Wie viel Struktur im Bild steckt. Dieselbe Zahl, an der die Wache
+        // ein totes Bild erkennt - und die einzige, an der sich von aussen
+        // ablesen laesst, ob gerade wirklich etwas zu sehen ist.
+        streuung: mandelStreuung,
       };
     }
 
@@ -1923,6 +2273,7 @@ function mandelbrotZeichnen(stift, lage) {
     // Auf die 2D-Leinwand kommt nur noch, was ueber dem Fraktal liegt: die
     // Ueberblendung beim Stellenwechsel und der Schleier fuer die Schrift.
     mandelUeberlagern(stift, breite, hoehe, sekunden, bild.leinwand, bild.breite, bild.hoehe);
+    leereZeichnen(stift, breite, hoehe, takt, paletteA);
 
     const gebrauchtGpu = Math.max(0.2, performance.now() - begonnenGpu - bild.bahnMs);
     // Punkt-Schritte je Millisekunde. Die Bahnrechnung zaehlt nicht mit - sie
@@ -2087,7 +2438,7 @@ function mandelbrotZeichnen(stift, lage) {
      */
     if (mandelDurchsatz < MANDEL_DURCHSATZ_MIN && mandelSeitGpu > 2) mandelGpuZaeh++;
     else mandelGpuZaeh = 0;
-    if (mandelGpuZaeh > 8) {
+    if (mandelGpuZaeh > 8 && !mandelGpuZwang) {
       mandelAufGpu = false;
       mandelSeitAufgabe = 0;
       mandelTiefe = Math.min(mandelTiefe, MANDEL_MAX_TIEFE - 0.5);
@@ -2414,6 +2765,59 @@ function mandelbrotZeichnen(stift, lage) {
  * Ueberblendung beim Stellenwechsel und der Schleier fuer die Schrift. Das
  * Fraktal selbst wird nicht angefasst - es steht schon da.
  */
+/*
+ * Der Vorhang, und was darauf noch zu sehen ist.
+ *
+ * Ganz schwarz waere falsch: Ein Bild, das vollstaendig verschwindet, sieht
+ * nicht nach Absicht aus, sondern nach Ausfall - und im Raum fragt der Erste
+ * nach zehn Sekunden, ob der Beamer noch geht. Also bleibt ein sehr dunkles
+ * Wabern stehen, das auf dem Schlag atmet. Es reicht, um zu sagen: hier laeuft
+ * noch etwas, es ist nur gerade still.
+ *
+ * Und beim Einschlag ein kurzes helles Aufreissen - das ist der einzige
+ * Moment, in dem hier etwas blitzt, und er sitzt auf dem Drop.
+ */
+function leereZeichnen(stift, breite, hoehe, takt, palette) {
+  if (mandelLeere <= 0.002 && mandelEinschlag <= 0.002) return;
+
+  stift.save();
+  stift.fillStyle = `rgba(0,0,0,${mandelLeere})`;
+  stift.fillRect(0, 0, breite, hoehe);
+
+  if (mandelLeere > 0.05) {
+    // Das Wabern: ein sehr weiter, sehr dunkler Schein, der auf dem Schlag
+    // aufgeht und dazwischen zurueckfaellt.
+    /*
+     * Der Puls wird abgesichert, und das ist keine Vorsicht auf Vorrat.
+     *
+     * createRadialGradient wirft, wenn der Radius keine Zahl ist, und der
+     * Wurf faellt aus dem ganzen Bild heraus - jedes Bild, nicht nur eines.
+     * Ein einziges fehlendes Feld im Taktobjekt reicht dafuer; genau das ist
+     * beim Schreiben dieser Pruefung passiert, weil dort "phase" stand und
+     * hier "imBeat" gelesen wird. Auf der Buehne haette dasselbe geheissen:
+     * Bild weg, bis jemand neu laedt.
+     */
+    const roh = Number(takt?.imBeat);
+    const puls = Number.isFinite(roh) ? Math.exp(-roh * 4.5) : 0.3;
+    const atem = 0.5 + 0.5 * Math.sin(mandelWabern);
+    const r = Math.min(breite, hoehe) * (0.22 + puls * 0.16 + atem * 0.05);
+    const [rr, gg, bb] = oklabZuRgb(0.55, 0.11, palette?.grundton ?? 250);
+    const schein = stift.createRadialGradient(breite / 2, hoehe / 2, 0, breite / 2, hoehe / 2, r);
+    schein.addColorStop(0, `rgba(${rr},${gg},${bb},${mandelLeere * (0.055 + puls * 0.085)})`);
+    schein.addColorStop(1, 'rgba(0,0,0,0)');
+    stift.globalCompositeOperation = 'lighter';
+    stift.fillStyle = schein;
+    stift.fillRect(0, 0, breite, hoehe);
+  }
+
+  if (mandelEinschlag > 0.002) {
+    stift.globalCompositeOperation = 'lighter';
+    stift.fillStyle = `rgba(255,255,255,${mandelEinschlag * mandelEinschlag * 0.34})`;
+    stift.fillRect(0, 0, breite, hoehe);
+  }
+  stift.restore();
+}
+
 function mandelUeberlagern(stift, breite, hoehe, sekunden, quelle, qb, qh) {
   stift.save();
   stift.imageSmoothingEnabled = true;

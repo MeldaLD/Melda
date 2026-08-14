@@ -14,7 +14,13 @@ import { demoBibliothek } from '../gemeinsam/demomusik.js';
 import { leitungSuchen } from '../gemeinsam/leitung.js';
 import { Visualisierung } from '../gemeinsam/visual.js';
 import { technikSammeln, technikAlsText } from '../gemeinsam/technik.js';
-import { reiheSetzen } from '../gemeinsam/visualmodi.js';
+import {
+  reiheSetzen,
+  MANDALAS,
+  mandalasSetzen,
+  mandalasAktive,
+  mandalaBericht,
+} from '../gemeinsam/visualmodi.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -423,7 +429,9 @@ document.addEventListener('keydown', (e) => {
   const arten = { 1: 'blende', 2: 'aufzug', 3: 'echo', 4: 'schnitt' };
   if (arten[e.key]) ueberblenden(arten[e.key]);
   if (e.key === 't' || e.key === 'T') technikUmschalten();
+  if (e.key === 'm' || e.key === 'M') mandalaUmschalten();
   if (e.key === 'Escape' && !$('technik').hidden) technikUmschalten();
+  if (e.key === 'Escape' && !$('mandalas').hidden) mandalaUmschalten();
   geheimPruefen(e.key);
 });
 
@@ -484,6 +492,134 @@ function technikUmschalten() {
     localStorage.setItem('djReihe', e.target.checked ? 'ja' : 'nein');
   });
 }
+
+/* --- Welche Mandalas laufen duerfen ---------------------------------------
+ *
+ * Sechsundzwanzig Varianten sind zu viele fuer jedes Geraet - und welche sich
+ * lohnen, haengt an der Grafikkarte und am Geschmack. Beides kann ich nicht
+ * von hier aus entscheiden, also entscheidet es, wer davorsteht.
+ *
+ * Die Wahl liegt im Browser, nicht in der Datenbank: Sie gehoert zum Geraet.
+ * Wer auf dem iPad die Haelfte abschaltet, will das auf dem Partyrechner nicht
+ * auch haben.
+ */
+{
+  const gemerkt = localStorage.getItem('djMandalas');
+  if (gemerkt) {
+    try {
+      mandalasSetzen(JSON.parse(gemerkt));
+    } catch {
+      // Kaputter Eintrag - dann eben alle.
+    }
+  }
+}
+
+function mandalasMerken() {
+  localStorage.setItem('djMandalas', JSON.stringify(mandalasAktive()));
+}
+
+let mandalaTakt = null;
+
+function mandalaZeichnen() {
+  const liste = $('mandalaListe');
+  const bericht = mandalaBericht();
+  // Was "schwer" heisst, ergibt sich aus dem Feld selbst: alles ueber dem
+  // Anderthalbfachen des Mittelwerts. Eine feste Millisekundengrenze waere auf
+  // einem Telefon etwas anderes als auf einem Spielerechner.
+  const gemessen = bericht.filter((m) => m.ms !== null).map((m) => m.ms);
+  const mittel = gemessen.length ? gemessen.reduce((a, b) => a + b, 0) / gemessen.length : 0;
+
+  // Beim ersten Aufbau die Zeilen anlegen, danach nur noch die Werte
+  // nachziehen - sonst verliert ein Kaestchen unter dem Finger den Fokus.
+  if (liste.childElementCount !== bericht.length) {
+    liste.innerHTML = '';
+    for (const m of bericht) {
+      const zeile = document.createElement('label');
+      zeile.dataset.id = m.id;
+      const kasten = document.createElement('input');
+      kasten.type = 'checkbox';
+      kasten.checked = m.an;
+      kasten.addEventListener('change', () => {
+        const jetzt = new Set(mandalasAktive());
+        if (kasten.checked) jetzt.add(m.id);
+        else jetzt.delete(m.id);
+        mandalasSetzen([...jetzt]);
+        mandalasMerken();
+        mandalaZeichnen();
+      });
+      const name = document.createElement('span');
+      name.textContent = m.name;
+      const kosten = document.createElement('span');
+      kosten.className = 'kosten';
+      zeile.append(kasten, name, kosten);
+      liste.append(zeile);
+    }
+  }
+
+  for (const zeile of liste.children) {
+    const m = bericht.find((x) => x.id === zeile.dataset.id);
+    if (!m) continue;
+    zeile.querySelector('input').checked = m.an;
+    zeile.classList.toggle('laeuft', m.laeuft);
+    const kosten = zeile.querySelector('.kosten');
+    kosten.textContent = m.ms === null ? '–' : `${m.ms.toFixed(2)} ms`;
+    kosten.classList.toggle('schwer', m.ms !== null && mittel > 0 && m.ms > mittel * 1.5);
+  }
+}
+
+function mandalaUmschalten() {
+  const kasten = $('mandalas');
+  kasten.hidden = !kasten.hidden;
+  clearInterval(mandalaTakt);
+  mandalaTakt = null;
+  if (!kasten.hidden) {
+    mandalaZeichnen();
+    mandalaTakt = setInterval(mandalaZeichnen, 700);
+  }
+}
+
+$('mandalaKnopf').addEventListener('click', mandalaUmschalten);
+$('mandalaZu').addEventListener('click', mandalaUmschalten);
+$('mandalaAlle').addEventListener('click', () => {
+  mandalasSetzen(MANDALAS.map((m) => m.id));
+  mandalasMerken();
+  mandalaZeichnen();
+  $('mandalaStand').textContent = `Alle ${MANDALAS.length} sind an.`;
+});
+$('mandalaLeichte').addEventListener('click', () => {
+  /*
+   * Die Haelfte mit der kuerzesten gemessenen Zeit behalten.
+   *
+   * Ungemessene bleiben drin: Sie sind nicht teuer, sie waren nur noch nicht
+   * dran. Sie hinauszuwerfen, weil man sie nicht kennt, waere das Gegenteil
+   * von messen.
+   */
+  const bericht = mandalaBericht();
+  const mitZahl = bericht.filter((m) => m.ms !== null).sort((a, b) => a.ms - b.ms);
+  /*
+   * Und sagen, wenn der Knopf nichts tun kann.
+   *
+   * Solange kaum etwas gemessen ist, bleibt fast alles drin - der Knopf sieht
+   * dann kaputt aus, obwohl er genau das Richtige tut. Nachgestellt: nach acht
+   * Sekunden lag eine einzige Messung vor, "Nur die leichten" liess alle
+   * sechsundzwanzig stehen, und ohne diesen Hinweis waere das ein Fehler
+   * gewesen, den es nicht gibt.
+   */
+  if (mitZahl.length < 4) {
+    $('mandalaStand').textContent =
+      `Erst ${mitZahl.length} von ${bericht.length} gemessen – lass die Fahrt` +
+      ' ein paar Drops laufen, dann trennt sich das.';
+    return;
+  }
+  const behalten = new Set(bericht.filter((m) => m.ms === null).map((m) => m.id));
+  for (const m of mitZahl.slice(0, Math.max(1, Math.ceil(mitZahl.length / 2)))) behalten.add(m.id);
+  mandalasSetzen([...behalten]);
+  mandalasMerken();
+  mandalaZeichnen();
+  $('mandalaStand').textContent =
+    `${behalten.size} von ${bericht.length} bleiben an – die teurere Haelfte der` +
+    ` ${mitZahl.length} gemessenen ist ab.`;
+});
 
 $('technikKnopf').addEventListener('click', technikUmschalten);
 $('technikZu').addEventListener('click', technikUmschalten);

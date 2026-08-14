@@ -92,6 +92,7 @@ uniform float welle;         // Staerke der Drop-Welle
 uniform float welleZeit;     // wie lange sie schon laeuft
 uniform float mandala;       // 0 = reines Mandelbrot, 1 = volle Symmetrie
 uniform float sterne;        // Zahl der Spiegelachsen
+uniform int   faltArt;       // welche Faltung - siehe falten()
 uniform float fangAnteil;    // wieviel die Bahnfalle zur Farbe beitraegt
 
 /*
@@ -141,12 +142,166 @@ vec4 bahnHolen(int i) {
  * Zielpunkt der Zoomfahrt. Das Mandala sitzt also genau im Sog und waechst mit
  * ihm, statt darueber zu kleben.
  */
+/*
+ * Vierzehn Faltungen statt einer.
+ *
+ * Drei Dinge gelten fuer alle, und sie sind der Grund, warum das hier fast
+ * nichts kostet:
+ *
+ *   1. Gefaltet wird *einmal je Bildpunkt*, vor der Iteration. Danach laufen
+ *      Tausende Schritte. Ob die Faltung fuenf oder fuenfzig Rechenoperationen
+ *      braucht, verschwindet dagegen restlos - keine dieser Arten ist
+ *      nennenswert teurer als eine andere.
+ *   2. faltArt ist ein Uniform, kein Wert je Bildpunkt. Alle Punkte nehmen
+ *      denselben Zweig, und damit gibt es an dieser Verzweigung keine
+ *      Divergenz. Auf einer Grafikkarte laufen Punkte in Gruppen im
+ *      Gleichschritt; eine Verzweigung, bei der Punkte einer Gruppe
+ *      auseinanderlaufen, kostet die Summe beider Wege. Ein Uniform tut das
+ *      nicht.
+ *   3. Keine Faltung macht den Abstand groesser: |gefaltet| <= |p|. Das ist
+ *      keine Kosmetik, sondern Bedingung. Die Reihenentwicklung rechnet mit
+ *      u = versch/s und setzt |u| <= 1 voraus; eine Faltung, die den Radius
+ *      aufblaest, wuerde sie ausserhalb ihres Gueltigkeitsbereichs auswerten.
+ *      Drehungen und Spiegelungen erhalten die Laenge ohnehin; wo der Radius
+ *      angefasst wird, bildet er [0,R] auf [0,R] ab.
+ *
+ * Woher die grossen Unterschiede kommen, die man trotzdem sieht: nicht aus der
+ * Faltung, sondern daraus, *wohin* sie greift. Sie legt das ganze Bild in ein
+ * Tortenstueck. Zeigt dieses Stueck in eine Gegend nah am Rand der Menge,
+ * braucht dort *jeder* Punkt die volle Schrittzahl - und weil die Gruppe im
+ * Gleichschritt laeuft, kostet sie so viel wie ihr teuerster Punkt. Zeigt es
+ * ins Freie, ist alles nach wenigen Schritten entschieden. Dieselbe Rechnung,
+ * zehnfacher Preis, je nach Ausschnitt.
+ */
+
+const float PI = 3.14159265;
+
+// Spiegelung an n Achsen - das klassische Kaleidoskop.
+vec2 faltSpiegel(vec2 p, float n) {
+  float keil = PI / max(1.0, n);
+  float w = atan(p.y, p.x);
+  w = mod(w + keil, 2.0 * keil) - keil;
+  return vec2(cos(abs(w)), sin(abs(w))) * length(p);
+}
+
+// Nur Drehung, keine Spiegelung. Ergibt ein Windrad statt einer Rosette -
+// die Figur hat dann eine Laufrichtung.
+vec2 faltDrehung(vec2 p, float n) {
+  float keil = 2.0 * PI / max(1.0, n);
+  float w = atan(p.y, p.x);
+  w = mod(w, keil);
+  return vec2(cos(w), sin(w)) * length(p);
+}
+
+// Zweimal spiegeln, mit n und dem Doppelten. Feinere Rosette, weil zwei
+// Achsensysteme uebereinanderliegen.
+vec2 faltDoppelt(vec2 p, float n) {
+  return faltSpiegel(faltSpiegel(p, n), n * 2.0);
+}
+
+// Quadratisch: erst in den ersten Quadranten, dann an der Winkelhalbierenden.
+// Das ist die Symmetrie einer Fliese, und sie ist die billigste von allen -
+// zwei Betraege und ein Tausch, ohne einen einzigen Winkel.
+vec2 faltQuadrat(vec2 p) {
+  p = abs(p);
+  return p.x < p.y ? p.yx : p;
+}
+
+// Sechseckig: drei Spiegelachsen im Sechzig-Grad-Abstand. Die Symmetrie der
+// Bienenwabe, und die dichteste, die die Ebene ohne Luecken fuellt.
+vec2 faltWabe(vec2 p) {
+  const vec2 a = vec2(-0.8660254, 0.5);
+  const vec2 b = vec2(0.8660254, 0.5);
+  p = abs(p);
+  p -= 2.0 * min(0.0, dot(p, a)) * a;
+  p -= 2.0 * min(0.0, dot(p, b)) * b;
+  return p;
+}
+
+// Der Winkel wird mit dem Logarithmus des Radius verdreht, bevor gefaltet
+// wird - daraus werden Spiralarme statt gerader Strahlen.
+vec2 faltSpirale(vec2 p, float n, float drall) {
+  float r = length(p);
+  float w = atan(p.y, p.x) + drall * log(max(r, 1e-20));
+  float keil = PI / max(1.0, n);
+  w = mod(w + keil, 2.0 * keil) - keil;
+  return vec2(cos(abs(w)), sin(abs(w))) * r;
+}
+
+/*
+ * Ringe: der Radius wird logarithmisch wiederholt.
+ *
+ * Im Logarithmus des Radius ist ein Zoom eine Verschiebung. Wer dort
+ * wiederholt, bekommt Ringe, die beim Hineinfahren ineinander laufen statt
+ * vorbeizuziehen - der Droste-Effekt. Zurueckgebildet wird auf [0,R], damit
+ * der Abstand nicht waechst.
+ */
+vec2 faltRinge(vec2 p, float n, float ringe) {
+  vec2 g = faltSpiegel(p, n);
+  float r = length(g);
+  if (r < 1e-20) return g;
+  float hoechst = 2.0;
+  float l = log(r / hoechst);
+  float breit = 1.0 / max(0.5, ringe);
+  float f = mod(l, breit);
+  // Spiegeln statt springen, sonst sieht man die Naht als harte Kante.
+  f = abs(f - breit * 0.5) * 2.0;
+  return g * (exp(l - f) / r * hoechst);
+}
+
+// Sterne: der Radius wird entlang des Winkels eingezogen. Die Figur bekommt
+// dadurch eine Zackenkontur statt eines runden Randes.
+vec2 faltStern(vec2 p, float n, float tiefe) {
+  vec2 g = faltSpiegel(p, n);
+  float w = atan(g.y, g.x);
+  return g * (1.0 - tiefe + tiefe * abs(cos(n * w * 0.5)));
+}
+
+// Bluete: der Winkel wird sinusfoermig verzogen, bevor gefaltet wird. Aus
+// geraden Kanten werden geschwungene Blaetter.
+vec2 faltBluete(vec2 p, float n, float schwung) {
+  float r = length(p);
+  float w = atan(p.y, p.x);
+  w += schwung * sin(w * n);
+  float keil = PI / max(1.0, n);
+  w = mod(w + keil, 2.0 * keil) - keil;
+  return vec2(cos(abs(w)), sin(abs(w))) * r;
+}
+
+// Linse: der Radius wird mit einer Potenz umgebogen. Unter eins zieht es die
+// Mitte auf und draengt den Rand zusammen - der Blick faellt nach innen.
+vec2 faltLinse(vec2 p, float n, float staerke) {
+  vec2 g = faltSpiegel(p, n);
+  float r = length(g);
+  if (r < 1e-20) return g;
+  float hoechst = 2.0;
+  float t = clamp(r / hoechst, 0.0, 1.0);
+  return g * (pow(t, staerke) * hoechst / r);
+}
+
+/*
+ * Die Weiche.
+ *
+ * faltArt ist ein Uniform - alle Punkte nehmen denselben Weg, und die
+ * Verzweigung kostet nichts. Waere es ein Wert je Bildpunkt, waere genau das
+ * hier der teuerste Teil des ganzen Schattierers.
+ */
 vec2 falten(vec2 p, float n) {
-  float keil = 3.14159265 / max(1.0, n);
-  float winkel = atan(p.y, p.x);
-  float weite = length(p);
-  winkel = mod(winkel + keil, 2.0 * keil) - keil;
-  return vec2(cos(abs(winkel)), sin(abs(winkel))) * weite;
+  if (faltArt == 1) return faltDrehung(p, n);
+  if (faltArt == 2) return faltDoppelt(p, n);
+  if (faltArt == 3) return faltQuadrat(p);
+  if (faltArt == 4) return faltWabe(p);
+  if (faltArt == 5) return faltSpirale(p, n, 0.55);
+  if (faltArt == 6) return faltSpirale(p, n, -1.3);
+  if (faltArt == 7) return faltRinge(p, n, 2.2);
+  if (faltArt == 8) return faltRinge(p, n, 4.5);
+  if (faltArt == 9) return faltStern(p, n, 0.45);
+  if (faltArt == 10) return faltBluete(p, n, 0.35);
+  if (faltArt == 11) return faltBluete(p, n, -0.6);
+  if (faltArt == 12) return faltLinse(p, n, 0.55);
+  if (faltArt == 13) return faltSpiegel(faltQuadrat(p), n);
+  if (faltArt == 14) return faltSpiegel(faltWabe(p), n);
+  return faltSpiegel(p, n);
 }
 
 void main() {
@@ -368,6 +523,7 @@ export function gpuBereit() {
       'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
       'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
       'reiheN', 'reiheS', 'reiheA', 'reiheB', 'reiheC', 'reiheD', 'reiheFalle', 'reiheNah',
+      'faltArt',
     ]) {
       orte[name] = gl.getUniformLocation(programm, name);
     }
@@ -956,6 +1112,7 @@ export function gpuZeichnen(lage) {
   gl.uniform1f(orte.welleZeit, welleZeit ?? 0);
   gl.uniform1f(orte.mandala, mandala ?? 0);
   gl.uniform1f(orte.sterne, sterne ?? 6);
+  gl.uniform1i(orte.faltArt, lage.faltArt ?? 0);
   gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
 
   /*

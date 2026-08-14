@@ -48,3 +48,7 @@ next-env.d.ts
 # Die Musik selbst gehoert nicht ins Repo. Fuenf Stundenmixe sind schnell ein
 # halbes Gigabyte, und sie sind ohnehin auf dem Rechner, auf dem gespielt wird.
 /dj/musik/
+
+# Bilder aus den Blick-Werkzeugen (dj:modibilder, dj:mandalabilder).
+# Sie werden angesehen und weggeworfen, nicht versioniert.
+dj-bilder/

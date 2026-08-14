@@ -128,6 +128,7 @@
         </select>
         <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
         <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik</button>
+        <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas</button>
         <label class="schieber">
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
@@ -161,6 +162,28 @@
         </div>
         <div id="technikUrteil"></div>
         <pre id="technikText"></pre>
+      </div>
+
+      <!--
+        Die Mandala-Auswahl. Der Aufwand daneben ist gemessen, nicht geschaetzt
+        - er kommt aus der Uhr in der Grafikkarte und gilt fuer dieses Geraet.
+      -->
+      <div class="technik mandalas" id="mandalas" hidden>
+        <div class="technik-kopf">
+          <strong>Mandalas</strong>
+          <span>
+            <button id="mandalaAlle" class="still">Alle</button>
+            <button id="mandalaLeichte" class="still">Nur die leichten</button>
+            <button id="mandalaZu" class="still">Schliessen</button>
+          </span>
+        </div>
+        <p class="mandala-hinweis">
+          Was hier abgehakt ist, kommt beim Drop dran. Der Wert rechts ist die
+          gemessene Rechenzeit der Grafikkarte auf diesem Gerät – er füllt sich,
+          sobald ein Mandala gelaufen ist.
+        </p>
+        <p class="mandala-hinweis" id="mandalaStand"></p>
+        <div id="mandalaListe" class="mandala-liste"></div>
       </div>
     </main>
 

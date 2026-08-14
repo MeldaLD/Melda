@@ -946,8 +946,22 @@ try {
    * ausdruecklich vermerkt, dass hier nichts gezeigt wurde.
    */
   const alleRuhig = stufen.every((e) => e.ms < 15);
-  if (alleRuhig) {
-    const [a, b2, c] = stufen;
+  /*
+   * Verglichen wird nur, wo die Leinwand wirklich kleiner ist.
+   *
+   * Die Stufen geben eine *Obergrenze* fuer die Punktdichte vor, und genommen
+   * wird das Kleinere von Grenze und Geraetedichte. Auf einem Bildschirm mit
+   * Dichte 1 - jeder gewoehnliche Monitor, auch der dieser Pruefung - laufen
+   * "Hoch" (Grenze 2) und "Mittel" (Grenze 1) deshalb auf exakt dieselbe
+   * Leinwand hinaus. Ihre Zeiten zu vergleichen hiesse, einen Unterschied zu
+   * behaupten, den es auf diesem Geraet gar nicht gibt: Gemessen wurde dann
+   * 11,8 gegen 12,2 ms bei identischer Punktzahl - reines Rauschen, und die
+   * Pruefung schlug daran fehl. Auf dem iPad mit Dichte 2 trennen sich die
+   * beiden Stufen sehr wohl; dort greift der Vergleich wieder.
+   */
+  const kleiner = stufen.filter((e) => e.punkte < stufen[0].punkte);
+  if (alleRuhig && kleiner.length) {
+    const a = stufen[0];
     /*
      * Verglichen werden die *Enden*, nicht benachbarte Stufen.
      *
@@ -960,9 +974,21 @@ try {
      * Leinwandgroesse weiter oben zeigt es unabhaengig von jeder Zeitmessung.
      */
     pruefe(
-      'die niedrigen Stufen sind schneller als die hoechste',
-      b2.ms < a.ms && c.ms < a.ms,
-      `${a.ms.toFixed(1)} -> ${b2.ms.toFixed(1)} -> ${c.ms.toFixed(1)} ms`,
+      'die kleiner rechnenden Stufen sind schneller als die hoechste',
+      kleiner.every((e) => e.ms < a.ms),
+      `${a.ms.toFixed(1)} ms gegen ${kleiner.map((e) => `${e.stufe} ${e.ms.toFixed(1)}`).join(', ')}`,
+    );
+    const gleich = stufen.filter((e) => e !== a && e.punkte === a.punkte);
+    if (gleich.length) {
+      console.log(
+        `    nicht verglichen: ${gleich.map((e) => e.stufe).join(', ')} – ` +
+          'auf diesem Bildschirm dieselbe Leinwand wie "hoch".',
+      );
+    }
+  } else if (alleRuhig) {
+    console.log(
+      '    NICHT GEPRUEFT: keine Stufe rechnet auf diesem Bildschirm kleiner ' +
+        'als die hoechste. Ohne Unterschied in der Arbeit gibt es keinen in der Zeit.',
     );
   } else {
     console.log(
