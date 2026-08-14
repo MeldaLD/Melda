@@ -703,6 +703,35 @@ $('pcModus').addEventListener('click', () => {
     'Ob es trägt, sagt der Messstand.');
 });
 
+/*
+ * Bild gegen Ton nachstellen.
+ *
+ * Der gerechnete Teil des Versatzes steht in anzeigeVersatz(); hier kommt
+ * dazu, was sich nicht rechnen laesst. Die Wahl haelt ueber einen Neustart:
+ * Der Raum aendert sich zwischen zwei Abenden nicht, und wer das einmal nach
+ * Gehoer eingestellt hat, will es nicht wieder tun.
+ */
+{
+  const gemerkt = Number(localStorage.getItem('djVersatzHand') ?? 0);
+  $('versatzRegler').value = String(gemerkt);
+  const zeigen = (ms) => {
+    $('versatzWert').textContent = `Bild ${ms > 0 ? '+' : ''}${ms} ms`;
+    if (welt.mixer) welt.mixer.versatzHand = ms / 1000;
+  };
+  zeigen(gemerkt);
+  $('versatzRegler').addEventListener('input', (e) => {
+    const ms = Number(e.target.value);
+    localStorage.setItem('djVersatzHand', String(ms));
+    zeigen(ms);
+  });
+  // Beim Start steht der Mischer noch nicht; dann nachtragen.
+  const nachtragen = setInterval(() => {
+    if (!welt.mixer) return;
+    welt.mixer.versatzHand = Number($('versatzRegler').value) / 1000;
+    clearInterval(nachtragen);
+  }, 200);
+}
+
 $('technikKnopf').addEventListener('click', technikUmschalten);
 $('technikZu').addEventListener('click', technikUmschalten);
 $('technikKopieren').addEventListener('click', async () => {

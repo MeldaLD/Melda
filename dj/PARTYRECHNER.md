@@ -37,6 +37,12 @@ den Durchsatz zu ändern – sie bestimmt, wie unser Schattierer für die Karte
 übersetzt wird. Auf RDNA4 gibt es dazu keine veröffentlichte Messung, also
 gilt die eigene.
 
+Was drei unabhängige Recherchen übereinstimmend sagen, auch wenn keine es
+belegen kann: **Direct3D 11 ist die Vorgabe und vermutlich schon die richtige
+Wahl.** Vulkan liegt geschätzt zwischen 0,92× und 1,02× – also im Rauschen,
+möglicherweise leicht schlechter. Nur Desktop-GL ist einhellig schlechter
+(0,70× bis 0,85×). Erwarte also wenig; miss trotzdem, es kostet acht Minuten.
+
 ## Was ausdrücklich *nichts* bringt
 
 Diese Schalter stehen in jeder Anleitung und sind für unseren Fall
@@ -63,15 +69,31 @@ Grafikkarte ab.
 
 Auch hier ist die Beweislage dünn, und das steht so dabei:
 
-- **Radeon Chill: aus.** AMD beschreibt es als Bildratenbremse. Genau das
-  wollen wir nicht.
+- **Radeon Chill: aus.** Alle drei Recherchen sagen dasselbe, eine davon
+  deutlich: Chill drosselt bei ausbleibender Eingabe auf die eingestellte
+  Mindestbildrate, gern 30. Bei uns rührt stundenlang niemand Maus oder
+  Tastatur an – das ist genau der Fall, für den Chill gebaut ist und den wir
+  nicht wollen.
+
+- **Surface Format Optimization: nachsehen, nicht raten.** Eine Quelle sagt,
+  sie ersetze Gleitkommaformate durch gröbere und gefährde damit unsere
+  Bezugsbahn; eine andere sagt, das betreffe nur alte DirectX-Programme und
+  habe auf ausdrücklich angelegte RGBA32F-Texturen null Wirkung. Beide ohne
+  Beleg. Deshalb prüft die Bühne es selbst: Die Technikanzeige (Taste T)
+  schreibt bekannte Zahlen in eine solche Textur, liest sie zurück und
+  vergleicht. Steht dort „kommt unverändert zurück", ist die Frage für diesen
+  Rechner beantwortet.
 - **Anti-Lag, Enhanced Sync: aus.** Beides verschiebt Latenz, keins macht den
   Schattierer schneller.
 - **Hardwarebeschleunigte GPU-Planung, Spielmodus, Energieplan:** kein Beleg
   für einen Effekt auf shader-gebundene Last gefunden. Wer mag, misst es mit
   dem Messstand – zwei Läufe kosten vier Minuten.
-- **Browser auf „Höchstleistung"** in den Windows-Grafikeinstellungen: bei nur
-  einer Grafikkarte kann das nichts hinzufügen.
+- **Browser auf „Höchstleistung"** in den Windows-Grafikeinstellungen. Bei nur
+  einer Karte bringt das nichts – aber ein Rechner mit Intel-Prozessor hat
+  *zwei* Grafikeinheiten, und welche der Browser nimmt, entscheidet Windows.
+  Nimmt er die eingebaute, läuft alles, nur um ein Vielfaches langsamer, und
+  nichts sagt es einem. Die Technikanzeige weist jetzt darauf hin, wenn der
+  gemeldete Kartenname nach eingebauter Grafik aussieht.
 
 ## WebGPU?
 
@@ -95,6 +117,13 @@ Fließkomma sind rund 1,3 GB; fünf Stundenmixe also etwa 6,4 GB. Die passen
 bequem in den Speicher, und wenn sie vorab dekodiert dort liegen, kann es
 mitten im Abend kein Ruckeln beim Nachladen geben. Das ist noch nicht gebaut
 – die Bühne hält derzeit den laufenden und den nächsten Puffer.
+
+Zwei Grenzen dabei, und die Recherchen widersprechen sich bei der ersten:
+Eine einzelne ArrayBuffer-Zuteilung ist auf 4 GB (zwei Quellen) oder 32 GB
+(eine Quelle) begrenzt – für uns egal, weil dekodierter Ton als AudioBuffer
+außerhalb des JavaScript-Speichers liegt. Die zweite ist ernster: Ein
+Chrome-Tab stürzt bei etwa 16 GB Gesamtspeicher ab. Mit 6,4 GB Ton bleibt
+Luft, aber nicht beliebig viel.
 
 ## Die Einstellung am Abend
 

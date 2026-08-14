@@ -22,7 +22,7 @@
 // Nichts hiervon laeuft im Normalbetrieb mit. Es wird erst gesammelt, wenn
 // jemand die Anzeige aufklappt.
 
-import { gpuAuskunft } from './mandelgpu.js';
+import { gpuAuskunft, gpuGenauigkeit } from './mandelgpu.js';
 
 /*
  * Ab hier gilt eine Grafikeinheit als echt.
@@ -38,6 +38,23 @@ const ECHTE_KARTE_AB = 2e6;
 // Namen, die eine Nachbildung in Software verraten. Kein Beweis - der Name
 // kann fehlen -, aber wenn er dasteht, ist die Sache klar.
 const SOFTWARE_NAMEN = /swiftshader|llvmpipe|softpipe|software|microsoft basic|generic renderer/i;
+
+/*
+ * Die im Prozessor eingebaute Grafik - der teuerste stille Fehler ueberhaupt.
+ *
+ * Ein Rechner mit Intel-Prozessor und eingesteckter Karte hat *zwei*
+ * Grafikeinheiten, und welche der Browser nimmt, entscheidet Windows. Nimmt
+ * er die eingebaute, laeuft alles - nur eben um ein Vielfaches langsamer, und
+ * nichts sagt es einem. Man sitzt dann vor einem Bild, das ruckelt, und dreht
+ * an Reglern, waehrend die eigentliche Karte danebensteht und nichts tut.
+ *
+ * Erkennbar ist es am Namen, den der Treiber meldet. Ein Name allein ist noch
+ * kein Urteil - wer wirklich nur eine eingebaute Grafik hat, macht damit
+ * nichts falsch. Deshalb steht daneben, was zu tun waere, und nicht, dass
+ * etwas kaputt sei.
+ */
+const EINGEBAUTE_NAMEN =
+  /intel|uhd graphics|hd graphics|iris\s*x?e?|arc\b.*integrated|radeon\(tm\) graphics|vega \d+ graphics/i;
 
 function rund(wert, stellen = 1) {
   return typeof wert === 'number' && Number.isFinite(wert) ? Number(wert.toFixed(stellen)) : null;
@@ -57,6 +74,10 @@ export async function technikSammeln(mandel = null, bild = null) {
     speicher: speicherFragen(),
     fraktal: fraktalFragen(mandel, bild),
   };
+  // Einmal nachsehen, ob die Karte unsere Zahlen unveraendert herausgibt.
+  // Siehe gpuGenauigkeit() - das ist die Antwort auf einen Widerspruch in der
+  // Recherche, und sie gilt fuer dieses Geraet.
+  auskunft.genauigkeit = gpuGenauigkeit();
   auskunft.urteil = urteil(auskunft);
   return auskunft;
 }
@@ -231,11 +252,53 @@ function urteil(a) {
       'gut',
       `Die Grafikeinheit rechnet${name ? ` (${name})` : ''} - ${(durchsatz / 1e6).toFixed(1)} Millionen Punkt-Schritte je Millisekunde.`,
     ]);
+    /*
+     * Und die Frage, die man sich nur einmal im Leben nicht stellt: Ist das
+     * ueberhaupt die Karte, die im Rechner steckt?
+     *
+     * Ein Rechner mit Intel-Prozessor hat zwei Grafikeinheiten. Nimmt der
+     * Browser die eingebaute, laeuft alles - nur um ein Vielfaches langsamer,
+     * und nichts sagt es einem. Das ist keine Fehlermeldung wert, aber ein
+     * Hinweis: Wer nur die eingebaute hat, macht damit nichts falsch.
+     */
+    if (EINGEBAUTE_NAMEN.test(name)) {
+      zeilen.push([
+        'offen',
+        `"${name}" sieht nach der im Prozessor eingebauten Grafik aus. Steckt in diesem ` +
+          'Rechner auch eine eigene Karte, rechnet gerade die falsche - unter Windows unter ' +
+          '"Grafikeinstellungen" den Browser auf "Höchstleistung" stellen und neu starten.',
+      ]);
+    }
   } else if (durchsatz > 0) {
     zeilen.push([
       'schlecht',
       `Nur ${(durchsatz / 1e3).toFixed(0)} Tausend Punkt-Schritte je Millisekunde. Das ist Software-Tempo, keine Grafikkarte.`,
     ]);
+  }
+
+  /*
+   * Traegt die Karte unsere Zahlen? Siehe gpuGenauigkeit().
+   *
+   * Ein Verlust hier sieht man dem Bild nicht an - es wird bei tiefen Fahrten
+   * nur flach. Deshalb steht die Auskunft hier und nicht im Kleingedruckten.
+   */
+  if (a.genauigkeit?.messbar) {
+    zeilen.push(
+      a.genauigkeit.voll
+        ? [
+            'gut',
+            'Die Bezugsbahn kommt unveraendert durch die Grafikkarte zurueck ' +
+              `(groesster Fehler ${a.genauigkeit.abweichung.toExponential(1)}). ` +
+              'Die Tiefe traegt.',
+          ]
+        : [
+            'schlecht',
+            `Die Karte gibt Gleitkommazahlen nur ungenau zurueck (Fehler ` +
+              `${a.genauigkeit.abweichung.toExponential(1)} statt unter 1e-6). Damit bricht die ` +
+              'Tiefe weg, ohne dass das Bild kaputt aussieht. Im Treiber nach einer ' +
+              'Einstellung suchen, die Texturformate ersetzt ("Surface Format Optimization").',
+          ],
+    );
   }
 
   // 2. Wie ausgelastet ist sie?

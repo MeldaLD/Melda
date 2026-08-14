@@ -1370,6 +1370,87 @@ export function gpuZeitRoh() {
  * zu Zahlen kommt: Safari gibt die Zeitmess-Erweiterung nicht heraus, und
  * ohne sie waere dort sonst gar nichts zu messen.
  */
+/*
+ * Traegt die Karte unsere Bezugsbahn ohne Genauigkeitsverlust?
+ *
+ * Die Bahn liegt in einer RGBA32F-Textur, und zwar als hoher und niedriger
+ * Anteil je Koordinate - genau dieser Kunstgriff traegt die ganze Tiefe. Gaebe
+ * ein Treiber die Textur in geringerer Genauigkeit heraus, waere der niedrige
+ * Anteil weg und mit ihm alles unterhalb der siebten Stelle. Das Bild saehe
+ * nicht kaputt aus, sondern nur bei tiefen Fahrten flach - der unangenehmste
+ * Fehler von allen, weil niemand ihn dem Bild ansieht.
+ *
+ * Anlass ist ein Widerspruch: Eine Quelle behauptet, AMDs "Surface Format
+ * Optimization" ersetze Gleitkommaformate durch groebere und muesse deshalb
+ * aus; eine andere sagt, das betreffe nur alte DirectX-Programme und habe auf
+ * ausdruecklich angelegte RGBA32F-Texturen null Wirkung. Beide ohne Beleg.
+ *
+ * Statt mich fuer eine Seite zu entscheiden, wird es nachgesehen: bekannte
+ * Zahlen hineinschreiben, herauslesen, vergleichen. Was dabei herauskommt,
+ * gilt fuer diesen Rechner mit diesen Treibereinstellungen - und das ist die
+ * einzige Auskunft, die zaehlt.
+ *
+ * Geprueft werden Zahlen, wie sie wirklich vorkommen: ein Wert um eins und
+ * ein winziger daneben. Genau deren Summe ist der Kunstgriff.
+ */
+export function gpuGenauigkeit() {
+  if (!gl) return null;
+  const proben = new Float32Array([
+    1.2345678, 1.1e-7, -0.98765432, -2.2e-8,
+    123.456789, 3.3e-6, 1e-30, 1e30,
+  ]);
+  /*
+   * Ohne diese Erweiterung laesst sich eine Gleitkommatextur zwar beschreiben,
+   * aber nicht als Rahmen auslesen - und dann gibt es nichts zu vergleichen.
+   * Sie anzufordern schaltet sie ein; fehlt sie, sagt das Ergebnis "nicht
+   * messbar" statt etwas zu behaupten.
+   */
+  if (!gl.getExtension('EXT_color_buffer_float')) {
+    return { messbar: false, grund: 'EXT_color_buffer_float fehlt' };
+  }
+  const textur = gl.createTexture();
+  const rahmen = gl.createFramebuffer();
+  try {
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, textur);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 2, 1, 0, gl.RGBA, gl.FLOAT, proben);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, rahmen);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textur, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      return { messbar: false, grund: 'Rahmen nicht lesbar' };
+    }
+    const zurueck = new Float32Array(8);
+    gl.readPixels(0, 0, 2, 1, gl.RGBA, gl.FLOAT, zurueck);
+
+    let schlimmster = 0;
+    for (let i = 0; i < proben.length; i++) {
+      const soll = proben[i];
+      const ist = zurueck[i];
+      const nenner = Math.max(Math.abs(soll), 1e-30);
+      schlimmster = Math.max(schlimmster, Math.abs(ist - soll) / nenner);
+    }
+    return {
+      messbar: true,
+      // Einfache Genauigkeit loest rund 1e-7 relativ auf. Bleibt der Fehler
+      // darunter, ist nichts verlorengegangen; wird er deutlich groesser, hat
+      // jemand das Format ersetzt.
+      abweichung: schlimmster,
+      voll: schlimmster < 1e-6,
+      proben: [...proben],
+      zurueck: [...zurueck],
+    };
+  } catch (fehler) {
+    return { messbar: false, grund: fehler.message };
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(rahmen);
+    gl.deleteTexture(textur);
+    gl.activeTexture(gl.TEXTURE0);
+  }
+}
+
 export function gpuAbwarten() {
   if (!gl) return;
   const punkt = new Uint8Array(4);

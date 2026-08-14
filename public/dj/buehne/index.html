@@ -152,6 +152,16 @@
           getan hat.
         -->
         <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
+        <!--
+          Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet die
+          Bühne selbst heraus; was er nicht wissen kann, steht hier: wie viele
+          Bilder Windows noch einschiebt, und wie weit die Boxen von der
+          Leinwand weg stehen. Schall braucht 3 ms je Meter.
+        -->
+        <label class="schieber" title="Bild gegen Ton verschieben. Plus heißt: Bild früher. Schall braucht 3 ms je Meter Abstand zu den Boxen.">
+          <span id="versatzWert">Bild ±0 ms</span>
+          <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
+        </label>
         <label class="schieber">
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />

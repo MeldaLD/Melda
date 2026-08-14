@@ -306,6 +306,8 @@ export class Mixer {
      * "das Bild erscheint sofort", und das stimmt nirgends.
      */
     this.bildperiode = 1 / 60;
+    // Nachstellung von Hand, in Sekunden. Siehe anzeigeVersatz().
+    this.versatzHand = 0;
 
     this.summe = ctx.createGain();
     this.begrenzer = ctx.createDynamicsCompressor();
@@ -535,7 +537,21 @@ export class Mixer {
     const aus = Number.isFinite(this.ctx.outputLatency)
       ? this.ctx.outputLatency
       : (this.ctx.baseLatency ?? 0);
-    return this.bildperiode - aus;
+    /*
+     * Und ein Wert von Hand obendrauf.
+     *
+     * Zwei Dinge kann der Browser nicht wissen. Erstens, wieviele Bilder das
+     * Betriebssystem zwischen Zeichnen und Anzeigen noch einschiebt - das
+     * Zusammensetzen des Desktops kostet auf Windows gern ein weiteres Bild.
+     * Zweitens, und banaler: Wie weit die Boxen von der Leinwand entfernt
+     * stehen. Schall braucht drei Millisekunden je Meter; bei einem Raum von
+     * sieben Metern sind das zwanzig Millisekunden, also mehr als alles, was
+     * hier sonst gerechnet wird.
+     *
+     * Dagegen hilft keine Messung im Rechner, sondern nur ein Auge und ein
+     * Ohr vor Ort. Positiv heisst: Bild frueher zeigen.
+     */
+    return this.bildperiode - aus + this.versatzHand;
   }
 
   // Momentaufnahme fuer die Anzeige.

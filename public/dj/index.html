@@ -889,6 +889,16 @@ header {
           getan hat.
         -->
         <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
+        <!--
+          Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet die
+          Bühne selbst heraus; was er nicht wissen kann, steht hier: wie viele
+          Bilder Windows noch einschiebt, und wie weit die Boxen von der
+          Leinwand weg stehen. Schall braucht 3 ms je Meter.
+        -->
+        <label class="schieber" title="Bild gegen Ton verschieben. Plus heißt: Bild früher. Schall braucht 3 ms je Meter Abstand zu den Boxen.">
+          <span id="versatzWert">Bild ±0 ms</span>
+          <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
+        </label>
         <label class="schieber">
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
@@ -2035,6 +2045,8 @@ class Mixer {
      * "das Bild erscheint sofort", und das stimmt nirgends.
      */
     this.bildperiode = 1 / 60;
+    // Nachstellung von Hand, in Sekunden. Siehe anzeigeVersatz().
+    this.versatzHand = 0;
 
     this.summe = ctx.createGain();
     this.begrenzer = ctx.createDynamicsCompressor();
@@ -2264,7 +2276,21 @@ class Mixer {
     const aus = Number.isFinite(this.ctx.outputLatency)
       ? this.ctx.outputLatency
       : (this.ctx.baseLatency ?? 0);
-    return this.bildperiode - aus;
+    /*
+     * Und ein Wert von Hand obendrauf.
+     *
+     * Zwei Dinge kann der Browser nicht wissen. Erstens, wieviele Bilder das
+     * Betriebssystem zwischen Zeichnen und Anzeigen noch einschiebt - das
+     * Zusammensetzen des Desktops kostet auf Windows gern ein weiteres Bild.
+     * Zweitens, und banaler: Wie weit die Boxen von der Leinwand entfernt
+     * stehen. Schall braucht drei Millisekunden je Meter; bei einem Raum von
+     * sieben Metern sind das zwanzig Millisekunden, also mehr als alles, was
+     * hier sonst gerechnet wird.
+     *
+     * Dagegen hilft keine Messung im Rechner, sondern nur ein Auge und ein
+     * Ohr vor Ort. Positiv heisst: Bild frueher zeigen.
+     */
+    return this.bildperiode - aus + this.versatzHand;
   }
 
   // Momentaufnahme fuer die Anzeige.
@@ -4666,6 +4692,87 @@ function gpuZeitRoh() {
  * zu Zahlen kommt: Safari gibt die Zeitmess-Erweiterung nicht heraus, und
  * ohne sie waere dort sonst gar nichts zu messen.
  */
+/*
+ * Traegt die Karte unsere Bezugsbahn ohne Genauigkeitsverlust?
+ *
+ * Die Bahn liegt in einer RGBA32F-Textur, und zwar als hoher und niedriger
+ * Anteil je Koordinate - genau dieser Kunstgriff traegt die ganze Tiefe. Gaebe
+ * ein Treiber die Textur in geringerer Genauigkeit heraus, waere der niedrige
+ * Anteil weg und mit ihm alles unterhalb der siebten Stelle. Das Bild saehe
+ * nicht kaputt aus, sondern nur bei tiefen Fahrten flach - der unangenehmste
+ * Fehler von allen, weil niemand ihn dem Bild ansieht.
+ *
+ * Anlass ist ein Widerspruch: Eine Quelle behauptet, AMDs "Surface Format
+ * Optimization" ersetze Gleitkommaformate durch groebere und muesse deshalb
+ * aus; eine andere sagt, das betreffe nur alte DirectX-Programme und habe auf
+ * ausdruecklich angelegte RGBA32F-Texturen null Wirkung. Beide ohne Beleg.
+ *
+ * Statt mich fuer eine Seite zu entscheiden, wird es nachgesehen: bekannte
+ * Zahlen hineinschreiben, herauslesen, vergleichen. Was dabei herauskommt,
+ * gilt fuer diesen Rechner mit diesen Treibereinstellungen - und das ist die
+ * einzige Auskunft, die zaehlt.
+ *
+ * Geprueft werden Zahlen, wie sie wirklich vorkommen: ein Wert um eins und
+ * ein winziger daneben. Genau deren Summe ist der Kunstgriff.
+ */
+function gpuGenauigkeit() {
+  if (!gl) return null;
+  const proben = new Float32Array([
+    1.2345678, 1.1e-7, -0.98765432, -2.2e-8,
+    123.456789, 3.3e-6, 1e-30, 1e30,
+  ]);
+  /*
+   * Ohne diese Erweiterung laesst sich eine Gleitkommatextur zwar beschreiben,
+   * aber nicht als Rahmen auslesen - und dann gibt es nichts zu vergleichen.
+   * Sie anzufordern schaltet sie ein; fehlt sie, sagt das Ergebnis "nicht
+   * messbar" statt etwas zu behaupten.
+   */
+  if (!gl.getExtension('EXT_color_buffer_float')) {
+    return { messbar: false, grund: 'EXT_color_buffer_float fehlt' };
+  }
+  const textur = gl.createTexture();
+  const rahmen = gl.createFramebuffer();
+  try {
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, textur);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 2, 1, 0, gl.RGBA, gl.FLOAT, proben);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, rahmen);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, textur, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) {
+      return { messbar: false, grund: 'Rahmen nicht lesbar' };
+    }
+    const zurueck = new Float32Array(8);
+    gl.readPixels(0, 0, 2, 1, gl.RGBA, gl.FLOAT, zurueck);
+
+    let schlimmster = 0;
+    for (let i = 0; i < proben.length; i++) {
+      const soll = proben[i];
+      const ist = zurueck[i];
+      const nenner = Math.max(Math.abs(soll), 1e-30);
+      schlimmster = Math.max(schlimmster, Math.abs(ist - soll) / nenner);
+    }
+    return {
+      messbar: true,
+      // Einfache Genauigkeit loest rund 1e-7 relativ auf. Bleibt der Fehler
+      // darunter, ist nichts verlorengegangen; wird er deutlich groesser, hat
+      // jemand das Format ersetzt.
+      abweichung: schlimmster,
+      voll: schlimmster < 1e-6,
+      proben: [...proben],
+      zurueck: [...zurueck],
+    };
+  } catch (fehler) {
+    return { messbar: false, grund: fehler.message };
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.deleteFramebuffer(rahmen);
+    gl.deleteTexture(textur);
+    gl.activeTexture(gl.TEXTURE0);
+  }
+}
+
 function gpuAbwarten() {
   if (!gl) return;
   const punkt = new Uint8Array(4);
@@ -10316,6 +10423,23 @@ const ECHTE_KARTE_AB = 2e6;
 // kann fehlen -, aber wenn er dasteht, ist die Sache klar.
 const SOFTWARE_NAMEN = /swiftshader|llvmpipe|softpipe|software|microsoft basic|generic renderer/i;
 
+/*
+ * Die im Prozessor eingebaute Grafik - der teuerste stille Fehler ueberhaupt.
+ *
+ * Ein Rechner mit Intel-Prozessor und eingesteckter Karte hat *zwei*
+ * Grafikeinheiten, und welche der Browser nimmt, entscheidet Windows. Nimmt
+ * er die eingebaute, laeuft alles - nur eben um ein Vielfaches langsamer, und
+ * nichts sagt es einem. Man sitzt dann vor einem Bild, das ruckelt, und dreht
+ * an Reglern, waehrend die eigentliche Karte danebensteht und nichts tut.
+ *
+ * Erkennbar ist es am Namen, den der Treiber meldet. Ein Name allein ist noch
+ * kein Urteil - wer wirklich nur eine eingebaute Grafik hat, macht damit
+ * nichts falsch. Deshalb steht daneben, was zu tun waere, und nicht, dass
+ * etwas kaputt sei.
+ */
+const EINGEBAUTE_NAMEN =
+  /intel|uhd graphics|hd graphics|iris\s*x?e?|arc\b.*integrated|radeon\(tm\) graphics|vega \d+ graphics/i;
+
 function rund(wert, stellen = 1) {
   return typeof wert === 'number' && Number.isFinite(wert) ? Number(wert.toFixed(stellen)) : null;
 }
@@ -10334,6 +10458,10 @@ async function technikSammeln(mandel = null, bild = null) {
     speicher: speicherFragen(),
     fraktal: fraktalFragen(mandel, bild),
   };
+  // Einmal nachsehen, ob die Karte unsere Zahlen unveraendert herausgibt.
+  // Siehe gpuGenauigkeit() - das ist die Antwort auf einen Widerspruch in der
+  // Recherche, und sie gilt fuer dieses Geraet.
+  auskunft.genauigkeit = gpuGenauigkeit();
   auskunft.urteil = urteil(auskunft);
   return auskunft;
 }
@@ -10508,11 +10636,53 @@ function urteil(a) {
       'gut',
       `Die Grafikeinheit rechnet${name ? ` (${name})` : ''} - ${(durchsatz / 1e6).toFixed(1)} Millionen Punkt-Schritte je Millisekunde.`,
     ]);
+    /*
+     * Und die Frage, die man sich nur einmal im Leben nicht stellt: Ist das
+     * ueberhaupt die Karte, die im Rechner steckt?
+     *
+     * Ein Rechner mit Intel-Prozessor hat zwei Grafikeinheiten. Nimmt der
+     * Browser die eingebaute, laeuft alles - nur um ein Vielfaches langsamer,
+     * und nichts sagt es einem. Das ist keine Fehlermeldung wert, aber ein
+     * Hinweis: Wer nur die eingebaute hat, macht damit nichts falsch.
+     */
+    if (EINGEBAUTE_NAMEN.test(name)) {
+      zeilen.push([
+        'offen',
+        `"${name}" sieht nach der im Prozessor eingebauten Grafik aus. Steckt in diesem ` +
+          'Rechner auch eine eigene Karte, rechnet gerade die falsche - unter Windows unter ' +
+          '"Grafikeinstellungen" den Browser auf "Höchstleistung" stellen und neu starten.',
+      ]);
+    }
   } else if (durchsatz > 0) {
     zeilen.push([
       'schlecht',
       `Nur ${(durchsatz / 1e3).toFixed(0)} Tausend Punkt-Schritte je Millisekunde. Das ist Software-Tempo, keine Grafikkarte.`,
     ]);
+  }
+
+  /*
+   * Traegt die Karte unsere Zahlen? Siehe gpuGenauigkeit().
+   *
+   * Ein Verlust hier sieht man dem Bild nicht an - es wird bei tiefen Fahrten
+   * nur flach. Deshalb steht die Auskunft hier und nicht im Kleingedruckten.
+   */
+  if (a.genauigkeit?.messbar) {
+    zeilen.push(
+      a.genauigkeit.voll
+        ? [
+            'gut',
+            'Die Bezugsbahn kommt unveraendert durch die Grafikkarte zurueck ' +
+              `(groesster Fehler ${a.genauigkeit.abweichung.toExponential(1)}). ` +
+              'Die Tiefe traegt.',
+          ]
+        : [
+            'schlecht',
+            `Die Karte gibt Gleitkommazahlen nur ungenau zurueck (Fehler ` +
+              `${a.genauigkeit.abweichung.toExponential(1)} statt unter 1e-6). Damit bricht die ` +
+              'Tiefe weg, ohne dass das Bild kaputt aussieht. Im Treiber nach einer ' +
+              'Einstellung suchen, die Texturformate ersetzt ("Surface Format Optimization").',
+          ],
+    );
   }
 
   // 2. Wie ausgelastet ist sie?
@@ -11366,6 +11536,35 @@ $('pcModus').addEventListener('click', () => {
   zuruf(`PC-Modus: Güte hoch, 60 Bilder/s, alle ${MANDALAS.length} Mandalas. ` +
     'Ob es trägt, sagt der Messstand.');
 });
+
+/*
+ * Bild gegen Ton nachstellen.
+ *
+ * Der gerechnete Teil des Versatzes steht in anzeigeVersatz(); hier kommt
+ * dazu, was sich nicht rechnen laesst. Die Wahl haelt ueber einen Neustart:
+ * Der Raum aendert sich zwischen zwei Abenden nicht, und wer das einmal nach
+ * Gehoer eingestellt hat, will es nicht wieder tun.
+ */
+{
+  const gemerkt = Number(localStorage.getItem('djVersatzHand') ?? 0);
+  $('versatzRegler').value = String(gemerkt);
+  const zeigen = (ms) => {
+    $('versatzWert').textContent = `Bild ${ms > 0 ? '+' : ''}${ms} ms`;
+    if (welt.mixer) welt.mixer.versatzHand = ms / 1000;
+  };
+  zeigen(gemerkt);
+  $('versatzRegler').addEventListener('input', (e) => {
+    const ms = Number(e.target.value);
+    localStorage.setItem('djVersatzHand', String(ms));
+    zeigen(ms);
+  });
+  // Beim Start steht der Mischer noch nicht; dann nachtragen.
+  const nachtragen = setInterval(() => {
+    if (!welt.mixer) return;
+    welt.mixer.versatzHand = Number($('versatzRegler').value) / 1000;
+    clearInterval(nachtragen);
+  }, 200);
+}
 
 $('technikKnopf').addEventListener('click', technikUmschalten);
 $('technikZu').addEventListener('click', technikUmschalten);
