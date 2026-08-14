@@ -659,8 +659,8 @@ function auswerten(roh) {
    * verlangen, wo der Monitor dreissig kann, waere eine Zusage gegen die
    * Physik.
    */
-  const gewaehlt = Number(document.getElementById('zielBilder')?.value ?? 60);
-  const zielMs = gewaehlt > 0 ? Math.max(roh.taktMs, 1000 / gewaehlt) : roh.taktMs;
+  const zielBilder = Number(document.getElementById('zielBilder')?.value ?? 60);
+  const zielMs = zielBilder > 0 ? Math.max(roh.taktMs, 1000 / zielBilder) : roh.taktMs;
   const budgetMs = zielMs * BUDGETANTEIL;
 
   // Die Tiefenkurve als Nachschlagewerk: Flaeche -> Tiefe -> ms.
@@ -759,13 +759,13 @@ function auswerten(roh) {
    * zusaetzlich, wieviele Stufen insgesamt passen - eine Sechs mit Loechern
    * darunter ist etwas anderes als eine glatte Sechs.
    */
-  const traegtBis = (mandalaId, flaeche) => {
+  const traegtBis = (mandalaId, flaeche, budget = budgetMs) => {
     let tiefste = 0;
     let wieviele = 0;
     for (const tiefe of TIEFEN) {
       const ms = vorhersage(mandalaId, tiefe, flaeche);
       if (ms === null) return null;
-      if (ms <= budgetMs) {
+      if (ms <= budget) {
         tiefste = tiefe;
         wieviele++;
       }
@@ -773,11 +773,25 @@ function auswerten(roh) {
     return { tiefste, wieviele, alle: wieviele === TIEFEN.length };
   };
 
+  /*
+   * Und dasselbe noch einmal fuer das jeweils andere Bildziel.
+   *
+   * Die Frage "was aendert sich, wenn ich auf dreissig gehe" soll man nicht
+   * durch Umschalten und Vergleichen im Kopf beantworten muessen - sie steht
+   * in derselben Zelle. Gemessen wird dafuer nichts noch einmal; es ist
+   * dieselbe Zeit an einer anderen Schwelle.
+   */
+  const andereBilder = zielBilder === 30 ? 60 : 30;
+  const andereBudget = Math.max(roh.taktMs, 1000 / andereBilder) * BUDGETANTEIL;
+
   const jeMandala = MANDALAS.map((m) => ({
     ...m,
     faktor: faktoren.get(m.id)?.faktor ?? null,
     streuung: faktoren.get(m.id)?.streuung ?? null,
     tiefen: Object.fromEntries(roh.flaechen.map((f) => [f.schluessel, traegtBis(m.id, f.schluessel)])),
+    tiefenAndere: Object.fromEntries(
+      roh.flaechen.map((f) => [f.schluessel, traegtBis(m.id, f.schluessel, andereBudget)]),
+    ),
   }));
 
   /*
@@ -815,6 +829,9 @@ function auswerten(roh) {
   return {
     budgetMs,
     zielMs,
+    zielBilder,
+    andereBilder,
+    andereBudget,
     kurve,
     geschaetzt,
     uebersprungenJeTiefe,
@@ -898,7 +915,17 @@ function tabelleMandalas(roh, aus) {
   const t = $('mandalaTabelle');
   t.innerHTML = '';
   const kopf = t.createTHead().insertRow();
-  for (const name of ['Mandala', 'Faktor', 'Streuung', ...roh.flaechen.map((f) => `bis Tiefe · ${f.name}`)]) {
+  const kopfNamen = [
+    'Mandala',
+    'Faktor',
+    'Streuung',
+    ...roh.flaechen.map(
+      (f) =>
+        `bis Tiefe · ${f.name}<br><span style="opacity:.6">${aus.zielBilder || '∞'} / ` +
+        `${aus.andereBilder} Bilder/s</span>`,
+    ),
+  ];
+  for (const name of kopfNamen) {
     const z = kopf.insertCell();
     z.outerHTML = `<th>${name}</th>`;
   }
@@ -911,20 +938,35 @@ function tabelleMandalas(roh, aus) {
     zeile.insertCell().textContent = m.streuung === null ? '–' : `${(m.streuung * 100).toFixed(0)} %`;
     for (const f of roh.flaechen) {
       const bis = m.tiefen[f.schluessel];
+      const andere = m.tiefenAndere[f.schluessel];
       const zelle = zeile.insertCell();
-      if (!bis) {
-        zelle.textContent = '–';
-      } else if (bis.tiefste === 0) {
-        zelle.textContent = 'gar nicht';
-        zelle.className = 'schlecht';
-      } else {
+      /*
+       * Beide Bildziele in einer Zelle, das gewaehlte zuerst.
+       *
+       * Umschalten und im Kopf vergleichen ist genau das, was man hier nicht
+       * tun will: Die Frage lautet "was gewinne ich, wenn ich auf dreissig
+       * gehe", und die Antwort gehoert neben die Zahl, nicht in einen zweiten
+       * Durchgang. Gemessen wird dafuer nichts noch einmal - es ist dieselbe
+       * Zeit an einer anderen Schwelle.
+       */
+      const schreib = (b) => {
+        if (!b) return '–';
+        if (b.tiefste === 0) return 'nein';
         // Ein Stern heisst: Es traegt bis dorthin, aber nicht auf jeder Stufe
         // darunter. Solche Loecher gibt es wirklich - siehe traegtBis().
-        const loecher = !bis.alle && bis.tiefste === TIEFEN[TIEFEN.length - 1] ? '*' : '';
-        zelle.textContent = `${bis.tiefste}${loecher}`;
-        zelle.title = `${bis.wieviele} von ${TIEFEN.length} Zoomstufen passen ins Budget`;
-        zelle.className = bis.tiefste >= 12 ? 'gut' : bis.tiefste >= 6 ? 'mittel' : 'schlecht';
-      }
+        return `${b.tiefste}${b.alle ? '' : '*'}`;
+      };
+      zelle.textContent = `${schreib(bis)} / ${schreib(andere)}`;
+      zelle.title =
+        `${aus.zielBilder || 'voller Takt'}: ${bis?.wieviele ?? 0} von ${TIEFEN.length} Zoomstufen · ` +
+        `${aus.andereBilder}: ${andere?.wieviele ?? 0} von ${TIEFEN.length}`;
+      zelle.className = !bis
+        ? ''
+        : bis.alle
+          ? 'gut'
+          : bis.tiefste >= 6
+            ? 'mittel'
+            : 'schlecht';
     }
   }
 }
@@ -1160,8 +1202,17 @@ function anzeigen(roh) {
     const nehmen = gute.length ? gute : aus.jeMandala.slice(0, 8).map((m) => m.id);
     localStorage.setItem('djMandalas', JSON.stringify(nehmen));
     localStorage.setItem('dj-bildguete', stufe.schluessel);
+    /*
+     * Das Bildziel gehoert mit uebernommen.
+     *
+     * Ohne das waere die Empfehlung eine Zusage unter einer Bedingung, die
+     * nirgends ankommt: gemessen bei sechzig Bildern, gefahren bei
+     * hundertfuenfundvierzig. Die Buehne liest dasselbe Fach.
+     */
+    localStorage.setItem('djBildziel', String(aus.zielBilder));
     $('uebernehmen').textContent =
-      `Übernommen: ${nehmen.length} Mandalas, Güte „${stufe.name}"`;
+      `Übernommen: ${nehmen.length} Mandalas, Güte „${stufe.name}", ` +
+      `${aus.zielBilder || 'voller'} Bilder/s`;
   };
 
   // Fuer die Abnahme und fuers Nachschauen in der Konsole.
@@ -1189,6 +1240,14 @@ if (!gpuBereit()) {
   $('voll').disabled = true;
 } else {
   farbenSetzen();
+  // Mit derselben Einstellung starten, die die Buehne benutzt - sonst misst
+  // der Messstand einen Betrieb, den es auf diesem Geraet gar nicht gibt.
+  {
+    const gemerkt = localStorage.getItem('djBildziel');
+    if (gemerkt !== null && $('zielBilder').querySelector(`option[value="${gemerkt}"]`)) {
+      $('zielBilder').value = gemerkt;
+    }
+  }
   $('kurz').addEventListener('click', async () => {
     if (laeuft) return;
     anzeigen(await durchgang(false));

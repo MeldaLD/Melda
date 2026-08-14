@@ -985,6 +985,36 @@ export function bremseNachfuehren(bremse, abstandMs, taktMs) {
 let mandelAbstandMittel = 16.7;
 // Die gemessene Bildschirmperiode - siehe Begruendung beim Regler.
 let mandelTaktMs = 16.7;
+
+/* --- Das Bildziel ---------------------------------------------------------
+ *
+ * Wieviele Bilder je Sekunde ueberhaupt angestrebt werden. Das klingt nach
+ * einer Feineinstellung und ist in Wirklichkeit die Stellschraube mit dem
+ * groessten Hebel auf die Bildqualitaet.
+ *
+ * Bisher zielte der Regler immer auf den vollen Bildtakt des Bildschirms. Auf
+ * einem gewoehnlichen Monitor ist das richtig. Auf dem Partyrechner mit
+ * hundertfuenfundvierzig Hertz heisst es: Der Regler dreht die Aufloesung so
+ * lange herunter, bis das Fraktal in 6,9 Millisekunden passt - und verschenkt
+ * dafuer mehr als die Haelfte der Bildschaerfe an eine Bildrate, die niemand
+ * von sechzig unterscheiden kann. Eine Radeon RX 9070 XT wurde so zu einem
+ * Geraet, das angeblich nur die niedrigste Stufe schafft.
+ *
+ * Null heisst "voller Bildtakt" - fuer den, der es wirklich will.
+ *
+ * Umgekehrt ist dreissig eine ernsthafte Wahl: Eine Zoomfahrt bei dreissig
+ * Bildern mit doppelter Schaerfe sieht besser aus als eine bei sechzig mit
+ * halber. Was von beidem stimmt, entscheidet nicht die Zahl, sondern das Auge
+ * dessen, der davorsteht - deshalb ist es eine Einstellung und keine Konstante.
+ */
+let mandelBildziel = 60;
+export function bildzielSetzen(bilder) {
+  const z = Number(bilder);
+  mandelBildziel = Number.isFinite(z) && z > 0 ? Math.min(240, Math.max(20, z)) : 0;
+}
+export function bildziel() {
+  return mandelBildziel;
+}
 const mandelTaktRing = new Float32Array(64);
 let mandelTaktZeiger = 0;
 let mandelAufGpu = null;
@@ -2266,7 +2296,17 @@ function mandelbrotZeichnen(stift, lage) {
      * aus als ein ruckelndes.
      */
     const flaecheGpu = Math.max(1, breite * hoehe);
-    const arbeitBudget = mandelDurchsatz * stufe.budget;
+    /*
+     * Das Budget waechst mit dem Bildziel.
+     *
+     * stufe.budget ist in Millisekunden angegeben und wurde bei sechzig
+     * Bildern je Sekunde eingestellt. Wer dreissig will, hat je Bild doppelt
+     * so lange Zeit - und wenn das Budget davon nichts wuesste, waere die
+     * Einstellung wirkungslos: Der Regler haette weiterhin nur zwoelf
+     * Millisekunden zu vergeben und die gewonnene Zeit laege brach.
+     */
+    const zielFaktor = Math.max(0.5, Math.min(3, mandelTaktMs / 16.7));
+    const arbeitBudget = mandelDurchsatz * stufe.budget * zielFaktor;
     const punkteUnten = flaecheGpu * MANDEL_GUETE_MIN * MANDEL_GUETE_MIN;
     const schritteBezahlbar = arbeitBudget / punkteUnten;
     /*
@@ -2471,7 +2511,16 @@ function mandelbrotZeichnen(stift, lage) {
       const sortiert = Array.from(mandelTaktRing).filter((x) => x > 0).sort((a, b) => a - b);
       if (sortiert.length >= 16) {
         const fuenftel = sortiert[Math.floor(sortiert.length * 0.2)];
-        mandelTaktMs = Math.min(16.8, Math.max(4, fuenftel));
+        const gemessen = Math.min(16.8, Math.max(4, fuenftel));
+        /*
+         * Und jetzt das Bildziel darueber. Es hebt den Takt an, es senkt ihn
+         * nie: Wer sechzig will, bekommt auf einem 145-Hz-Bildschirm 16,7 ms
+         * statt 6,9 - und damit die Aufloesung, die dazwischen liegt. Auf
+         * einem 60-Hz-Bildschirm aendert es nichts, weil dort schon 16,7
+         * gemessen wird.
+         */
+        mandelTaktMs =
+          mandelBildziel > 0 ? Math.max(gemessen, 1000 / mandelBildziel) : gemessen;
       }
     }
     mandelBremse = bremseNachfuehren(mandelBremse, abstandMs, mandelTaktMs);
@@ -2607,7 +2656,11 @@ function mandelbrotZeichnen(stift, lage) {
    * je Bild aufgefrischt wird. Das ist der bessere Knopf: Zu wenig Zeit macht
    * das Bild nicht grob, sondern nur ein wenig aelter.
    */
-  const nachregeln = Math.min(1.12, Math.max(0.78, Math.sqrt(stufe.budget / Math.max(1, mandelDauer))));
+  // Auch hier das Bildziel einrechnen, aus demselben Grund wie auf dem Weg
+  // ueber die Grafikkarte: Wer dreissig Bilder will, hat je Bild doppelt so
+  // viel Zeit, und die soll auch ankommen.
+  const zielBudget = stufe.budget * Math.max(0.5, Math.min(3, mandelTaktMs / 16.7));
+  const nachregeln = Math.min(1.12, Math.max(0.78, Math.sqrt(zielBudget / Math.max(1, mandelDauer))));
   mandelPhasenProBild = Math.min(16, Math.max(0.6, mandelPhasenProBild * nachregeln));
 
 

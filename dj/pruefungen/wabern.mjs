@@ -185,6 +185,39 @@ try {
       `(${(groesster / mittlerer).toFixed(1)}×)`,
   );
 
+  /*
+   * Das Bildziel muss auf der Buehne ankommen - nicht nur im Messstand.
+   *
+   * Der Fehler, den das verhindert: Der Messstand rechnet gegen sechzig
+   * Bilder, empfiehlt danach eine Guetestufe, und die Buehne zielt derweil
+   * auf hundertfuenfundvierzig und dreht die Aufloesung herunter, bis sie
+   * dort ankommt. Gemessen waere dann etwas, das gar nicht laeuft - und der
+   * Partyrechner mit der starken Karte bekaeme das unschaerfste Bild von
+   * allen.
+   *
+   * Geprueft wird an dem Wert, an dem der Regler wirklich haengt: taktMs.
+   */
+  console.log('\nDas Bildziel wirkt auf den Regler der Buehne:');
+  const ziele = await seite.evaluate(async () => {
+    const { bildzielSetzen } = await import('/gemeinsam/visualmodi.js');
+    const messen = async (ziel) => {
+      bildzielSetzen(ziel);
+      // Der Takt wird nur alle zwanzig Bilder neu bestimmt.
+      await new Promise((f) => setTimeout(f, 2500));
+      return window.__mandel?.taktMs ?? null;
+    };
+    const bei60 = await messen(60);
+    const bei30 = await messen(30);
+    bildzielSetzen(60);
+    return { bei60, bei30 };
+  });
+  pruefe('bei 60 Bildern zielt er auf rund 16,7 ms',
+    ziele.bei60 !== null && Math.abs(ziele.bei60 - 16.7) < 1.5,
+    `${ziele.bei60?.toFixed(1)} ms`);
+  pruefe('bei 30 Bildern auf rund 33,3 ms',
+    ziele.bei30 !== null && Math.abs(ziele.bei30 - 33.3) < 2,
+    `${ziele.bei30?.toFixed(1)} ms`);
+
   pruefe('keine Konsolenfehler', konsole.length === 0, konsole.slice(0, 3).join(' | '));
 } finally {
   await browser.close();

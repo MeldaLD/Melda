@@ -126,6 +126,17 @@
         </select>
         <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
         </select>
+        <!--
+          Das Bildziel. Es steht neben der Güte, weil beide dasselbe Geld
+          ausgeben: Wer weniger Bilder je Sekunde verlangt, bekommt schärfere.
+          Auf einem 145-Hz-Monitor ist das der Unterschied zwischen der
+          niedrigsten und der mittleren Stufe.
+        -->
+        <select id="bildzielWahl" title="Wieviele Bilder je Sekunde angestrebt werden. Weniger Bilder heißt mehr Schärfe je Bild.">
+          <option value="30">30 Bilder/s</option>
+          <option value="60" selected>60 Bilder/s</option>
+          <option value="0">voller Bildtakt</option>
+        </select>
         <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
         <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik</button>
         <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas</button>

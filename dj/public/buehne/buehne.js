@@ -20,6 +20,7 @@ import {
   mandalasSetzen,
   mandalasAktive,
   mandalaBericht,
+  bildzielSetzen,
 } from '../gemeinsam/visualmodi.js';
 
 const $ = (id) => document.getElementById(id);
@@ -385,6 +386,25 @@ for (const { schluessel, name } of Visualisierung.guetestufen()) {
 $('gueteWahl').addEventListener('change', (e) => {
   bild?.gueteSetzen(e.target.value);
 });
+
+/*
+ * Das Bildziel - dieselbe Einstellung, die auch der Messstand schreibt.
+ *
+ * Ein Fach im Browser fuer beide: Wer im Messstand misst, was bei sechzig
+ * Bildern durchgeht, und die Empfehlung uebernimmt, soll die Buehne nicht
+ * anschliessend auf hundertfuenfundvierzig zielen sehen. Es waere sonst
+ * gemessen worden, was gar nicht laeuft.
+ */
+{
+  const gemerkt = localStorage.getItem('djBildziel');
+  const ziel = gemerkt === null ? 60 : Number(gemerkt);
+  $('bildzielWahl').value = String(ziel);
+  bildzielSetzen(ziel);
+  $('bildzielWahl').addEventListener('change', (e) => {
+    bildzielSetzen(Number(e.target.value));
+    localStorage.setItem('djBildziel', e.target.value);
+  });
+}
 
 // Die Anzeige zweimal je Sekunde nachziehen. Oefter waere unlesbar.
 setInterval(() => {
