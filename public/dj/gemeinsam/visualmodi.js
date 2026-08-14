@@ -2559,9 +2559,24 @@ function mandelbrotZeichnen(stift, lage) {
      * deshalb oben und rechnet vierfach; wo die Kraft fehlt, faellt er unter 1
      * und das Bild wird weicher statt ruckelig.
      */
+    /*
+     * Das Bildziel hebt auch die Obergrenze - sonst ist es wirkungslos.
+     *
+     * Auf dem iPad zeigte sich das sofort: Guete "Mittel" deckelt bei 0,9,
+     * und das Geraet erreicht 0,9 schon bei sechzig Bildern. Wer dann auf
+     * dreissig stellt, bekommt die doppelte Zeit je Bild geschenkt und kann
+     * sie nicht ausgeben - das Bild wird nur ruckeliger, nicht schaerfer. Das
+     * waere eine Einstellung, die ausschliesslich schadet.
+     *
+     * Doppelte Zeit heisst Wurzel zwei mal so viel Kantenlaenge, also die
+     * doppelte Punktzahl. Genau das ist der Tausch, den die Einstellung
+     * verspricht: weniger Bilder, dafuer schaerfere.
+     */
+    const zielSchaerfe = Math.max(1, Math.min(2, Math.sqrt(mandelTaktMs / 16.7)));
+    const obergrenze = stufe.fraktal * zielSchaerfe;
     mandelGuete = Math.min(
-      stufe.fraktal,
-      stufe.fraktal * mandelBremse,
+      obergrenze,
+      obergrenze * mandelBremse,
       Math.max(MANDEL_GUETE_MIN, Math.min(gueteWunsch, mandelGuete * regelGpu)),
     );
 

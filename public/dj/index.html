@@ -8761,9 +8761,24 @@ function mandelbrotZeichnen(stift, lage) {
      * deshalb oben und rechnet vierfach; wo die Kraft fehlt, faellt er unter 1
      * und das Bild wird weicher statt ruckelig.
      */
+    /*
+     * Das Bildziel hebt auch die Obergrenze - sonst ist es wirkungslos.
+     *
+     * Auf dem iPad zeigte sich das sofort: Guete "Mittel" deckelt bei 0,9,
+     * und das Geraet erreicht 0,9 schon bei sechzig Bildern. Wer dann auf
+     * dreissig stellt, bekommt die doppelte Zeit je Bild geschenkt und kann
+     * sie nicht ausgeben - das Bild wird nur ruckeliger, nicht schaerfer. Das
+     * waere eine Einstellung, die ausschliesslich schadet.
+     *
+     * Doppelte Zeit heisst Wurzel zwei mal so viel Kantenlaenge, also die
+     * doppelte Punktzahl. Genau das ist der Tausch, den die Einstellung
+     * verspricht: weniger Bilder, dafuer schaerfere.
+     */
+    const zielSchaerfe = Math.max(1, Math.min(2, Math.sqrt(mandelTaktMs / 16.7)));
+    const obergrenze = stufe.fraktal * zielSchaerfe;
     mandelGuete = Math.min(
-      stufe.fraktal,
-      stufe.fraktal * mandelBremse,
+      obergrenze,
+      obergrenze * mandelBremse,
       Math.max(MANDEL_GUETE_MIN, Math.min(gueteWunsch, mandelGuete * regelGpu)),
     );
 
@@ -10903,13 +10918,19 @@ $('gueteWahl').addEventListener('change', (e) => {
  * anschliessend auf hundertfuenfundvierzig zielen sehen. Es waere sonst
  * gemessen worden, was gar nicht laeuft.
  */
+// Gemerkt statt jedes Bild neu gelesen: localStorage ist synchron, und
+// sechzigmal je Sekunde darin nachzuschlagen ist genau die Art Kleinigkeit,
+// die spaeter als unerklaerlicher Ruckler wiederkommt.
+let bildzielJetzt = 60;
 {
   const gemerkt = localStorage.getItem('djBildziel');
   const ziel = gemerkt === null ? 60 : Number(gemerkt);
   $('bildzielWahl').value = String(ziel);
+  bildzielJetzt = ziel;
   bildzielSetzen(ziel);
   $('bildzielWahl').addEventListener('change', (e) => {
-    bildzielSetzen(Number(e.target.value));
+    bildzielJetzt = Number(e.target.value);
+    bildzielSetzen(bildzielJetzt);
     localStorage.setItem('djBildziel', e.target.value);
   });
 }
@@ -10929,10 +10950,20 @@ setInterval(() => {
   const ms = bild.abstandMs ?? bild.bildMs;
   const bilder = ms > 0.01 ? Math.round(1000 / ms) : 0;
   const m = window.__mandel;
-  const takt = m?.taktMs ? ` · Takt ${m.taktMs.toFixed(1)} ms` : '';
-  $('bildTempo').textContent = `${ms.toFixed(1)} ms · ${bilder}/s${takt}`;
+  /*
+   * Ist und Soll nebeneinander, und beide benannt.
+   *
+   * Vorher stand hier "16.7 ms · 60/s · Takt 33.3 ms" neben einem Schalter,
+   * auf dem "30 Bilder/s" stand. Beides war fuer sich richtig und zusammen
+   * unverstaendlich - zu Recht kam die Frage, welche der beiden Zahlen denn
+   * nun gilt. Jetzt sagt die Anzeige, was gemessen ist und was angestrebt
+   * wird, und wenn beides auseinanderliegt, sieht man es sofort.
+   */
+  const soll = bildzielJetzt > 0 ? `${bildzielJetzt}` : 'voll';
+  $('bildTempo').textContent = `${ms.toFixed(1)} ms · ${bilder}/s (Ziel ${soll})`;
   $('bildTempo').title = m
     ? `${m.aufGpu ? `Grafikkarte: ${m.karte ?? 'unbekannt'}` : 'Hauptprozessor (Notfassung)'}\n` +
+      `Ziel ${soll} Bilder/s, Takt ${(m.taktMs ?? 0).toFixed(1)} ms\n` +
       `Aufloesung ${(m.guete ?? 0).toFixed(2)} · Bremse ${(m.bremse ?? 0).toFixed(2)} · ` +
       `Schritte ${m.schritte} · Tiefe ${(m.tiefe ?? 0).toFixed(1)}\n` +
       `Zeichnen ${bild.bildMs.toFixed(1)} ms (nur der Ueberzug)`
@@ -11237,9 +11268,38 @@ function leinwandAnpassen() {
 }
 window.addEventListener('resize', leinwandAnpassen);
 
+/*
+ * Das Bildziel ist eine Obergrenze, kein frommer Wunsch.
+ *
+ * Vorher hiess "30 Bilder/s" nur: Der Regler *darf* sich je Bild mehr Zeit
+ * nehmen. Gezeichnet wurde trotzdem bei jedem Aufruf, also sechzigmal je
+ * Sekunde - und die Anzeige stellte das auch korrekt fest: "30 Bilder/s"
+ * neben "60/s". Eins von beidem musste falsch sein, und es war der Schalter.
+ *
+ * Jetzt werden Aufrufe uebersprungen, bis das Ziel erreicht ist. Dreissig
+ * heisst dreissig. Die neunzig Prozent sind Toleranz: Bei genau 33,3 ms
+ * Abstand und 16,7 ms Bildtakt faellt sonst jedes zweite Bild knapp unter die
+ * Schwelle, und aus dreissig werden zwanzig.
+ *
+ * Uebersprungen wird nur das *Zeichnen*. Der Mischer laeuft weiter bei jedem
+ * Aufruf: Er haengt an der Tonausgabe, und ein Uebergang, der nur
+ * dreissigmal je Sekunde nachgefuehrt wird, hoert man.
+ */
+let letztesBild = 0;
+
 function schleife(jetzt = 0) {
   requestAnimationFrame(schleife);
   if (!welt.mixer) return;
+
+  if (bildzielJetzt > 0) {
+    const mindestens = (1000 / bildzielJetzt) * 0.9;
+    if (jetzt - letztesBild < mindestens) {
+      // Nur die Anzeige und den Mischer nachziehen, nicht das Bild.
+      zeichneDecks(welt.mixer.zustand());
+      return;
+    }
+  }
+  letztesBild = jetzt;
 
   // Zeit zwischen zwei Bildern, gedeckelt: Nach einem Tabwechsel kaeme sonst
   // ein Riesensprung, und alle Bewegungen wuerden auf einmal durchrauschen.
