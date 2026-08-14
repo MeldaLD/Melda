@@ -152,23 +152,51 @@ try {
   } else {
     const abdruecke = [];
     for (const m of katalog) {
+      /*
+       * Erst warten, bis ueberhaupt etwas zu sehen ist.
+       *
+       * Die Fahrt geraet regelmaessig in eine Stelle tief im Inneren der
+       * Menge, wo alles gleichmaessig dunkel ist - die Wache erkennt das und
+       * setzt neu an, aber das dauert ein paar Sekunden. Wer in dieser Zeit
+       * einen Abdruck nimmt, bekommt Schwarz, und zwei Mal Schwarz sind
+       * natuerlich gleich. Genau so kam beim ersten Anlauf eine
+       * zusammenhaengende Kette von zehn "identischen" Paaren heraus - kein
+       * Fehler an den Faltungen, sondern eine dunkle Stelle der Fahrt.
+       */
       const abdruck = await seite.evaluate(async (id) => {
         const { mandalaZwingen, mandelAbdruck } = await import('/gemeinsam/visualmodi.js');
         mandalaZwingen(id);
-        // Ein paar Bilder abwarten, damit die Faltung wirklich steht.
-        await new Promise((f) => setTimeout(f, 1200));
-        return mandelAbdruck();
+        const streuung = (feld) => {
+          const mittel = feld.reduce((a, b) => a + b, 0) / feld.length;
+          const q = feld.reduce((a, b) => a + (b - mittel) * (b - mittel), 0) / feld.length;
+          return Math.sqrt(q);
+        };
+        const bis = Date.now() + 20000;
+        let letzter = null;
+        for (;;) {
+          await new Promise((f) => setTimeout(f, 900));
+          letzter = mandelAbdruck();
+          if (!letzter) return null;
+          if (streuung(letzter) > 3 || Date.now() > bis) break;
+        }
+        return { feld: letzter, lebendig: streuung(letzter) > 3 };
       }, m.id);
-      abdruecke.push({ id: m.id, abdruck });
+      abdruecke.push({ id: m.id, ...(abdruck ?? { feld: null, lebendig: false }) });
     }
     await seite.evaluate(async () => {
       const { mandalaZwingen } = await import('/gemeinsam/visualmodi.js');
       mandalaZwingen(null);
     });
 
-    const fehlend = abdruecke.filter((a) => !a.abdruck);
+    const fehlend = abdruecke.filter((a) => !a.feld);
     pruefe('von jeder Faltung kommt ein Bild an', fehlend.length === 0,
       fehlend.map((a) => a.id).join(', '));
+    const tot = abdruecke.filter((a) => a.feld && !a.lebendig);
+    pruefe(
+      'und bei fast allen ist auch etwas darauf zu sehen',
+      tot.length <= Math.ceil(abdruecke.length * 0.15),
+      tot.length ? `${tot.length} landeten in einer dunklen Stelle: ${tot.map((a) => a.id).join(', ')}` : 'alle',
+    );
 
     /*
      * Verglichen wird nur mit dem direkten Vorgaenger, nicht jeder mit jedem.
@@ -179,17 +207,22 @@ try {
      * darf, ist Bild fuer Bild dasselbe: Das hiesse, der Zweig im Schattierer
      * greift gar nicht.
      */
-    let gleiche = 0;
+    const gleiche = [];
     for (let i = 1; i < abdruecke.length; i++) {
-      const a = abdruecke[i - 1].abdruck;
-      const b = abdruecke[i].abdruck;
+      // Nur lebendige Paare. Zwei dunkle Stellen sind gleich, und das sagt
+      // ueber die Faltung nichts.
+      if (!abdruecke[i - 1].lebendig || !abdruecke[i].lebendig) continue;
+      const a = abdruecke[i - 1].feld;
+      const b = abdruecke[i].feld;
       if (!a || !b) continue;
       let abweichung = 0;
       for (let k = 0; k < a.length; k++) abweichung += Math.abs(a[k] - b[k]);
-      if (abweichung / a.length < 1) gleiche++;
+      if (abweichung / a.length < 1) {
+        gleiche.push(`${abdruecke[i - 1].id}=${abdruecke[i].id}`);
+      }
     }
     pruefe('und keine zwei aufeinanderfolgenden liefern dasselbe Bild',
-      gleiche === 0, `${gleiche} Paare identisch`);
+      gleiche.length === 0, gleiche.join(', '));
   }
 
   pruefe('keine Konsolenfehler', konsole.length === 0, konsole.slice(0, 3).join(' | '));

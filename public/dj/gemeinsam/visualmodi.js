@@ -633,33 +633,79 @@ let mandelMandalaHalt = 0;
  * Geloescht wird nichts. Was zu teuer ist fuer das, was es zeigt, schaltet man
  * ab - und das entscheidet, wer davorsteht, nicht ich.
  */
+/*
+ * Nachtrag nach der ersten Messung - und sie hat die Annahme umgeworfen, mit
+ * der ich angefangen habe.
+ *
+ * Die Vermutung war, dass sich die Faltungen im Aufwand stark unterscheiden
+ * und man die teuren aussortieren muss. Gemessen ueber drei Durchlaeufe in
+ * wechselnder Reihenfolge liegen sie zwischen 9 und 22 Millisekunden - Faktor
+ * zwei, und der Rest ist Streuung. Was wirklich den Unterschied macht, ist
+ * *wo* die Fahrt gerade steht: Nah am Rand der Menge braucht jeder Punkt
+ * Tausende Schritte, in der Weite ein paar Dutzend. Dieselbe Rosette kostet an
+ * zwei Stellen der Fahrt das Fuenffache.
+ *
+ * Der erste Durchlauf sah anders aus - 46 ms fuer die erste und 3,5 fuer die
+ * letzte - und das war kein Befund, sondern ein Messfehler: Die Fahrt wird
+ * waehrend des Durchlaufs immer tiefer, also mass die Liste ihre eigene
+ * Reihenfolge.
+ *
+ * Daraus folgt fuers Aussortieren: Es gibt kaum etwas auszusortieren. Also
+ * lieber mehr davon - der freie Wert (faltWert) macht aus einer Faltung
+ * mehrere Bilder, ohne einen einzigen Zweig mehr im Schattierer.
+ */
 export const MANDALAS = [
   { id: 'rosette6', name: 'Rosette 6', art: 0, achsen: 6 },
   { id: 'rosette8', name: 'Rosette 8', art: 0, achsen: 8 },
   { id: 'rosette12', name: 'Rosette 12', art: 0, achsen: 12 },
   { id: 'rosette5', name: 'Rosette 5', art: 0, achsen: 5 },
+  { id: 'rosette16', name: 'Rosette 16', art: 0, achsen: 16 },
+  { id: 'rosette3', name: 'Rosette 3', art: 0, achsen: 3 },
   { id: 'windrad5', name: 'Windrad 5', art: 1, achsen: 5 },
   { id: 'windrad9', name: 'Windrad 9', art: 1, achsen: 9 },
+  { id: 'windrad3', name: 'Windrad 3', art: 1, achsen: 3 },
   { id: 'feinrosette6', name: 'Feinrosette 6', art: 2, achsen: 6 },
   { id: 'feinrosette8', name: 'Feinrosette 8', art: 2, achsen: 8 },
+  { id: 'feinrosette4', name: 'Feinrosette 4', art: 2, achsen: 4 },
   { id: 'fliese', name: 'Fliese', art: 3, achsen: 4 },
   { id: 'wabe', name: 'Wabe', art: 4, achsen: 6 },
-  { id: 'spirale6', name: 'Spirale 6', art: 5, achsen: 6 },
-  { id: 'spirale8', name: 'Spirale 8', art: 5, achsen: 8 },
-  { id: 'gegenspirale', name: 'Gegenspirale 6', art: 6, achsen: 6 },
-  { id: 'droste6', name: 'Droste 6', art: 7, achsen: 6 },
-  { id: 'droste10', name: 'Droste 10', art: 7, achsen: 10 },
-  { id: 'feinringe', name: 'Feinringe 6', art: 8, achsen: 6 },
-  { id: 'stern5', name: 'Stern 5', art: 9, achsen: 5 },
-  { id: 'stern7', name: 'Stern 7', art: 9, achsen: 7 },
-  { id: 'stern12', name: 'Stern 12', art: 9, achsen: 12 },
-  { id: 'bluete6', name: 'Bluete 6', art: 10, achsen: 6 },
-  { id: 'bluete9', name: 'Bluete 9', art: 10, achsen: 9 },
-  { id: 'kelch6', name: 'Kelch 6', art: 11, achsen: 6 },
-  { id: 'linse6', name: 'Linse 6', art: 12, achsen: 6 },
-  { id: 'linse10', name: 'Linse 10', art: 12, achsen: 10 },
+  { id: 'spirale6', name: 'Spirale 6', art: 5, achsen: 6, wert: 0.55 },
+  { id: 'spirale8', name: 'Spirale 8', art: 5, achsen: 8, wert: 0.55 },
+  { id: 'spiralezart', name: 'Zarte Spirale 6', art: 5, achsen: 6, wert: 0.22 },
+  { id: 'spiralescharf', name: 'Scharfe Spirale 8', art: 5, achsen: 8, wert: 1.1 },
+  { id: 'gegenspirale', name: 'Gegenspirale 6', art: 6, achsen: 6, wert: 1.3 },
+  { id: 'gegenspirale10', name: 'Gegenspirale 10', art: 6, achsen: 10, wert: 0.7 },
+  { id: 'droste6', name: 'Droste 6', art: 7, achsen: 6, wert: 2.2 },
+  { id: 'droste10', name: 'Droste 10', art: 7, achsen: 10, wert: 2.2 },
+  { id: 'drosteweit', name: 'Weite Droste 8', art: 7, achsen: 8, wert: 1.1 },
+  { id: 'feinringe', name: 'Feinringe 6', art: 8, achsen: 6, wert: 4.5 },
+  { id: 'feinringe12', name: 'Feinringe 12', art: 8, achsen: 12, wert: 6.5 },
+  { id: 'stern5', name: 'Stern 5', art: 9, achsen: 5, wert: 0.45 },
+  { id: 'stern7', name: 'Stern 7', art: 9, achsen: 7, wert: 0.45 },
+  { id: 'stern12', name: 'Stern 12', art: 9, achsen: 12, wert: 0.45 },
+  { id: 'sternspitz', name: 'Spitzer Stern 9', art: 9, achsen: 9, wert: 0.78 },
+  { id: 'sternstumpf', name: 'Stumpfer Stern 6', art: 9, achsen: 6, wert: 0.2 },
+  { id: 'bluete6', name: 'Bluete 6', art: 10, achsen: 6, wert: 0.35 },
+  { id: 'bluete9', name: 'Bluete 9', art: 10, achsen: 9, wert: 0.35 },
+  { id: 'bluetevoll', name: 'Volle Bluete 5', art: 10, achsen: 5, wert: 0.62 },
+  { id: 'kelch6', name: 'Kelch 6', art: 11, achsen: 6, wert: 0.6 },
+  { id: 'kelch10', name: 'Kelch 10', art: 11, achsen: 10, wert: 0.4 },
+  { id: 'linse6', name: 'Linse 6', art: 12, achsen: 6, wert: 0.55 },
+  { id: 'linse10', name: 'Linse 10', art: 12, achsen: 10, wert: 0.55 },
+  { id: 'lupe8', name: 'Lupe 8', art: 12, achsen: 8, wert: 0.3 },
+  { id: 'trichter6', name: 'Trichter 6', art: 12, achsen: 6, wert: 1.6 },
   { id: 'fliesenstern', name: 'Fliesenstern 8', art: 13, achsen: 8 },
   { id: 'wabenstern', name: 'Wabenstern 6', art: 14, achsen: 6 },
+  { id: 'schraube6', name: 'Schraube 6', art: 15, achsen: 6, wert: 0.5 },
+  { id: 'schraube9', name: 'Schraube 9', art: 15, achsen: 9, wert: 0.9 },
+  { id: 'zackenrad7', name: 'Zackenrad 7', art: 16, achsen: 7, wert: 0.5 },
+  { id: 'zackenrad12', name: 'Zackenrad 12', art: 16, achsen: 12, wert: 0.35 },
+  { id: 'drallringe6', name: 'Drallringe 6', art: 17, achsen: 6, wert: 0.5 },
+  { id: 'drallringe10', name: 'Drallringe 10', art: 17, achsen: 10, wert: 0.9 },
+  { id: 'bluetenlinse6', name: 'Bluetenlinse 6', art: 18, achsen: 6, wert: 0.4 },
+  { id: 'bluetenlinse9', name: 'Bluetenlinse 9', art: 18, achsen: 9, wert: 0.55 },
+  { id: 'sternringe6', name: 'Sternringe 6', art: 19, achsen: 6, wert: 2.2 },
+  { id: 'sternringe12', name: 'Sternringe 12', art: 19, achsen: 12, wert: 3.4 },
 ];
 
 /*
@@ -2215,6 +2261,7 @@ function mandelbrotZeichnen(stift, lage) {
       mandala: mandelMandala,
       sterne: mandelSterne,
       faltArt: mandalaJetzt.art,
+      faltWert: mandalaJetzt.wert ?? 0.5,
       fangAnteil: mandelFang,
       guete: Math.min(mandelGuete, stufe.fraktal),
       reihe: mandelReihe,

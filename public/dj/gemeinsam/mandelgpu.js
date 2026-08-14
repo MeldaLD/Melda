@@ -93,6 +93,16 @@ uniform float welleZeit;     // wie lange sie schon laeuft
 uniform float mandala;       // 0 = reines Mandelbrot, 1 = volle Symmetrie
 uniform float sterne;        // Zahl der Spiegelachsen
 uniform int   faltArt;       // welche Faltung - siehe falten()
+/*
+ * Der freie Wert der Faltung: Drall, Ringzahl, Zackentiefe, Schwung.
+ *
+ * Vorher stand er in jedem Zweig als Zahl - "faltSpirale(p, n, 0.55)". Damit
+ * kostete jede weitere Variante einen weiteren Zweig im Schattierer, obwohl
+ * sich nur eine Zahl aendert. Als Uniform kostet sie gar nichts: Ein Windrad
+ * mit sanftem und eines mit scharfem Drall sind dann zwei Eintraege im
+ * Katalog und derselbe Code.
+ */
+uniform float faltWert;
 uniform float fangAnteil;    // wieviel die Bahnfalle zur Farbe beitraegt
 
 /*
@@ -249,6 +259,17 @@ vec2 faltRinge(vec2 p, float n, float ringe) {
   return g * (exp(l - f) / r * hoechst);
 }
 
+// Wie faltSpirale, aber ohne Spiegelung: Das Ergebnis dreht sich sichtbar und
+// schraubt sich dabei nach innen. Eine Rosette kann das nicht - sie hat
+// Spiegelachsen und steht deshalb immer still, egal wie schnell sie sich dreht.
+vec2 faltDrehspirale(vec2 p, float n, float drall) {
+  float r = length(p);
+  float w = atan(p.y, p.x) + drall * log(max(r, 1e-20));
+  float keil = 2.0 * PI / max(1.0, n);
+  w = mod(w, keil);
+  return vec2(cos(w), sin(w)) * r;
+}
+
 // Sterne: der Radius wird entlang des Winkels eingezogen. Die Figur bekommt
 // dadurch eine Zackenkontur statt eines runden Randes.
 vec2 faltStern(vec2 p, float n, float tiefe) {
@@ -291,16 +312,28 @@ vec2 falten(vec2 p, float n) {
   if (faltArt == 2) return faltDoppelt(p, n);
   if (faltArt == 3) return faltQuadrat(p);
   if (faltArt == 4) return faltWabe(p);
-  if (faltArt == 5) return faltSpirale(p, n, 0.55);
-  if (faltArt == 6) return faltSpirale(p, n, -1.3);
-  if (faltArt == 7) return faltRinge(p, n, 2.2);
-  if (faltArt == 8) return faltRinge(p, n, 4.5);
-  if (faltArt == 9) return faltStern(p, n, 0.45);
-  if (faltArt == 10) return faltBluete(p, n, 0.35);
-  if (faltArt == 11) return faltBluete(p, n, -0.6);
-  if (faltArt == 12) return faltLinse(p, n, 0.55);
+  if (faltArt == 5) return faltSpirale(p, n, faltWert);
+  if (faltArt == 6) return faltSpirale(p, n, -faltWert);
+  if (faltArt == 7) return faltRinge(p, n, faltWert);
+  if (faltArt == 8) return faltRinge(p, n, faltWert);
+  if (faltArt == 9) return faltStern(p, n, faltWert);
+  if (faltArt == 10) return faltBluete(p, n, faltWert);
+  if (faltArt == 11) return faltBluete(p, n, -faltWert);
+  if (faltArt == 12) return faltLinse(p, n, faltWert);
   if (faltArt == 13) return faltSpiegel(faltQuadrat(p), n);
   if (faltArt == 14) return faltSpiegel(faltWabe(p), n);
+  // Windrad mit Drall: Drehung ohne Spiegelung, aber mit dem Winkelversatz aus
+  // dem Logarithmus des Radius. Es dreht sich und schraubt sich zugleich.
+  if (faltArt == 15) return faltDrehspirale(p, n, faltWert);
+  // Zackenrad: erst der Stern, dann die reine Drehung. Die Zacken bekommen
+  // dadurch eine Laufrichtung, die die gespiegelte Fassung nicht hat.
+  if (faltArt == 16) return faltDrehung(faltStern(p, n, faltWert), n);
+  // Ringe in einer Spirale statt in Kreisen - der Droste-Effekt mit Drall.
+  if (faltArt == 17) return faltRinge(faltSpirale(p, n, faltWert), n, 2.2);
+  // Bluete in der Linse: geschwungene Blaetter, in die Mitte gezogen.
+  if (faltArt == 18) return faltLinse(faltBluete(p, n, faltWert), n, 0.6);
+  // Sternringe: Zacken, die sich beim Hineinfahren ineinanderschieben.
+  if (faltArt == 19) return faltStern(faltRinge(p, n, faltWert), n, 0.4);
   return faltSpiegel(p, n);
 }
 
@@ -523,7 +556,7 @@ export function gpuBereit() {
       'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
       'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
       'reiheN', 'reiheS', 'reiheA', 'reiheB', 'reiheC', 'reiheD', 'reiheFalle', 'reiheNah',
-      'faltArt',
+      'faltArt', 'faltWert',
     ]) {
       orte[name] = gl.getUniformLocation(programm, name);
     }
@@ -1113,6 +1146,7 @@ export function gpuZeichnen(lage) {
   gl.uniform1f(orte.mandala, mandala ?? 0);
   gl.uniform1f(orte.sterne, sterne ?? 6);
   gl.uniform1i(orte.faltArt, lage.faltArt ?? 0);
+  gl.uniform1f(orte.faltWert, lage.faltWert ?? 0.5);
   gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
 
   /*
