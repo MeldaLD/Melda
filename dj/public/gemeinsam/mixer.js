@@ -297,6 +297,15 @@ export class Mixer {
     this.ctx = ctx;
     this.wechselZaehler = 0;
     this.laufenderUebergang = null;
+    /*
+     * Wie lange es dauert, bis ein gezeichnetes Bild zu sehen ist.
+     *
+     * Die Mischung kennt den Bildschirm nicht - die Buehne setzt den Wert,
+     * sobald sie ihn gemessen hat. Bis dahin die uebliche Sechzigstelsekunde:
+     * Ein plausibler Startwert ist hier besser als eine Null, denn null hiesse
+     * "das Bild erscheint sofort", und das stimmt nirgends.
+     */
+    this.bildperiode = 1 / 60;
 
     this.summe = ctx.createGain();
     this.begrenzer = ctx.createDynamicsCompressor();
@@ -496,9 +505,44 @@ export class Mixer {
     return uebrig / deck.tempo;
   }
 
+  /*
+   * Wieviel die Anzeige der Rechnung vorausliegt - und warum das nicht null ist.
+   *
+   * ctx.currentTime ist die Zeit im *Rechenwerk*, nicht die im Raum. Der Ton,
+   * der gerade berechnet wird, verlaesst den Lautsprecher erst
+   * outputLatency spaeter; unter Windows sind das laut Microsoft nominell zehn
+   * Millisekunden, gemessen wurden auch zweiundzwanzig. Ein Bild, das nach
+   * ctx.currentTime gezeichnet wird, zeigt also die Zukunft.
+   *
+   * Dagegen steht ein zweiter Versatz in die andere Richtung: Das Bild, das
+   * jetzt gezeichnet wird, erscheint erst beim naechsten Bildwechsel auf dem
+   * Schirm - eine Bildperiode spaeter.
+   *
+   * Beide sind aehnlich gross und heben sich fast auf. Genau deshalb war es
+   * bisher zufaellig fast richtig, und genau deshalb lohnt es sich, es
+   * auszurechnen statt sich darauf zu verlassen: Auf einem Geraet mit
+   * traeger Tonausgabe oder hohem Bildtakt heben sie sich eben nicht auf.
+   *
+   * Wichtig ist, wo das gilt: nur fuer die *Anzeige*. Geplant - wann der
+   * naechste Uebergang startet, wann ein Deck einsetzt - wird weiter in
+   * Rechenwerkzeit, denn dorthin gehoert eine Planung. Beides zu vermischen
+   * waere schlimmer als der Versatz selbst.
+   */
+  anzeigeVersatz() {
+    // Die Ausgabeverzoegerung meldet der Browser selbst. Wo es sie nicht gibt,
+    // ist baseLatency die naechstbeste Auskunft, und sonst wird nichts
+    // erfunden.
+    const aus = Number.isFinite(this.ctx.outputLatency)
+      ? this.ctx.outputLatency
+      : (this.ctx.baseLatency ?? 0);
+    return this.bildperiode - aus;
+  }
+
   // Momentaufnahme fuer die Anzeige.
   zustand() {
     const jetzt = this.ctx.currentTime;
+    // Die Stelle, die gleich *zu hoeren* ist, wenn das Bild erscheint.
+    const hoerbar = jetzt + this.anzeigeVersatz();
     const uebergang = this.laufenderUebergang;
     return {
       jetzt,
@@ -507,7 +551,10 @@ export class Mixer {
         laeuft: deck.laeuft,
         aktiv: deck === this.laufendesDeck,
         track: deck.track,
-        stelle: deck.stelle(jetzt),
+        // Nach der hoerbaren Zeit, nicht nach der gerechneten - siehe
+        // anzeigeVersatz(). Alles andere in diesem Objekt ist Anzeige, also
+        // gilt es dort genauso.
+        stelle: deck.stelle(hoerbar),
         dauer: deck.quelle?.buffer?.duration ?? 0,
         tempo: deck.tempo,
         bpm: deck.effektivBpm(),

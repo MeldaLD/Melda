@@ -242,7 +242,19 @@ async function schritteFuer(tiefe) {
      * Deckel gerechnet schwankte der Durchsatz ueber die Tiefenleiter um das
      * Vierzehnfache - eine Zahl, die so schwankt, vergleicht keine Geraete.
      */
-    mittel: Math.min(schritte, letzte?.schritteMittel ?? schritte),
+    /*
+     * Zusammengesetzt aus beiden Teilen, weil nur hier beide bekannt sind:
+     * die entkommenen Punkte mit ihrer gemessenen mittleren Schrittzahl, die
+     * Innenpunkte mit der Grenze, bis zu der wirklich gerechnet wird.
+     */
+    mittel: Math.min(
+      schritte,
+      Math.max(
+        1,
+        (1 - (letzte?.innenAnteil ?? 0)) * (letzte?.schritteMittelEntkommen ?? schritte) +
+          (letzte?.innenAnteil ?? 0) * schritte,
+      ),
+    ),
     innenAnteil: letzte?.innenAnteil ?? null,
   };
 }

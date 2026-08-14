@@ -2345,6 +2345,9 @@ function mandelbrotZeichnen(stift, lage) {
       leereZeichnen(stift, breite, hoehe, takt, paletteA);
       return;
     }
+    // Wie breit der gezeigte Ausschnitt in der Zahlenebene ist. Dieselbe
+    // Rechnung wie im Zeichner; hier gebraucht fuer die Innenerkennung.
+    const spanneJetzt = 1.6 / Math.pow(10, mandelTiefe);
     const bild = gpuZeichnen({
       breite, hoehe,
       ziel: zielGpu,
@@ -2360,6 +2363,27 @@ function mandelbrotZeichnen(stift, lage) {
       sterne: mandelSterne,
       faltArt: mandalaJetzt.art,
       faltWert: mandalaJetzt.wert ?? 0.5,
+      /*
+       * Innenerkennung - nur wo sie erlaubt *und* noetig ist.
+       *
+       * Erlaubt: Sie sucht Wiederholungen im vollen Wert z = Bezugsbahn plus
+       * Abstand. In einfacher Genauigkeit ist z auf etwa ein Zehnmillionstel
+       * genau; ist der Abstand kleiner als das, verschwindet er in der Summe,
+       * und *alle* Bildpunkte haben bitgenau dieselbe Bahn wie die Bezugsbahn.
+       * Gefunden wird dann deren Periode statt der des Punktes. Nachgemessen
+       * bei Tiefe 16: neunundneunzig Komma neun Prozent des Bildes falsch, und
+       * zwar bei jeder Schwelle bis hinunter zu 1e-24 - ein Beleg dafuer, dass
+       * die Werte nicht ungefaehr, sondern exakt gleich waren.
+       *
+       * Die Spanne ist der Abstand, um den es geht. Bei 1e-6 lag der
+       * Bildunterschied bei 0,09 Prozent und der Gewinn bei 4,4-fach; eine
+       * Zehnerpotenz tiefer waren es 0,63 Prozent Fehler bei 1,17-fach. Der
+       * Schnitt liegt also dort, wo er liegt, und nicht, wo er huebsch waere.
+       *
+       * Noetig: Ohne Innenflaeche gibt es nichts zu sparen. Die Stichprobe
+       * misst den Anteil ohnehin.
+       */
+      innenPruefen: spanneJetzt >= 1e-6 && mandelInnen >= 0.15,
       fangAnteil: mandelFang,
       guete: Math.min(mandelGuete, stufe.fraktal),
       reihe: mandelReihe,

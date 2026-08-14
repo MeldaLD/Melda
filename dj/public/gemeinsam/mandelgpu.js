@@ -103,6 +103,18 @@ uniform int   faltArt;       // welche Faltung - siehe falten()
  * Katalog und derselbe Code.
  */
 uniform float faltWert;
+/*
+ * Innenerkennung an/aus, und wie genau. Beides Uniform - siehe die
+ * Begruendung an der Schleife.
+ *
+ * Die Schranke ist kein frei gewaehlter Wert: Der volle Wert z liegt in der
+ * Groessenordnung eins und wird in einfacher Genauigkeit gebildet, also
+ * unterscheidbar bis etwa 1e-7. Eine Schranke darunter faende nichts, eine
+ * viel groessere hielte Punkte fuer geschlossen, die noch wandern. 1e-12 als
+ * Quadrat entspricht 1e-6 im Abstand - eine Zehnerpotenz ueber dem Rauschen.
+ */
+uniform int   innenPruefen;
+uniform float innenEps;
 uniform float fangAnteil;    // wieviel die Bahnfalle zur Farbe beitraegt
 
 /*
@@ -404,6 +416,40 @@ void main() {
    * Der Texturzugriff ist in dieser Schleife der Engpass, nicht das Rechnen.
    * Die Haelfte davon einzusparen heisst annaehernd doppelt so schnell.
    */
+  /*
+   * Innenerkennung: aufhoeren, wenn die Bahn sich wiederholt.
+   *
+   * Der Anlass ist eine Messung. Bei Tiefe 6 lagen zweiundfuenfzig Prozent
+   * der Bildpunkte *innerhalb* der Menge, und die entkommen nie - sie laufen
+   * jeden Schritt bis zum Deckel und ergeben am Ende eine flache Farbe.
+   * Zusammengerechnet: an solchen Stellen stecken drei Viertel der ganzen
+   * Rechenzeit in Punkten, die nichts zeichnen. Auf dem iPad war das die
+   * teuerste Zeile der ganzen Tabelle.
+   *
+   * Ein Punkt im Inneren laeuft in einen anziehenden Zyklus. Trifft die Bahn
+   * einen Wert, den sie schon hatte, wiederholt sie sich von da an fuer immer
+   * - weiterrechnen aendert nichts mehr. Gemerkt wird nach Brents Verfahren:
+   * ein einzelner Wert, in immer groesseren Abstaenden aufgefrischt. Das
+   * findet jeden Zyklus, dessen Periode in den Abstand passt, und braucht
+   * genau einen Wert Speicher.
+   *
+   * Billig ist es, weil der volle Wert z ohnehin schon in jedem Schritt
+   * gebildet wird - fuer die Austrittspruefung. Dazu kommen eine Subtraktion,
+   * ein Skalarprodukt und ein Vergleich.
+   *
+   * Und es haengt an einem Uniform: Wo nichts im Inneren liegt, ist die
+   * Verzweigung fuer alle Punkte gleich und kostet nichts. Die Buehne
+   * schaltet sie ein, wenn die Stichprobe genug Innenflaeche meldet.
+   *
+   * Zur Farbe: Die Innenflaeche wird danach gefaerbt, wie nah die Bahn dem
+   * Ursprung gekommen ist. Frueher auszusteigen duerfte das nicht aendern -
+   * und tut es nicht, denn zwischen dem Merken und dem Treffer ist der Zyklus
+   * mindestens einmal ganz durchlaufen. Was danach kaeme, waeren dieselben
+   * Werte noch einmal. Nachgemessen wird es trotzdem, nicht geglaubt.
+   */
+  vec2 zMerk = vec2(1e20);
+  int merkBei = n + 8;
+
   vec4 Z = bahnHolen(m);
   for (int k = n; k < schritte; k++) {
     vec2 grob = vec2(Z.x, Z.z);
@@ -422,6 +468,13 @@ void main() {
     if (r2 < naechster) naechster = r2;
     kreuz = min(kreuz, min(abs(z.x), abs(z.y)));
     if (r2 > 65536.0) { raus = r2; break; }
+    if (innenPruefen == 1) {
+      // Erst vergleichen, dann merken - sonst trifft der gerade gemerkte
+      // Wert sich selbst und jeder Punkt gaelte als innen.
+      vec2 ab = z - zMerk;
+      if (dot(ab, ab) < innenEps) break;
+      if (n >= merkBei) { zMerk = z; merkBei = n * 2; }
+    }
     // Der Kniff von Zhuoran: Ist der Abstand groesser als der Punkt selbst,
     // taugt die Bezugsbahn hier nicht mehr - dann faengt der Punkt bei sich
     // selbst neu an. Dasselbe am Ende der gerechneten Bahn.
@@ -556,7 +609,7 @@ export function gpuBereit() {
       'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
       'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
       'reiheN', 'reiheS', 'reiheA', 'reiheB', 'reiheC', 'reiheD', 'reiheFalle', 'reiheNah',
-      'faltArt', 'faltWert',
+      'faltArt', 'faltWert', 'innenPruefen', 'innenEps',
     ]) {
       orte[name] = gl.getUniformLocation(programm, name);
     }
@@ -1147,6 +1200,8 @@ export function gpuZeichnen(lage) {
   gl.uniform1f(orte.sterne, sterne ?? 6);
   gl.uniform1i(orte.faltArt, lage.faltArt ?? 0);
   gl.uniform1f(orte.faltWert, lage.faltWert ?? 0.5);
+  gl.uniform1i(orte.innenPruefen, lage.innenPruefen ? 1 : 0);
+  gl.uniform1f(orte.innenEps, lage.innenEps ?? 1e-12);
   gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
 
   /*
@@ -1486,26 +1541,33 @@ export function gpuProbe(tiefe, dreh, deckel = 9000, arbeitsbudget = 20000) {
   }
 
   /*
-   * Die *mittlere* Schrittzahl je Bildpunkt - das eigentliche Mass fuer Arbeit.
+   * Die mittlere Schrittzahl der *entkommenen* Punkte.
    *
    * schritteNoetig ist das obere Zehntel: Es beantwortet "wie hoch muss die
    * Grenze stehen, damit die Zeichnung stimmt". Das ist die richtige Frage
    * fuer die Grenze und die falsche fuer den Aufwand. Nachgemessen brauchte
    * eine Stelle eine Grenze von 12467 Schritten, waehrend die allermeisten
    * Punkte nach ein paar hundert entkamen - wer mit der Grenze rechnet,
-   * ueberschaetzt die Arbeit dort um ein Vielfaches. Der Messstand kam damit
-   * auf Durchsaetze, die um das Vierzehnfache schwankten.
+   * ueberschaetzt die Arbeit dort um ein Vielfaches.
    *
-   * Punkte innerhalb der Menge entkommen nie und zaehlen mit der vollen
-   * Grenze - sie laufen ja wirklich bis zum Anschlag.
+   * Die Punkte *innerhalb* der Menge sind hier bewusst nicht eingerechnet,
+   * und das ist eine Korrektur: Zuerst zaehlten sie mit dem Deckel dieser
+   * Stichprobe mit - fuenfzehntausend -, waehrend die Zeichnung nur
+   * siebenhundert rechnet. Herausgekommen ist "mittlere Schrittzahl 4773 bei
+   * einem Deckel von 700", also eine Unmoeglichkeit, die ich fast als Befund
+   * genommen haette.
+   *
+   * Wieviel ein Innenpunkt kostet, weiss nur der Aufrufer - er kennt die
+   * Grenze, mit der wirklich gezeichnet wird. Deshalb kommen hier beide
+   * Zahlen einzeln heraus und werden dort zusammengesetzt.
    */
-  let summeSchritte = 0;
-  for (const w of probeWerte) summeSchritte += w || deckel;
+  let summeEntkommen = 0;
+  for (const w of gesehen) summeEntkommen += w;
 
   return {
     innenAnteil: innen / probeWerte.length,
     schritteNoetig: rand,
-    schritteMittel: summeSchritte / probeWerte.length,
+    schritteMittelEntkommen: gesehen.length ? summeEntkommen / gesehen.length : 0,
     spreizung,
     // Wieviele Punkte ueberhaupt entkommen sind. Unter einer Handvoll sagt die
     // Spreizung nichts - dann ist sie nicht null, sondern unbekannt.

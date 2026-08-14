@@ -881,6 +881,14 @@ header {
              und als gebaute Einzeldatei unter /dj, und der Messstand liegt
              jeweils woanders. Siehe messstandVerlinken() in buehne.js. -->
         <a id="messstandLink" class="knopfartig" title="Was schafft dieses Gerät?">Messstand</a>
+        <!--
+          Der PC-Modus ist eine Voreinstellung und kein Zaubertrick: Er stellt
+          Güte, Bildziel und Mandala-Auswahl auf das, was ein Rechner mit
+          eigener Grafikkarte tragen kann. Genau das lässt sich auch von Hand
+          einstellen - der Knopf spart nur die drei Griffe und sagt, was er
+          getan hat.
+        -->
+        <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
         <label class="schieber">
           <span id="energieWert">50 %</span>
           <input type="range" id="energieRegler" min="0" max="100" value="50" />
@@ -2018,6 +2026,15 @@ class Mixer {
     this.ctx = ctx;
     this.wechselZaehler = 0;
     this.laufenderUebergang = null;
+    /*
+     * Wie lange es dauert, bis ein gezeichnetes Bild zu sehen ist.
+     *
+     * Die Mischung kennt den Bildschirm nicht - die Buehne setzt den Wert,
+     * sobald sie ihn gemessen hat. Bis dahin die uebliche Sechzigstelsekunde:
+     * Ein plausibler Startwert ist hier besser als eine Null, denn null hiesse
+     * "das Bild erscheint sofort", und das stimmt nirgends.
+     */
+    this.bildperiode = 1 / 60;
 
     this.summe = ctx.createGain();
     this.begrenzer = ctx.createDynamicsCompressor();
@@ -2217,9 +2234,44 @@ class Mixer {
     return uebrig / deck.tempo;
   }
 
+  /*
+   * Wieviel die Anzeige der Rechnung vorausliegt - und warum das nicht null ist.
+   *
+   * ctx.currentTime ist die Zeit im *Rechenwerk*, nicht die im Raum. Der Ton,
+   * der gerade berechnet wird, verlaesst den Lautsprecher erst
+   * outputLatency spaeter; unter Windows sind das laut Microsoft nominell zehn
+   * Millisekunden, gemessen wurden auch zweiundzwanzig. Ein Bild, das nach
+   * ctx.currentTime gezeichnet wird, zeigt also die Zukunft.
+   *
+   * Dagegen steht ein zweiter Versatz in die andere Richtung: Das Bild, das
+   * jetzt gezeichnet wird, erscheint erst beim naechsten Bildwechsel auf dem
+   * Schirm - eine Bildperiode spaeter.
+   *
+   * Beide sind aehnlich gross und heben sich fast auf. Genau deshalb war es
+   * bisher zufaellig fast richtig, und genau deshalb lohnt es sich, es
+   * auszurechnen statt sich darauf zu verlassen: Auf einem Geraet mit
+   * traeger Tonausgabe oder hohem Bildtakt heben sie sich eben nicht auf.
+   *
+   * Wichtig ist, wo das gilt: nur fuer die *Anzeige*. Geplant - wann der
+   * naechste Uebergang startet, wann ein Deck einsetzt - wird weiter in
+   * Rechenwerkzeit, denn dorthin gehoert eine Planung. Beides zu vermischen
+   * waere schlimmer als der Versatz selbst.
+   */
+  anzeigeVersatz() {
+    // Die Ausgabeverzoegerung meldet der Browser selbst. Wo es sie nicht gibt,
+    // ist baseLatency die naechstbeste Auskunft, und sonst wird nichts
+    // erfunden.
+    const aus = Number.isFinite(this.ctx.outputLatency)
+      ? this.ctx.outputLatency
+      : (this.ctx.baseLatency ?? 0);
+    return this.bildperiode - aus;
+  }
+
   // Momentaufnahme fuer die Anzeige.
   zustand() {
     const jetzt = this.ctx.currentTime;
+    // Die Stelle, die gleich *zu hoeren* ist, wenn das Bild erscheint.
+    const hoerbar = jetzt + this.anzeigeVersatz();
     const uebergang = this.laufenderUebergang;
     return {
       jetzt,
@@ -2228,7 +2280,10 @@ class Mixer {
         laeuft: deck.laeuft,
         aktiv: deck === this.laufendesDeck,
         track: deck.track,
-        stelle: deck.stelle(jetzt),
+        // Nach der hoerbaren Zeit, nicht nach der gerechneten - siehe
+        // anzeigeVersatz(). Alles andere in diesem Objekt ist Anzeige, also
+        // gilt es dort genauso.
+        stelle: deck.stelle(hoerbar),
         dauer: deck.quelle?.buffer?.duration ?? 0,
         tempo: deck.tempo,
         bpm: deck.effektivBpm(),
@@ -3344,6 +3399,18 @@ uniform int   faltArt;       // welche Faltung - siehe falten()
  * Katalog und derselbe Code.
  */
 uniform float faltWert;
+/*
+ * Innenerkennung an/aus, und wie genau. Beides Uniform - siehe die
+ * Begruendung an der Schleife.
+ *
+ * Die Schranke ist kein frei gewaehlter Wert: Der volle Wert z liegt in der
+ * Groessenordnung eins und wird in einfacher Genauigkeit gebildet, also
+ * unterscheidbar bis etwa 1e-7. Eine Schranke darunter faende nichts, eine
+ * viel groessere hielte Punkte fuer geschlossen, die noch wandern. 1e-12 als
+ * Quadrat entspricht 1e-6 im Abstand - eine Zehnerpotenz ueber dem Rauschen.
+ */
+uniform int   innenPruefen;
+uniform float innenEps;
 uniform float fangAnteil;    // wieviel die Bahnfalle zur Farbe beitraegt
 
 /*
@@ -3645,6 +3712,40 @@ void main() {
    * Der Texturzugriff ist in dieser Schleife der Engpass, nicht das Rechnen.
    * Die Haelfte davon einzusparen heisst annaehernd doppelt so schnell.
    */
+  /*
+   * Innenerkennung: aufhoeren, wenn die Bahn sich wiederholt.
+   *
+   * Der Anlass ist eine Messung. Bei Tiefe 6 lagen zweiundfuenfzig Prozent
+   * der Bildpunkte *innerhalb* der Menge, und die entkommen nie - sie laufen
+   * jeden Schritt bis zum Deckel und ergeben am Ende eine flache Farbe.
+   * Zusammengerechnet: an solchen Stellen stecken drei Viertel der ganzen
+   * Rechenzeit in Punkten, die nichts zeichnen. Auf dem iPad war das die
+   * teuerste Zeile der ganzen Tabelle.
+   *
+   * Ein Punkt im Inneren laeuft in einen anziehenden Zyklus. Trifft die Bahn
+   * einen Wert, den sie schon hatte, wiederholt sie sich von da an fuer immer
+   * - weiterrechnen aendert nichts mehr. Gemerkt wird nach Brents Verfahren:
+   * ein einzelner Wert, in immer groesseren Abstaenden aufgefrischt. Das
+   * findet jeden Zyklus, dessen Periode in den Abstand passt, und braucht
+   * genau einen Wert Speicher.
+   *
+   * Billig ist es, weil der volle Wert z ohnehin schon in jedem Schritt
+   * gebildet wird - fuer die Austrittspruefung. Dazu kommen eine Subtraktion,
+   * ein Skalarprodukt und ein Vergleich.
+   *
+   * Und es haengt an einem Uniform: Wo nichts im Inneren liegt, ist die
+   * Verzweigung fuer alle Punkte gleich und kostet nichts. Die Buehne
+   * schaltet sie ein, wenn die Stichprobe genug Innenflaeche meldet.
+   *
+   * Zur Farbe: Die Innenflaeche wird danach gefaerbt, wie nah die Bahn dem
+   * Ursprung gekommen ist. Frueher auszusteigen duerfte das nicht aendern -
+   * und tut es nicht, denn zwischen dem Merken und dem Treffer ist der Zyklus
+   * mindestens einmal ganz durchlaufen. Was danach kaeme, waeren dieselben
+   * Werte noch einmal. Nachgemessen wird es trotzdem, nicht geglaubt.
+   */
+  vec2 zMerk = vec2(1e20);
+  int merkBei = n + 8;
+
   vec4 Z = bahnHolen(m);
   for (int k = n; k < schritte; k++) {
     vec2 grob = vec2(Z.x, Z.z);
@@ -3663,6 +3764,13 @@ void main() {
     if (r2 < naechster) naechster = r2;
     kreuz = min(kreuz, min(abs(z.x), abs(z.y)));
     if (r2 > 65536.0) { raus = r2; break; }
+    if (innenPruefen == 1) {
+      // Erst vergleichen, dann merken - sonst trifft der gerade gemerkte
+      // Wert sich selbst und jeder Punkt gaelte als innen.
+      vec2 ab = z - zMerk;
+      if (dot(ab, ab) < innenEps) break;
+      if (n >= merkBei) { zMerk = z; merkBei = n * 2; }
+    }
     // Der Kniff von Zhuoran: Ist der Abstand groesser als der Punkt selbst,
     // taugt die Bezugsbahn hier nicht mehr - dann faengt der Punkt bei sich
     // selbst neu an. Dasselbe am Ende der gerechneten Bahn.
@@ -3797,7 +3905,7 @@ function gpuBereit() {
       'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
       'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
       'reiheN', 'reiheS', 'reiheA', 'reiheB', 'reiheC', 'reiheD', 'reiheFalle', 'reiheNah',
-      'faltArt', 'faltWert',
+      'faltArt', 'faltWert', 'innenPruefen', 'innenEps',
     ]) {
       orte[name] = gl.getUniformLocation(programm, name);
     }
@@ -4388,6 +4496,8 @@ function gpuZeichnen(lage) {
   gl.uniform1f(orte.sterne, sterne ?? 6);
   gl.uniform1i(orte.faltArt, lage.faltArt ?? 0);
   gl.uniform1f(orte.faltWert, lage.faltWert ?? 0.5);
+  gl.uniform1i(orte.innenPruefen, lage.innenPruefen ? 1 : 0);
+  gl.uniform1f(orte.innenEps, lage.innenEps ?? 1e-12);
   gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
 
   /*
@@ -4727,26 +4837,33 @@ function gpuProbe(tiefe, dreh, deckel = 9000, arbeitsbudget = 20000) {
   }
 
   /*
-   * Die *mittlere* Schrittzahl je Bildpunkt - das eigentliche Mass fuer Arbeit.
+   * Die mittlere Schrittzahl der *entkommenen* Punkte.
    *
    * schritteNoetig ist das obere Zehntel: Es beantwortet "wie hoch muss die
    * Grenze stehen, damit die Zeichnung stimmt". Das ist die richtige Frage
    * fuer die Grenze und die falsche fuer den Aufwand. Nachgemessen brauchte
    * eine Stelle eine Grenze von 12467 Schritten, waehrend die allermeisten
    * Punkte nach ein paar hundert entkamen - wer mit der Grenze rechnet,
-   * ueberschaetzt die Arbeit dort um ein Vielfaches. Der Messstand kam damit
-   * auf Durchsaetze, die um das Vierzehnfache schwankten.
+   * ueberschaetzt die Arbeit dort um ein Vielfaches.
    *
-   * Punkte innerhalb der Menge entkommen nie und zaehlen mit der vollen
-   * Grenze - sie laufen ja wirklich bis zum Anschlag.
+   * Die Punkte *innerhalb* der Menge sind hier bewusst nicht eingerechnet,
+   * und das ist eine Korrektur: Zuerst zaehlten sie mit dem Deckel dieser
+   * Stichprobe mit - fuenfzehntausend -, waehrend die Zeichnung nur
+   * siebenhundert rechnet. Herausgekommen ist "mittlere Schrittzahl 4773 bei
+   * einem Deckel von 700", also eine Unmoeglichkeit, die ich fast als Befund
+   * genommen haette.
+   *
+   * Wieviel ein Innenpunkt kostet, weiss nur der Aufrufer - er kennt die
+   * Grenze, mit der wirklich gezeichnet wird. Deshalb kommen hier beide
+   * Zahlen einzeln heraus und werden dort zusammengesetzt.
    */
-  let summeSchritte = 0;
-  for (const w of probeWerte) summeSchritte += w || deckel;
+  let summeEntkommen = 0;
+  for (const w of gesehen) summeEntkommen += w;
 
   return {
     innenAnteil: innen / probeWerte.length,
     schritteNoetig: rand,
-    schritteMittel: summeSchritte / probeWerte.length,
+    schritteMittelEntkommen: gesehen.length ? summeEntkommen / gesehen.length : 0,
     spreizung,
     // Wieviele Punkte ueberhaupt entkommen sind. Unter einer Handvoll sagt die
     // Spreizung nichts - dann ist sie nicht null, sondern unbekannt.
@@ -8547,6 +8664,9 @@ function mandelbrotZeichnen(stift, lage) {
       leereZeichnen(stift, breite, hoehe, takt, paletteA);
       return;
     }
+    // Wie breit der gezeigte Ausschnitt in der Zahlenebene ist. Dieselbe
+    // Rechnung wie im Zeichner; hier gebraucht fuer die Innenerkennung.
+    const spanneJetzt = 1.6 / Math.pow(10, mandelTiefe);
     const bild = gpuZeichnen({
       breite, hoehe,
       ziel: zielGpu,
@@ -8562,6 +8682,27 @@ function mandelbrotZeichnen(stift, lage) {
       sterne: mandelSterne,
       faltArt: mandalaJetzt.art,
       faltWert: mandalaJetzt.wert ?? 0.5,
+      /*
+       * Innenerkennung - nur wo sie erlaubt *und* noetig ist.
+       *
+       * Erlaubt: Sie sucht Wiederholungen im vollen Wert z = Bezugsbahn plus
+       * Abstand. In einfacher Genauigkeit ist z auf etwa ein Zehnmillionstel
+       * genau; ist der Abstand kleiner als das, verschwindet er in der Summe,
+       * und *alle* Bildpunkte haben bitgenau dieselbe Bahn wie die Bezugsbahn.
+       * Gefunden wird dann deren Periode statt der des Punktes. Nachgemessen
+       * bei Tiefe 16: neunundneunzig Komma neun Prozent des Bildes falsch, und
+       * zwar bei jeder Schwelle bis hinunter zu 1e-24 - ein Beleg dafuer, dass
+       * die Werte nicht ungefaehr, sondern exakt gleich waren.
+       *
+       * Die Spanne ist der Abstand, um den es geht. Bei 1e-6 lag der
+       * Bildunterschied bei 0,09 Prozent und der Gewinn bei 4,4-fach; eine
+       * Zehnerpotenz tiefer waren es 0,63 Prozent Fehler bei 1,17-fach. Der
+       * Schnitt liegt also dort, wo er liegt, und nicht, wo er huebsch waere.
+       *
+       * Noetig: Ohne Innenflaeche gibt es nichts zu sparen. Die Stichprobe
+       * misst den Anteil ohnehin.
+       */
+      innenPruefen: spanneJetzt >= 1e-6 && mandelInnen >= 0.15,
       fangAnteil: mandelFang,
       guete: Math.min(mandelGuete, stufe.fraktal),
       reihe: mandelReihe,
@@ -11199,6 +11340,33 @@ function messstandVerlinken() {
 }
 messstandVerlinken();
 
+/*
+ * Der PC-Modus.
+ *
+ * Er tut nichts, was nicht auch von Hand ginge - und das ist Absicht. Was er
+ * spart, ist das Wissen darum, welche drei Regler zusammengehoeren: volle
+ * Guete, sechzig Bilder, alle Mandalas. Auf einem Rechner mit eigener
+ * Grafikkarte ist das die Einstellung, mit der die Fahrt am besten aussieht;
+ * auf einem Telefon waere sie eine Zumutung, deshalb steht sie nicht in der
+ * Voreinstellung.
+ *
+ * Was er nicht kann: die Grafikkarte schneller machen. Ob die Einstellung
+ * traegt, sagt der Messstand - und wenn nicht, sagt es der Regler von selbst,
+ * indem er zurueckgeht.
+ */
+$('pcModus').addEventListener('click', () => {
+  bild?.gueteSetzen('hoch');
+  $('gueteWahl').value = 'hoch';
+  bildzielJetzt = 60;
+  bildzielSetzen(60);
+  $('bildzielWahl').value = '60';
+  localStorage.setItem('djBildziel', '60');
+  mandalasSetzen(MANDALAS.map((m) => m.id));
+  localStorage.setItem('djMandalas', JSON.stringify(mandalasAktive()));
+  zuruf(`PC-Modus: Güte hoch, 60 Bilder/s, alle ${MANDALAS.length} Mandalas. ` +
+    'Ob es trägt, sagt der Messstand.');
+});
+
 $('technikKnopf').addEventListener('click', technikUmschalten);
 $('technikZu').addEventListener('click', technikUmschalten);
 $('technikKopieren').addEventListener('click', async () => {
@@ -11297,6 +11465,19 @@ function schleife(jetzt = 0) {
       // Nur die Anzeige und den Mischer nachziehen, nicht das Bild.
       zeichneDecks(welt.mixer.zustand());
       return;
+    }
+  }
+  /*
+   * Der Mischung sagen, wie lange ein Bild bis zum Bildschirm braucht.
+   *
+   * Sie rechnet damit aus, welche Stelle des Stuecks in dem Moment zu *hoeren*
+   * sein wird, in dem dieses Bild erscheint - siehe anzeigeVersatz() im
+   * Mischer. Ohne die Zahl muesste sie raten.
+   */
+  if (letztesBild > 0) {
+    const p = (jetzt - letztesBild) / 1000;
+    if (p > 0.002 && p < 0.2) {
+      welt.mixer.bildperiode = welt.mixer.bildperiode * 0.9 + p * 0.1;
     }
   }
   letztesBild = jetzt;

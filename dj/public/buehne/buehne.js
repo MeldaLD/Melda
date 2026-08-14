@@ -676,6 +676,33 @@ function messstandVerlinken() {
 }
 messstandVerlinken();
 
+/*
+ * Der PC-Modus.
+ *
+ * Er tut nichts, was nicht auch von Hand ginge - und das ist Absicht. Was er
+ * spart, ist das Wissen darum, welche drei Regler zusammengehoeren: volle
+ * Guete, sechzig Bilder, alle Mandalas. Auf einem Rechner mit eigener
+ * Grafikkarte ist das die Einstellung, mit der die Fahrt am besten aussieht;
+ * auf einem Telefon waere sie eine Zumutung, deshalb steht sie nicht in der
+ * Voreinstellung.
+ *
+ * Was er nicht kann: die Grafikkarte schneller machen. Ob die Einstellung
+ * traegt, sagt der Messstand - und wenn nicht, sagt es der Regler von selbst,
+ * indem er zurueckgeht.
+ */
+$('pcModus').addEventListener('click', () => {
+  bild?.gueteSetzen('hoch');
+  $('gueteWahl').value = 'hoch';
+  bildzielJetzt = 60;
+  bildzielSetzen(60);
+  $('bildzielWahl').value = '60';
+  localStorage.setItem('djBildziel', '60');
+  mandalasSetzen(MANDALAS.map((m) => m.id));
+  localStorage.setItem('djMandalas', JSON.stringify(mandalasAktive()));
+  zuruf(`PC-Modus: Güte hoch, 60 Bilder/s, alle ${MANDALAS.length} Mandalas. ` +
+    'Ob es trägt, sagt der Messstand.');
+});
+
 $('technikKnopf').addEventListener('click', technikUmschalten);
 $('technikZu').addEventListener('click', technikUmschalten);
 $('technikKopieren').addEventListener('click', async () => {
@@ -774,6 +801,19 @@ function schleife(jetzt = 0) {
       // Nur die Anzeige und den Mischer nachziehen, nicht das Bild.
       zeichneDecks(welt.mixer.zustand());
       return;
+    }
+  }
+  /*
+   * Der Mischung sagen, wie lange ein Bild bis zum Bildschirm braucht.
+   *
+   * Sie rechnet damit aus, welche Stelle des Stuecks in dem Moment zu *hoeren*
+   * sein wird, in dem dieses Bild erscheint - siehe anzeigeVersatz() im
+   * Mischer. Ohne die Zahl muesste sie raten.
+   */
+  if (letztesBild > 0) {
+    const p = (jetzt - letztesBild) / 1000;
+    if (p > 0.002 && p < 0.2) {
+      welt.mixer.bildperiode = welt.mixer.bildperiode * 0.9 + p * 0.1;
     }
   }
   letztesBild = jetzt;
