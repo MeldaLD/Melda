@@ -105,11 +105,41 @@ try {
   pruefe('drei Flaechen aus dem wirklichen Bildschirm', roh.flaechen.length === 3,
     roh.flaechen.map((f) => `${f.name} ${(f.punkte / 1e6).toFixed(2)} MP`).join(', '));
 
-  console.log('\nDie Schrittzahl waechst mit der Tiefe:');
+  /*
+   * Auch hier stand zuerst eine Zusage zu viel: "nirgends weniger Schritte bei
+   * mehr Tiefe". Sie war nur deshalb gruen, weil die Stichprobe gar nicht
+   * gemessen hatte und der Messstand still auf seine Ersatzformel zurueckfiel
+   * - und die ist monoton, weil ich sie monoton hingeschrieben habe.
+   *
+   * Mit laufender Stichprobe kommen 700, 840, 1060, 7142, 1685, 2536, 4666,
+   * 12467 heraus. Das ist richtig so: Wieviele Schritte eine Stelle braucht,
+   * haengt daran, wie nah der Ausschnitt am Rand der Menge liegt, und der Rand
+   * kommt auf der Fahrt mal naeher und mal ferner. Ueber die ganze Leiter
+   * steigt es, von Stufe zu Stufe nicht.
+   */
+  console.log('\nDie Schrittzahl kommt aus der Stichprobe:');
   const plan = [...roh.schrittPlan].sort((a, b) => a.tiefe - b.tiefe);
-  const rueckwaerts = plan.filter((s, i) => i > 0 && s.schritte < plan[i - 1].schritte);
-  pruefe('nirgends weniger Schritte bei mehr Tiefe', rueckwaerts.length === 0,
-    plan.map((s) => `${s.tiefe}:${s.schritte}`).join(' '));
+  const haelfte = Math.floor(plan.length / 2);
+  const mittelwert = (a) => a.reduce((x, y) => x + y.schritte, 0) / a.length;
+  const flachMittel = mittelwert(plan.slice(0, haelfte));
+  const tiefMittel = mittelwert(plan.slice(haelfte));
+  pruefe(
+    'ueber die ganze Leiter braucht es tiefer mehr Schritte',
+    tiefMittel > flachMittel,
+    `flach ${Math.round(flachMittel)} gegen tief ${Math.round(tiefMittel)}`,
+  );
+  /*
+   * Und sie kommt aus der Stichprobe, nicht aus der Ersatzformel.
+   *
+   * Im ersten Bericht vom iPad standen exakt 400 + 110 mal Tiefe und in der
+   * Spalte "innen" durchgehend nichts - beides zusammen heisst: Die Stichprobe
+   * hat gar nicht gemessen, weil die Bezugsbahn zu dem Zeitpunkt noch nicht
+   * existierte. Der Messstand meldete daraufhin eine Arbeit, die er sich
+   * ausgedacht hatte.
+   */
+  const gemessen = plan.filter((s) => s.innenAnteil !== null && s.innenAnteil !== undefined);
+  pruefe('und sie ist gemessen, nicht aus der Ersatzformel', gemessen.length === plan.length,
+    `${gemessen.length} von ${plan.length} Tiefen mit Stichprobe`);
 
   /*
    * Hier stand zuerst "Tiefer kostet mehr", und die Pruefung schlug fehl - auf
@@ -212,7 +242,13 @@ try {
   );
 
   console.log('\nDie Gegenprobe an ungemessenen Punkten:');
-  pruefe('sie ist gelaufen', aus.abweichungen.length >= 4, `${aus.abweichungen.length} Punkte`);
+  /*
+   * Wieviele Punkte die Gegenprobe schafft, haengt am Geraet: Was zu teuer
+   * ist, wird uebersprungen und faellt heraus - vergleichen liesse sich dort
+   * nur eine Schaetzung mit sich selbst. Zwei sind wenig, aber sie sind eine
+   * Aussage; null waeren keine.
+   */
+  pruefe('sie ist gelaufen', aus.abweichungen.length >= 2, `${aus.abweichungen.length} Punkte`);
   const mittlere = [...aus.abweichungen].sort((a, b) => a - b)[Math.floor(aus.abweichungen.length / 2)];
   /*
    * Die Schwelle ist bewusst weit: Hier rechnet ein Nachbau in Software, der

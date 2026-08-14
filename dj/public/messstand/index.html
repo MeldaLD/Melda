@@ -42,6 +42,23 @@
           Bitte währenddessen nicht wegschalten: Im Hintergrund drosseln Browser
           die Grafik, und dann misst der Messstand die Drosselung.
         </p>
+        <!--
+          Das Bildziel entscheidet, was "flüssig" heißt - und es gehört dem, der
+          davorsteht, nicht dem Monitor. Ein 145-Hz-Bildschirm gäbe dem Fraktal
+          sonst 4,8 ms je Bild, und daran scheitert auch eine sehr starke Karte,
+          ohne dass irgendjemand einen Unterschied sähe.
+
+          Umschalten misst nicht neu: Die Zeiten stehen, nur die Schwelle
+          verschiebt sich.
+        -->
+        <label class="ziel">
+          Flüssig heißt für mich:
+          <select id="zielBilder">
+            <option value="30">30 Bilder je Sekunde</option>
+            <option value="60" selected>60 Bilder je Sekunde</option>
+            <option value="0">voller Bildtakt dieses Bildschirms</option>
+          </select>
+        </label>
       </section>
 
       <section class="fortschritt" id="laufAnzeige" hidden>

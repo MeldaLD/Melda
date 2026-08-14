@@ -138,8 +138,9 @@ try {
    * Fehler, auch wenn beide huebsch sind.
    */
   await seite.evaluate(async () => {
-    const { gpuZwingen, mandalasSetzen } = await import('/gemeinsam/visualmodi.js');
+    const { gpuZwingen, mandalasSetzen, streuungMessen } = await import('/gemeinsam/visualmodi.js');
     gpuZwingen(true);
+    streuungMessen(true);
     mandalasSetzen((await import('/gemeinsam/visualmodi.js')).MANDALAS.map((m) => m.id));
     window.__dj.bild.modusSetzen('mandelbrot');
   });

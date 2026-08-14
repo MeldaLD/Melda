@@ -227,9 +227,22 @@ async function schritteFuer(tiefe) {
   const noetig = letzte?.schritteNoetig ?? 0;
   // Die Formel der Buehne, ohne den Anteil, der vom Regler abhaengt: Der
   // Regler ist genau das, was hier bestimmt werden soll.
+  const schritte = Math.round(Math.min(15000, Math.max(700, noetig * 1.2, 400 + tiefe * 110)));
   return {
-    schritte: Math.round(Math.min(15000, Math.max(700, noetig * 1.2, 400 + tiefe * 110))),
+    schritte,
     noetig,
+    /*
+     * Die mittlere Schrittzahl je Bildpunkt - das Mass fuer die Arbeit.
+     *
+     * Die Grenze (schritte) sagt, wie hoch der Deckel stehen muss, damit die
+     * Zeichnung stimmt; sie richtet sich nach dem obersten Zehntel der Punkte.
+     * Gearbeitet wird aber im Mittel, und das ist etwas voellig anderes:
+     * Gemessen brauchte eine Stelle einen Deckel von 12467 Schritten,
+     * waehrend die meisten Punkte nach ein paar hundert entkamen. Mit dem
+     * Deckel gerechnet schwankte der Durchsatz ueber die Tiefenleiter um das
+     * Vierzehnfache - eine Zahl, die so schwankt, vergleicht keine Geraete.
+     */
+    mittel: Math.min(schritte, letzte?.schritteMittel ?? schritte),
     innenAnteil: letzte?.innenAnteil ?? null,
   };
 }
@@ -247,7 +260,7 @@ async function schritteFuer(tiefe) {
  * Karte selbst gefragt. Safari tut das nicht - deshalb ist die Wanduhr die
  * fuehrende Zahl und die Karte die Gegenprobe.
  */
-async function messpunkt(tiefe, punkte, schritte, mandala) {
+async function messpunkt(tiefe, punkte, schritte, mandala, mittel = schritte) {
   const lage = lageBauen(tiefe, punkte, schritte, mandala);
 
   // Aufwaermen: die Flaeche umstellen, die Reihe neu bauen, den Treiber
@@ -301,7 +314,9 @@ async function messpunkt(tiefe, punkte, schritte, mandala) {
     punkte,
     schritte,
     uebersprungen,
-    wirksam: Math.max(1, schritte - uebersprungen),
+    // Was die Karte wirklich gerechnet hat: mittlere Schrittzahl je Punkt,
+    // abzueglich dessen, was die Reihe uebersprungen hat.
+    wirksam: Math.max(1, mittel - uebersprungen),
     mandala: mandala.id,
     wandMs: median(wandWerte),
     kartenMs: kartenWerte.length ? median(kartenWerte) : null,
@@ -403,7 +418,25 @@ async function durchgang(gruendlich) {
   const taktMs = await bildtaktMessen();
   const flaechen = flaechenBestimmen();
 
-  melden('Schrittzahlen bestimmen …', 0.02);
+  /*
+   * Erst die Bahn, dann die Stichprobe - in dieser Reihenfolge, und die war
+   * zuerst falsch herum.
+   *
+   * Die Stichprobe rechnet die Bezugsbahn nach, um zu sehen, wieviele Schritte
+   * eine Tiefe wirklich braucht. Existiert die Bahn noch nicht, liefert sie
+   * gar nichts, und der Messstand faellt still auf seine Ersatzformel zurueck.
+   * Im Bericht vom iPad war das daran zu sehen, dass die Spalte "innen"
+   * durchgehend leer blieb und die Schrittzahlen exakt 400 + 110 mal Tiefe
+   * waren - also genau die Formel und nirgends eine Messung.
+   *
+   * Henne und Ei loesen sich, weil die Bahn nur eine *obere* Schaetzung
+   * braucht: Zuerst mit der Ersatzformel wachsen lassen, dann messen, dann
+   * nachwachsen, falls die Messung mehr verlangt.
+   */
+  const grobeSchritte = Math.round(400 + TIEFEN[TIEFEN.length - 1] * 110);
+  await bahnAufbauen(grobeSchritte, (t) => melden(t, 0.02));
+
+  melden('Schrittzahlen bestimmen …', 0.03);
   const schrittPlan = new Map();
   for (const tiefe of TIEFEN) {
     schrittPlan.set(tiefe, await schritteFuer(tiefe));
@@ -411,7 +444,9 @@ async function durchgang(gruendlich) {
   }
 
   const tiefsteSchritte = Math.max(...[...schrittPlan.values()].map((s) => s.schritte));
-  await bahnAufbauen(tiefsteSchritte, (t) => melden(t, 0.04));
+  if (tiefsteSchritte > grobeSchritte) {
+    await bahnAufbauen(tiefsteSchritte, (t) => melden(t, 0.04));
+  }
 
   /*
    * Aufwaermen, und zwar richtig - der erste Messpunkt zahlt sonst fuer alle.
@@ -504,7 +539,9 @@ async function durchgang(gruendlich) {
   }
   for (const eintrag of plan) {
     eintrag.schritte = schrittPlan.get(eintrag.tiefe).schritte;
-    eintrag.arbeit = eintrag.flaeche.punkte * eintrag.schritte;
+    eintrag.mittel = schrittPlan.get(eintrag.tiefe).mittel;
+    // Sortiert wird nach der wirklichen Arbeit, nicht nach dem Deckel.
+    eintrag.arbeit = eintrag.flaeche.punkte * eintrag.mittel;
   }
   plan.sort((a, b) => a.arbeit - b.arbeit);
 
@@ -553,7 +590,7 @@ async function durchgang(gruendlich) {
         punkte: e.flaeche.punkte,
         schritte: e.schritte,
         uebersprungen: nachbar?.uebersprungen ?? 0,
-        wirksam: nachbar?.wirksam ?? e.schritte,
+        wirksam: nachbar?.wirksam ?? e.mittel,
         mandala: e.mandala.id,
         wandMs: geschaetztMs,
         kartenMs: null,
@@ -561,7 +598,7 @@ async function durchgang(gruendlich) {
       };
       uebersprungen++;
     } else {
-      punkt = await messpunkt(e.tiefe, e.flaeche.punkte, e.schritte, e.mandala);
+      punkt = await messpunkt(e.tiefe, e.flaeche.punkte, e.schritte, e.mandala, e.mittel);
       if (punkt.wandMs > 0) {
         // Der billigste gemessene Punkt je Tiefe ist der beste Nachbar fuer
         // die Hochrechnung - er ist am wenigsten von Ausreissern bedroht.
@@ -606,7 +643,25 @@ async function durchgang(gruendlich) {
 /* --- Auswertung ----------------------------------------------------------- */
 
 function auswerten(roh) {
-  const budgetMs = roh.taktMs * BUDGETANTEIL;
+  /*
+   * Das Budget - und wonach es sich richtet.
+   *
+   * Zuerst stand hier der Bildtakt des Bildschirms, und das war auf einem
+   * 145-Hz-Monitor eine Falle: 6,9 ms Takt, davon 70 Prozent, macht 4,8 ms
+   * fuers Fraktal. Daran scheitert auch eine Radeon RX 9070 XT auf der
+   * hoechsten Stufe - gemessen 189 Millionen Punkt-Schritte je Millisekunde,
+   * konstant ueber drei Aufloesungen auf ein Prozent genau. Die Karte war
+   * nicht das Problem, der Massstab war es. Ein Fraktal mit hundertfuenfzig
+   * Bildern je Sekunde sieht kein Mensch anders als eines mit sechzig.
+   *
+   * Also waehlt, wer davorsteht. Null heisst "voller Bildtakt", sonst gilt die
+   * gewaehlte Bildzahl - aber nie mehr, als der Bildschirm hergibt: Sechzig zu
+   * verlangen, wo der Monitor dreissig kann, waere eine Zusage gegen die
+   * Physik.
+   */
+  const gewaehlt = Number(document.getElementById('zielBilder')?.value ?? 60);
+  const zielMs = gewaehlt > 0 ? Math.max(roh.taktMs, 1000 / gewaehlt) : roh.taktMs;
+  const budgetMs = zielMs * BUDGETANTEIL;
 
   // Die Tiefenkurve als Nachschlagewerk: Flaeche -> Tiefe -> ms.
   const kurve = new Map();
@@ -759,6 +814,7 @@ function auswerten(roh) {
 
   return {
     budgetMs,
+    zielMs,
     kurve,
     geschaetzt,
     uebersprungenJeTiefe,
@@ -876,20 +932,41 @@ function tabelleMandalas(roh, aus) {
 function urteilBauen(roh, aus) {
   const saetze = [];
   const karte = roh.auskunft.karte || roh.auskunft.karteRoh || 'unbekannt';
-  saetze.push(['gut', `${karte} · Bildtakt ${roh.taktMs.toFixed(1)} ms (${Math.round(1000 / roh.taktMs)} Hz)`]);
+  saetze.push([
+    'gut',
+    `${karte} · Bildschirm ${Math.round(1000 / roh.taktMs)} Hz · gerechnet wird gegen ` +
+      `${Math.round(1000 / aus.zielMs)} Bilder je Sekunde, also ${aus.budgetMs.toFixed(1)} ms ` +
+      'fürs Fraktal.',
+  ]);
   saetze.push([
     'gut',
     `Durchsatz ${aus.durchsatz.toFixed(1)} Millionen Punkt-Schritte je Millisekunde. ` +
       'Das ist die Zahl, mit der sich Geräte vergleichen lassen.',
   ]);
 
-  // Die Empfehlung: die beste Guetestufe, auf der genug Mandalas tief genug
-  // tragen. "Genug" heisst hier drei Viertel bis mindestens Tiefe 10 - flacher
-  // wird die Fahrt langweilig, und mit weniger als drei Vierteln fehlt die
-  // Abwechslung.
+  /*
+   * Die Empfehlung - und hier stand eine Aussage, die der Tabelle daneben
+   * widersprach.
+   *
+   * Auf dem Partyrechner meldete der Messstand "Bildgüte Mittel, dort halten
+   * 51 von 51 Mandalas die volle Tiefe", und zwei Zentimeter darunter stand
+   * bei Mittel und Tiefe 6 eine rote 11,0 ms bei einem Budget von 4,8. Beides
+   * konnte nicht stimmen.
+   *
+   * Der Fehler war "die volle Tiefe": Gezaehlt wurde die *tiefste* Stufe, die
+   * ins Budget passt. Die Kurve hat aber Loecher - die Reihenentwicklung
+   * ueberspringt bei Tiefe 16 neunzig Prozent der Schritte und bei Tiefe 6
+   * gerade fuenf. Tiefe 16 passte also, Tiefe 6 nicht, und "bis 16" las sich,
+   * als sei alles darunter erst recht in Ordnung.
+   *
+   * Jetzt zaehlt nur, wer *ueberall* durchkommt. Eine Guetestufe, auf der die
+   * Fahrt bei jedem dritten Zoom stockt, ist keine Empfehlung.
+   */
+  const lueckenlos = (f) =>
+    aus.jeMandala.filter((m) => m.tiefen[f.schluessel]?.alle === true).length;
   let empfehlung = null;
   for (const f of roh.flaechen) {
-    const tragen = aus.jeMandala.filter((m) => (m.tiefen[f.schluessel]?.tiefste ?? 0) >= 10).length;
+    const tragen = lueckenlos(f);
     if (tragen >= MANDALAS.length * 0.75) {
       empfehlung = { flaeche: f, tragen };
       break;
@@ -898,17 +975,17 @@ function urteilBauen(roh, aus) {
   if (empfehlung) {
     saetze.push([
       'gut',
-      `Empfehlung: Bildgüte „${empfehlung.flaeche.name}". Dort halten ` +
-        `${empfehlung.tragen} von ${MANDALAS.length} Mandalas die volle Tiefe im Bildtakt.`,
+      `Empfehlung: Bildgüte „${empfehlung.flaeche.name}". Dort bleiben ` +
+        `${empfehlung.tragen} von ${MANDALAS.length} Mandalas auf jeder Zoomstufe ` +
+        `unter ${aus.budgetMs.toFixed(1)} ms.`,
     ]);
   } else {
     const beste = roh.flaechen[roh.flaechen.length - 1];
-    const tragen = aus.jeMandala.filter((m) => (m.tiefen[beste.schluessel]?.tiefste ?? 0) >= 10).length;
     saetze.push([
       'schlecht',
-      `Auch auf der niedrigsten Stufe halten nur ${tragen} von ${MANDALAS.length} Mandalas ` +
-        'die volle Tiefe. Hier lohnt es sich, in der Auswahl auszudünnen – ' +
-        'die Spalte „bis Tiefe" sagt, welche.',
+      `Auch auf der niedrigsten Stufe kommen nur ${lueckenlos(beste)} von ${MANDALAS.length} ` +
+        'Mandalas auf jeder Zoomstufe durch. Entweder ein niedrigeres Bildziel wählen ' +
+        '(oben rechts) oder in der Auswahl ausdünnen – die Spalte „bis Tiefe" sagt, welche.',
     ]);
   }
 
@@ -1089,6 +1166,16 @@ function anzeigen(roh) {
 
   // Fuer die Abnahme und fuers Nachschauen in der Konsole.
   window.__messstand = { roh, aus, bericht };
+
+  /*
+   * Ein anderes Bildziel misst nicht neu.
+   *
+   * Die Millisekunden stehen; was sich aendert, ist allein die Schwelle, ab
+   * der sie als zu langsam gelten. Neu zu messen waere nicht nur zehn Minuten
+   * verschenkt, es waere auch schlechter: Zwei Durchlaeufe auf einem warm
+   * gelaufenen Geraet sind nicht dieselben.
+   */
+  $('zielBilder').onchange = () => anzeigen(roh);
 }
 
 /* --- Start ---------------------------------------------------------------- */

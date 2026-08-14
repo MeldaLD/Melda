@@ -209,3 +209,23 @@ td.schlecht {
 .urteil .offen b {
   color: var(--leise);
 }
+
+/* Das Bildziel. Es steht bei den Startknoepfen, weil es zur Frage gehoert und
+   nicht zur Antwort - auch wenn es die Antwort nachtraeglich umrechnet. */
+.ziel {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+  color: var(--leise);
+  font-size: 0.9rem;
+}
+
+.ziel select {
+  font: inherit;
+  color: var(--schrift);
+  background: var(--feld);
+  border: 1px solid var(--rand);
+  border-radius: 0.5rem;
+  padding: 0.35rem 0.5rem;
+}

@@ -78,10 +78,15 @@ try {
   await seite.click('#startDemo');
   await seite.waitForSelector('#konsole:not([hidden])', { timeout: 120000 });
   await seite.evaluate(async () => {
-    const { gpuZwingen } = await import('/gemeinsam/visualmodi.js');
+    const { gpuZwingen, streuungMessen } = await import('/gemeinsam/visualmodi.js');
     // Sonst zieht der Notausgang, sobald SwiftShader zu langsam wird - und
     // gezeichnet haette dann die Ersatzfassung ohne die neuen Faltungen.
     gpuZwingen(true);
+    // Die Streuung wird auf dem Weg ueber die Grafikkarte normalerweise gar
+    // nicht mehr gerechnet - sie kostet dort einen Rueckgriff auf das fertige
+    // Bild und wird von niemandem gelesen. Dieses Werkzeug liest sie, also
+    // schaltet es sie ein und bezahlt den Preis.
+    streuungMessen(true);
     window.__dj.bild.modusSetzen('mandelbrot');
   });
   // Erst einmal in Fahrt kommen lassen. Ein Mandelbrot bei Tiefe null ist eine

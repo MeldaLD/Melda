@@ -1485,9 +1485,27 @@ export function gpuProbe(tiefe, dreh, deckel = 9000, arbeitsbudget = 20000) {
     spreizung = (oben - unten) / Math.max(1, mitte);
   }
 
+  /*
+   * Die *mittlere* Schrittzahl je Bildpunkt - das eigentliche Mass fuer Arbeit.
+   *
+   * schritteNoetig ist das obere Zehntel: Es beantwortet "wie hoch muss die
+   * Grenze stehen, damit die Zeichnung stimmt". Das ist die richtige Frage
+   * fuer die Grenze und die falsche fuer den Aufwand. Nachgemessen brauchte
+   * eine Stelle eine Grenze von 12467 Schritten, waehrend die allermeisten
+   * Punkte nach ein paar hundert entkamen - wer mit der Grenze rechnet,
+   * ueberschaetzt die Arbeit dort um ein Vielfaches. Der Messstand kam damit
+   * auf Durchsaetze, die um das Vierzehnfache schwankten.
+   *
+   * Punkte innerhalb der Menge entkommen nie und zaehlen mit der vollen
+   * Grenze - sie laufen ja wirklich bis zum Anschlag.
+   */
+  let summeSchritte = 0;
+  for (const w of probeWerte) summeSchritte += w || deckel;
+
   return {
     innenAnteil: innen / probeWerte.length,
     schritteNoetig: rand,
+    schritteMittel: summeSchritte / probeWerte.length,
     spreizung,
     // Wieviele Punkte ueberhaupt entkommen sind. Unter einer Handvoll sagt die
     // Spreizung nichts - dann ist sie nicht null, sondern unbekannt.

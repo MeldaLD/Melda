@@ -4715,9 +4715,27 @@ function gpuProbe(tiefe, dreh, deckel = 9000, arbeitsbudget = 20000) {
     spreizung = (oben - unten) / Math.max(1, mitte);
   }
 
+  /*
+   * Die *mittlere* Schrittzahl je Bildpunkt - das eigentliche Mass fuer Arbeit.
+   *
+   * schritteNoetig ist das obere Zehntel: Es beantwortet "wie hoch muss die
+   * Grenze stehen, damit die Zeichnung stimmt". Das ist die richtige Frage
+   * fuer die Grenze und die falsche fuer den Aufwand. Nachgemessen brauchte
+   * eine Stelle eine Grenze von 12467 Schritten, waehrend die allermeisten
+   * Punkte nach ein paar hundert entkamen - wer mit der Grenze rechnet,
+   * ueberschaetzt die Arbeit dort um ein Vielfaches. Der Messstand kam damit
+   * auf Durchsaetze, die um das Vierzehnfache schwankten.
+   *
+   * Punkte innerhalb der Menge entkommen nie und zaehlen mit der vollen
+   * Grenze - sie laufen ja wirklich bis zum Anschlag.
+   */
+  let summeSchritte = 0;
+  for (const w of probeWerte) summeSchritte += w || deckel;
+
   return {
     innenAnteil: innen / probeWerte.length,
     schritteNoetig: rand,
+    schritteMittel: summeSchritte / probeWerte.length,
     spreizung,
     // Wieviele Punkte ueberhaupt entkommen sind. Unter einer Handvoll sagt die
     // Spreizung nichts - dann ist sie nicht null, sondern unbekannt.
@@ -7207,6 +7225,34 @@ function gpuZwingen(an) {
  * knapp wird. Auf der Grafikkarte zaehlt stattdessen die Stichprobe.
  */
 let mandelStreuung = 40;
+/*
+ * Ob die Streuung auf dem Weg ueber die Grafikkarte ueberhaupt gerechnet wird.
+ *
+ * Am Abend nie: Sie wird dort von niemandem gelesen, und sie zu holen kostet
+ * einen Rueckgriff auf das fertige Bild - siehe die Begruendung in
+ * mandelUeberlagern(). Die Werkzeuge, die ein Bild beurteilen wollen, schalten
+ * sie ein und nehmen den Preis in Kauf.
+ */
+let mandelStreuungMessen = false;
+function streuungMessen(an) {
+  mandelStreuungMessen = !!an;
+}
+
+/** Die Streuung aus dem Schnappschuss - der teure Teil, bewusst benannt. */
+function mandelStreuungRechnen() {
+  const feld = mandelSchnappStift.getImageData(60, 60, 360, 180).data;
+  let summe = 0;
+  let summeQuadrat = 0;
+  let proben = 0;
+  for (let i = 0; i < feld.length; i += 32) {
+    const w = (feld[i] + feld[i + 1] + feld[i + 2]) / 3;
+    summe += w;
+    summeQuadrat += w * w;
+    proben++;
+  }
+  const mittel = summe / proben;
+  mandelStreuung = Math.sqrt(Math.max(0, summeQuadrat / proben - mittel * mittel));
+}
 let mandelTotzeit = 0;
 let mandelWacheZaehler = 0;
 /*
@@ -8138,12 +8184,39 @@ function mandelbrotZeichnen(stift, lage) {
    */
   const tempo =
     MANDEL_GRUNDZOOM * (1 + spannung * 2.2) * (1 - abbau * 0.72) + mandelSchwung * 0.07;
-  mandelTiefe += tempo * sekunden;
+  /*
+   * Die Fahrt rechnet mit einem gedeckelten Zeitschritt.
+   *
+   * Ein einzelnes langes Bild - ein Aussetzer der Speicherbereinigung, eine
+   * andere App, was auch immer - darf die Fahrt nicht nach vorn reissen. Genau
+   * das war beim Wabern auf dem iPad der sichtbare Teil: Nicht der Aussetzer
+   * selbst faellt auf (ein fehlendes Bild sieht niemand), sondern dass das
+   * naechste Bild den doppelten Zoomschritt macht.
+   *
+   * Gedeckelt wird auf das Doppelte der gemessenen Bildschirmperiode. Auf
+   * einem Geraet, das ehrlich mit dreissig Bildern laeuft, ist das wirkungslos
+   * - dort sind dreiunddreissig Millisekunden der Normalfall und kein
+   * Aussetzer. Auf einem, das mit hundertzwanzig laeuft, greift es frueher.
+   * Der Deckel richtet sich also nach dem Geraet und nicht nach einer Zahl,
+   * die ich hier hinschreibe.
+   *
+   * Was dabei verlorengeht, ist ein Stueckchen Fahrt - nicht mehr als die
+   * Dauer des Aussetzers. Die Fahrt kommt einen Wimpernschlag spaeter an, und
+   * das sieht niemand. Den Sprung sieht man.
+   */
+  const schrittDeckel = Math.max(0.02, (mandelTaktMs * 2) / 1000);
+  const fahrtSekunden = Math.min(sekunden, schrittDeckel);
+  mandelTiefe += tempo * fahrtSekunden;
 
   // Die Drehung: eine ruhige Grundbewegung, die mit der Spannung anzieht, plus
   // der Ruck vom Drop, der wieder ausklingt.
   mandelDrehTempo *= Math.pow(0.25, sekunden);
-  mandelDrehung += (0.035 + spannung * 0.22 + mandelDrehTempo) * (1 - abbau * 0.6) * sekunden;
+  // Auch die Drehung mit dem gedeckelten Schritt: Sie und der Zoom bilden
+  // zusammen die Spirale. Rueckte nur eines von beiden nach einem Aussetzer
+  // weiter, geriete die Spirale aus dem Tritt - das faellt mehr auf als der
+  // Aussetzer.
+  mandelDrehung +=
+    (0.035 + spannung * 0.22 + mandelDrehTempo) * (1 - abbau * 0.6) * fahrtSekunden;
 
   /*
    * Die Farbwanderung haengt am Raster, nicht an der Uhr.
@@ -9058,21 +9131,53 @@ function mandelUeberlagern(stift, breite, hoehe, sekunden, quelle, qb, qh) {
       mandelSchnappschuss.height = 300;
       mandelSchnappStift = mandelSchnappschuss.getContext('2d');
     }
+    /*
+     * Hier stand ein Rueckgriff auf das fertige Bild - jedes Bild eine Kopie
+     * der Grafikleinwand in eine 2D-Leinwand, jedes sechste zusaetzlich ein
+     * getImageData ueber 64800 Punkte. Beides ist weg, und beides war ein
+     * Fehler.
+     *
+     * Gefunden hat es eine Bildschirmaufnahme vom iPad: Das Bild wurde "in
+     * regelmaessigen Abstaenden auseinandergetrieben", und zwar nicht zum
+     * Beat. Nachgemessen an der Aufnahme lagen die Spitzen bei 0,100 s,
+     * 0,200 s, 0,300 s - exakt zehn Hertz. Bei sechzig Bildern je Sekunde ist
+     * das jedes sechste Bild, und im ganzen Zeichner gab es genau einen
+     * Vorgang mit dieser Periode: diesen hier.
+     *
+     * Warum er weh tut: Ein Apple-Grafikchip rechnet kachelweise und
+     * verzoegert. Wer das fertige Bild zurueckliest, zwingt ihn, die ganze
+     * Kachelpipeline vorher leerzulaufen. Das kostet - und wenn das Bild
+     * ohnehin knapp im Takt liegt, reisst es genau dieses eine Bild ueber die
+     * Zeit. Das naechste bekommt dann einen doppelt so grossen Zeitschritt,
+     * und weil die Fahrt mit "Tiefe plus Tempo mal Zeitschritt" rechnet,
+     * springt der Zoom. Zehnmal je Sekunde ein Sprung - das ist das Wabern.
+     *
+     * Und der eigentliche Skandal: Auf dem Weg ueber die Grafikkarte wurde das
+     * Ergebnis nie benutzt. Der Wachdienst urteilt dort seit der Umstellung
+     * nach mandelInnen und mandelSpreizung, beide aus der Stichprobe auf dem
+     * Hauptprozessor, die die Bezugsbahn nachrechnet statt Bildpunkte zu
+     * lesen. mandelStreuung wird nur noch von der Notfassung gebraucht.
+     * Gerechnet und weggeworfen, zehnmal je Sekunde.
+     *
+     * Der Schnappschuss selbst bleibt - die Ueberblendung beim Stellenwechsel
+     * braucht ihn -, aber er wird nur noch geholt, wenn er gebraucht wird.
+     */
+    /*
+     * Die Kopie bleibt, der Rueckgriff geht.
+     *
+     * Der Schnappschuss muss in jedem Bild frisch sein: Beim Stellenwechsel
+     * wird das *vorige* Bild ueberblendet, und wer ihn nur gelegentlich holt,
+     * blendet ein Bild von vor einer Zehntelsekunde ein oder - noch schlimmer,
+     * wenn er ihn erst beim Wechsel holt - das neue gegen sich selbst.
+     *
+     * Dass die Kopie bezahlbar ist, sagt dieselbe Messung, die den Rueckgriff
+     * ueberfuehrt hat: Waere sie der teure Teil, waere *jedes* Bild gleich
+     * langsam und es gaebe gar kein Zehn-Hertz-Muster. Es gibt eines, also
+     * liegt es an dem, was nur jedes sechste Bild passiert.
+     */
     mandelSchnappStift.drawImage(quelle, 0, 0, qb, qh, 0, 0, 480, 300);
-    if (++mandelWacheZaehler % 6 === 0) {
-      const feld = mandelSchnappStift.getImageData(60, 60, 360, 180).data;
-      let summe = 0;
-      let summeQuadrat = 0;
-      let proben = 0;
-      for (let i = 0; i < feld.length; i += 32) {
-        const w = (feld[i] + feld[i + 1] + feld[i + 2]) / 3;
-        summe += w;
-        summeQuadrat += w * w;
-        proben++;
-      }
-      const mittel = summe / proben;
-      mandelStreuung = Math.sqrt(Math.max(0, summeQuadrat / proben - mittel * mittel));
-    }
+    mandelSchnappschussNehmen = false;
+    if (mandelStreuungMessen && ++mandelWacheZaehler % 6 === 0) mandelStreuungRechnen();
   }
   mandelSchleier(stift, breite, hoehe);
   stift.restore();
@@ -9127,23 +9232,19 @@ function mandelAufsBild(stift, quelle, qb, qh, breite, hoehe, wucht, sekunden) {
     mandelSchnappStift.drawImage(quelle, 0, 0, qb, qh, 0, 0, 480, 300);
     mandelSchnappschussNehmen = false;
 
-    // Jedes sechste Bild in den Schnappschuss hineinsehen. Er liegt ohnehin
-    // schon da und ist klein - ein Blick darauf kostet fast nichts, und er
-    // zeigt genau das, was auch der Gast sieht.
-    if (++mandelWacheZaehler % 6 === 0) {
-      const feld = mandelSchnappStift.getImageData(60, 60, 360, 180).data;
-      let summe = 0;
-      let summeQuadrat = 0;
-      let proben = 0;
-      for (let i = 0; i < feld.length; i += 32) {
-        const w = (feld[i] + feld[i + 1] + feld[i + 2]) / 3;
-        summe += w;
-        summeQuadrat += w * w;
-        proben++;
-      }
-      const mittel = summe / proben;
-      mandelStreuung = Math.sqrt(Math.max(0, summeQuadrat / proben - mittel * mittel));
-    }
+    /*
+     * Jedes sechste Bild in den Schnappschuss hineinsehen.
+     *
+     * Hier - und nur hier - ist das in Ordnung: Die Notfassung rechnet ohnehin
+     * auf dem Hauptprozessor, die Quelle ist eine gewoehnliche 2D-Leinwand,
+     * und es gibt keine Grafikpipeline, die davon leerlaufen muesste. Und
+     * gebraucht wird der Wert auch: Der Wachdienst urteilt auf diesem Weg nach
+     * mandelStreuung, weil es hier keine Bezugsbahn zum Nachrechnen gibt.
+     *
+     * Auf dem Weg ueber die Grafikkarte war beides anders - dort kostete es
+     * und wurde nie gelesen. Siehe mandelUeberlagern().
+     */
+    if (++mandelWacheZaehler % 6 === 0) mandelStreuungRechnen();
   }
 
   // Oben und unten abdunkeln. Dort stehen Titel, Uhr und Pegel, und ein
