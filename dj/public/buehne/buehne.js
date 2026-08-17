@@ -13,6 +13,7 @@ import { Mixer, UEBERGAENGE } from '../gemeinsam/mixer.js';
 import { demoBibliothek } from '../gemeinsam/demomusik.js';
 import { leitungSuchen } from '../gemeinsam/leitung.js';
 import { Visualisierung } from '../gemeinsam/visual.js';
+import { schattenSetzen } from '../gemeinsam/schattendj.js';
 import { technikSammeln, technikAlsText } from '../gemeinsam/technik.js';
 import {
   reiheSetzen,
@@ -668,6 +669,7 @@ document.addEventListener('keydown', (e) => {
   if (arten[e.key]) ueberblenden(arten[e.key]);
   if (e.key === 't' || e.key === 'T') technikUmschalten();
   if (e.key === 'm' || e.key === 'M') mandalaUmschalten();
+  if (e.key === 'd' || e.key === 'D') schattenUmschalten(!$('schattenWahl').checked);
   if (e.key === 'Escape' && !$('technik').hidden) technikUmschalten();
   if (e.key === 'Escape' && !$('mandalas').hidden) mandalaUmschalten();
   geheimPruefen(e.key);
@@ -968,6 +970,27 @@ $('pcModus').addEventListener('click', () => {
         : 'Schachbrett aus: jeder Punkt wird gerechnet.',
     );
   });
+}
+
+/*
+ * Der Schatten-DJ.
+ *
+ * An als Vorgabe - er ist eine Ansicht und keine Einstellung, und wer ihn
+ * nicht will, sieht den Haken sofort. Taste D schaltet ihn um, damit man auf
+ * der Leinwand vergleichen kann, ohne das Menue zu oeffnen.
+ */
+function schattenUmschalten(an) {
+  $('schattenWahl').checked = an;
+  schattenSetzen(an);
+  localStorage.setItem('djSchatten', an ? 'ja' : 'nein');
+  zuruf(an ? 'Schatten-DJ an.' : 'Schatten-DJ aus.');
+}
+{
+  // Vorgabe ist an; nur ein ausdrueckliches "nein" schaltet ihn ab.
+  const gemerkt = localStorage.getItem('djSchatten') !== 'nein';
+  $('schattenWahl').checked = gemerkt;
+  schattenSetzen(gemerkt);
+  $('schattenWahl').addEventListener('change', (e) => schattenUmschalten(e.target.checked));
 }
 
 /*

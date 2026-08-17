@@ -29,6 +29,7 @@ import {
   TAU,
 } from './visualmodi.js';
 import { beatBei } from './takt.js';
+import { schattenZeichnen } from './schattendj.js';
 
 // Die Reihenfolge, in der die Modi durchgewechselt werden. Nicht zufaellig
 // gezogen, sondern reihum: So sieht man zwei gleiche nie hintereinander, und
@@ -436,6 +437,31 @@ export class Visualisierung {
       palette: this.paletteFuer(aktiv?.track),
       paletteB: zweit ? this.paletteFuer(zweit.track) : null,
       anteilB: uebergang ? uebergang.fortschritt : 0,
+    });
+
+    /*
+     * Der Schatten-DJ - vor dem Bild, hinter der Schrift.
+     *
+     * Die Stelle ist gewaehlt und nicht zufaellig. Vor dem Modus stuende er
+     * hinter dem Fraktal und waere unsichtbar; nach dem Schleier laege er
+     * ueber der Schrift. Hier steht er da, wo ein echter DJ auch steht:
+     * zwischen der Projektion und dem Publikum.
+     *
+     * Er bekommt dieselben Zahlen wie der Modus. Damit bewegt er sich zu
+     * *dieser* Musik und nicht zu einem Zufallsgenerator - und im Breakdown
+     * hoert er wirklich den naechsten Track vor, waehrend die Buehne ihn
+     * wirklich laedt.
+     */
+    schattenZeichnen(stift, breite, hoehe, {
+      sekunden,
+      takt,
+      spannung,
+      abbau,
+      wucht,
+      drop: dropJetzt,
+      anteilB: uebergang ? uebergang.fortschritt : 0,
+      palette: this.paletteFuer(aktiv?.track),
+      guetestufe: this.guetestufe,
     });
 
     // Ringe, Funken, Spannungsbogen und das Aufblitzen nach dem Drop gehoeren
