@@ -4162,43 +4162,72 @@ function gpuBereit() {
     gl.uniform1i(orte.farben, 1);
 
     /*
-     * Und das Schachbrett - wenn die Karte es hergibt.
-     *
-     * Gebraucht wird ein Gleitkomma-Ziel: Die Ausstiegszeit geht in die
-     * Tausende und die Bahnfalle in die Millionstel, beides passt in kein
-     * Byte. Fehlt EXT_color_buffer_float, bleibt es beim bisherigen Weg -
-     * das ist kein Fehler, nur langsamer.
+     * Ob das Schachbrett moeglich waere, wird hier nur *gefragt* - gebaut
+     * wird es erst, wenn es jemand einschaltet. Siehe brettBereit().
      */
-    if (gl.getExtension('EXT_color_buffer_float')) {
-      programmHalb = programmBauen(HALBBILD);
-      orteHalb = orteHolen(programmHalb);
-      gl.useProgram(programmHalb);
-      gl.uniform1i(orteHalb.bahn, 0);
-
-      programmLoesen = programmBauen(AUFLOESEN);
-      orteLoesen = orteHolen(programmLoesen);
-      gl.useProgram(programmLoesen);
-      gl.uniform1i(orteLoesen.bahn, 0);
-      gl.uniform1i(orteLoesen.farben, 1);
-      gl.uniform1i(orteLoesen.halbbild, 2);
-
-      brettRahmen = gl.createFramebuffer();
-      brettTextur = gl.createTexture();
-      gl.activeTexture(gl.TEXTURE2);
-      gl.bindTexture(gl.TEXTURE_2D, brettTextur);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-      brettMoeglich = true;
-      gl.useProgram(programm);
-    }
+    brettMoeglich = !!gl.getExtension('EXT_color_buffer_float');
     return true;
   } catch (fehler) {
     if (typeof console !== 'undefined') {
       console.warn('Mandelbrot auf der Grafikkarte nicht moeglich:', fehler.message);
     }
     gl = null;
+    return false;
+  }
+}
+
+/*
+ * Die beiden Schachbrett-Programme - erst beim ersten Einschalten gebaut.
+ *
+ * Das war ein Fehler mit Ansage, und er ist auf einem iPhone aufgeschlagen:
+ * Zuerst wurden alle drei Programme beim Start uebersetzt. Jedes davon
+ * enthaelt die volle Iterationsschleife, und ein Uebersetzer baut daraus
+ * jeweils ein eigenes Maschinenprogramm - dreimal derselbe schwere Klotz,
+ * zwei davon fuer eine Einstellung, die ausgeschaltet ist. Auf dem Telefon
+ * hat die Seite das mit "wiederholt ein Problem aufgetreten" quittiert, also
+ * mit dem Speicher.
+ *
+ * Jetzt kostet ein ausgeschaltetes Schachbrett genau nichts: einen
+ * getExtension-Aufruf beim Start und eine Abfrage je Bild. Gebaut wird beim
+ * ersten Einschalten, und wenn dabei etwas schiefgeht, bleibt es aus - der
+ * bisherige Weg laeuft weiter, statt dass die Seite stirbt.
+ */
+function brettBereit() {
+  if (!brettMoeglich) return false;
+  if (programmLoesen) return true;
+  try {
+    programmHalb = programmBauen(HALBBILD);
+    orteHalb = orteHolen(programmHalb);
+    gl.useProgram(programmHalb);
+    gl.uniform1i(orteHalb.bahn, 0);
+
+    const geloest = programmBauen(AUFLOESEN);
+    orteLoesen = orteHolen(geloest);
+    gl.useProgram(geloest);
+    gl.uniform1i(orteLoesen.bahn, 0);
+    gl.uniform1i(orteLoesen.farben, 1);
+    gl.uniform1i(orteLoesen.halbbild, 2);
+
+    brettRahmen = gl.createFramebuffer();
+    brettTextur = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, brettTextur);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    // Zuletzt, damit ein Abbruch mittendrin nicht als "fertig" gilt.
+    programmLoesen = geloest;
+    gl.useProgram(programm);
+    return true;
+  } catch (fehler) {
+    if (typeof console !== 'undefined') {
+      console.warn('Schachbrett nicht moeglich:', fehler.message);
+    }
+    brettMoeglich = false;
+    programmHalb = null;
+    programmLoesen = null;
+    gl.useProgram(programm);
     return false;
   }
 }
@@ -4867,7 +4896,7 @@ function gpuZeichnen(lage) {
    * gehoert die Zahl, die im Puffer steht, sichtbar zu dem Bild, das gerade
    * entsteht, und nicht zum vorigen.
    */
-  const brettAn = brettMoeglich && lage.schachbrett === true;
+  const brettAn = lage.schachbrett === true && brettBereit();
   if (!brettAn) {
     uhrStarten();
     gl.drawArrays(gl.TRIANGLES, 0, 3);
