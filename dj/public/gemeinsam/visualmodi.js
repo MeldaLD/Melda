@@ -1055,6 +1055,18 @@ export function gpuZwingen(an) {
     mandelGpuZaeh = 0;
   }
 }
+
+/**
+ * Das Schachbrett ein- oder ausschalten - halb so viele gerechnete Punkte je
+ * Bild, ergaenzt aus den vier Nachbarn. Die Farbe entsteht weiter in jedem
+ * Bild neu, Palette und Drop-Welle bleiben also unberuehrt.
+ */
+export function schachbrettSetzen(an) {
+  mandelSchachbrett = !!an;
+}
+export function schachbrett() {
+  return mandelSchachbrett;
+}
 /*
  * Der Wachdienst gegen das tote Bild.
  *
@@ -1214,6 +1226,14 @@ const MANDEL_SPREIZUNG_MIN = 0.02;
 // Unter dieser Streuung der Helligkeit ist das Bild eine Flaeche.
 const MANDEL_STREUUNG_MIN = 4;
 let mandelPunkte = 0;
+/*
+ * Das Schachbrett - halb so viele Punkte je Bild.
+ *
+ * Aus bleibt die Vorgabe, bis auf dem Zielgeraet gemessen ist, dass es dort
+ * mehr bringt als es kostet. Der Schalter steht in der Buehne unter "Technik"
+ * und im Messstand; die Abnahme setzt ihn ueber schachbrettZwingen().
+ */
+let mandelSchachbrett = false;
 // Anfangstiefe des ersten Ziels - siehe start in MANDEL_ZIELE.
 let mandelTiefe = 1.1;
 let mandelSchwung = 0;
@@ -2377,6 +2397,7 @@ function mandelbrotZeichnen(stift, lage) {
       sterne: mandelSterne,
       faltArt: mandalaJetzt.art,
       faltWert: mandalaJetzt.wert ?? 0.5,
+      schachbrett: mandelSchachbrett,
       /*
        * Innenerkennung - nur wo sie erlaubt *und* noetig ist.
        *
@@ -2402,7 +2423,18 @@ function mandelbrotZeichnen(stift, lage) {
       guete: Math.min(mandelGuete, stufe.fraktal),
       reihe: mandelReihe,
     });
-    mandelPunkte = bild.breite * bild.hoehe;
+    /*
+     * Wieviele Punkte wirklich gerechnet wurden.
+     *
+     * Frueher war das immer Breite mal Hoehe. Mit dem Schachbrett ist es die
+     * Haelfte, und der Unterschied gehoert in die Zahl: Aus mandelPunkte
+     * ergibt sich der Durchsatz, aus dem Durchsatz das Budget, und aus dem
+     * Budget die Aufloesung. Stuende hier weiter die volle Zahl, waere die
+     * Ersparnis sofort wieder verrechnet - der Regler haette geglaubt, die
+     * Karte sei doppelt so schnell geworden, und die Aufloesung
+     * hochgedreht, bis es wieder ruckelt.
+     */
+    mandelPunkte = bild.punkte ?? bild.breite * bild.hoehe;
     mandelLetztesBild = bild;
 
     // Was dieses Mandala auf *diesem* Geraet gekostet hat. Nur echte
@@ -2424,6 +2456,12 @@ function mandelbrotZeichnen(stift, lage) {
         ueberblendung: mandelUeberblendung,
         schritte: schritteGpu,
         breite: bild.breite,
+        hoehe: bild.hoehe,
+        // Was das Schachbrett angeht: ob es lief und wieviele Punkte wirklich
+        // gerechnet wurden. Beides braucht die Abnahme, um "halbiert" nicht
+        // glauben zu muessen.
+        brett: bild.brett === true,
+        punkte: mandelPunkte,
         guete: Math.min(mandelGuete, stufe.fraktal),
         durchsatz: mandelDurchsatz,
         bremse: mandelBremse,

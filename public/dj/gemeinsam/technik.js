@@ -193,7 +193,10 @@ function fraktalFragen(mandel, bild) {
     // einem Nachbau in Software unterscheidet.
     durchsatz: mandel.durchsatz ?? null,
     abstandMs: rund(mandel.abstandMs, 1),
+    // Zwei Perioden: das Ziel des Reglers und was der Bildschirm liefert.
+    // Auf einem 145-Hz-Monitor mit Ziel 60 sind das 16,7 und 6,9 ms.
     taktMs: rund(mandel.taktMs, 1),
+    schirmTaktMs: rund(mandel.schirmTaktMs, 1),
     guetestufe: bild?.guetestufe ?? null,
     ueberzugMs: rund(bild?.bildMs, 2),
     reihe: mandel.reihe ?? null,
@@ -209,8 +212,12 @@ function fraktalFragen(mandel, bild) {
  * beantwortet die Frage "wird meine Hardware genutzt" naemlich nicht - man
  * muss wissen, welche Zahl wofuer steht. Also steht das Urteil oben, und die
  * Zahlen darunter belegen es.
+ *
+ * Ausgefuehrt, damit die Abnahme das nachrechnen kann, ohne eine Grafikkarte
+ * zu brauchen: Die Saetze hier sind das, was der Mensch am Ende liest, und
+ * genau darin steckte zuletzt eine Falschaussage ueber die Bildrate.
  */
-function urteil(a) {
+export function urteil(a) {
   const zeilen = [];
   const name = a.gpu.karte || a.gpu.karteRoh || '';
   const durchsatz = a.fraktal.durchsatz ?? 0;
@@ -250,7 +257,8 @@ function urteil(a) {
   } else if (durchsatz >= ECHTE_KARTE_AB) {
     zeilen.push([
       'gut',
-      `Die Grafikeinheit rechnet${name ? ` (${name})` : ''} - ${(durchsatz / 1e6).toFixed(1)} Millionen Punkt-Schritte je Millisekunde.`,
+      `Die Grafikeinheit rechnet${name ? ` (${name})` : ''} - ${(durchsatz / 1e6).toFixed(1)} Millionen Punkt-Schritte je Millisekunde, ` +
+        'gegen den Schrittdeckel gerechnet. Nicht mit dem Messstand vergleichen, der zaehlt anders.',
     ]);
     /*
      * Und die Frage, die man sich nur einmal im Leben nicht stellt: Ist das
@@ -321,13 +329,50 @@ function urteil(a) {
     ]);
   }
 
-  // 3. Trifft das Bild den Takt des Bildschirms?
+  /*
+   * 3. Trifft das Bild den Takt, auf den gezielt wird?
+   *
+   * Hier stand "bei einem Bildschirm, der 60 hergibt" - gerechnet aber aus
+   * taktMs, und das ist das *Ziel* des Reglers, nicht der Bildschirm. Auf dem
+   * Partyrechner (145 Hz, Ziel 60) behauptete die Anzeige damit einen
+   * 60-Hz-Monitor. Verglichen wird weiter mit dem Ziel - danach richtet sich
+   * der Regler -, aber der Bildschirm wird jetzt daneben genannt und nicht
+   * mehr mit ihm verwechselt.
+   */
   if (a.fraktal.abstandMs && a.fraktal.taktMs) {
     const bilder = 1000 / a.fraktal.abstandMs;
-    const moeglich = 1000 / a.fraktal.taktMs;
+    const ziel = 1000 / a.fraktal.taktMs;
+    const schirm = a.fraktal.schirmTaktMs ? 1000 / a.fraktal.schirmTaktMs : null;
+    // Der Bildschirm wird nur erwaehnt, wo er dem Ziel wirklich voraus ist -
+    // sonst ist es dieselbe Zahl zweimal.
+    const dazu =
+      schirm && schirm > ziel * 1.15
+        ? ` Der Bildschirm gaebe ${schirm.toFixed(0)} her; auf ${ziel.toFixed(0)} zu zielen ist die Wahl unter "Bilder/s" und kauft Schaerfe.`
+        : '';
+    /*
+     * Drei Stufen, nicht zwei - und die Schwelle war zu grosszuegig.
+     *
+     * Bisher galt alles bis 1,25 Perioden als "gut". Auf dem Rechner, der
+     * das aufgedeckt hat, hiess das: 48 Bilder je Sekunde bei einem Ziel von
+     * 60, also jedes fuenfte Bild weg, gemeldet als "gut". Es ging gerade so
+     * durch - 20,8 zu 16,7 sind 1,246 - und war damit die unbrauchbarste
+     * Sorte Auskunft: formal richtig, praktisch beruhigend, wo Handlungsbedarf
+     * ist.
+     *
+     * Woran die neue Grenze haengt: Der Regler selbst pendelt sich bei vier
+     * verpassten Bildern von hundert ein (siehe bremseNachfuehren). Eine
+     * Anzeige, die erst bei fuenfundzwanzig Prozent Ausfall Alarm gibt, misst
+     * also mit einem sechsmal groberen Mass als die Maschine, ueber die sie
+     * berichtet. Bis 1,1 Perioden ist das, worauf der Regler zielt; darueber
+     * stimmt etwas nicht, auch wenn es noch fluessig aussieht.
+     */
+    const verhaeltnis = a.fraktal.abstandMs / a.fraktal.taktMs;
     zeilen.push([
-      a.fraktal.abstandMs <= a.fraktal.taktMs * 1.25 ? 'gut' : 'schlecht',
-      `${bilder.toFixed(0)} Bilder je Sekunde bei einem Bildschirm, der ${moeglich.toFixed(0)} hergibt.`,
+      verhaeltnis <= 1.1 ? 'gut' : verhaeltnis <= 1.35 ? 'offen' : 'schlecht',
+      `${bilder.toFixed(0)} Bilder je Sekunde bei einem Ziel von ${ziel.toFixed(0)}.${dazu}` +
+        (verhaeltnis > 1.1
+          ? ` Das ist ${(100 - 100 / verhaeltnis).toFixed(0)} Prozent unter dem Ziel - der Regler zielt auf hoechstens vier.`
+          : ''),
     ]);
   }
 
@@ -423,14 +468,28 @@ export function technikAlsText(a) {
     );
     raus('Zoomtiefe', a.fraktal.tiefe);
     raus('Stelle', a.fraktal.ziel);
+    /*
+     * Zwei Zahlen, ein Name - deshalb steht hier "(Deckel)" dabei.
+     *
+     * Die Buehne rechnet Punkte mal Schrittdeckel durch Zeit. Das ist die
+     * Zahl, mit der der Regler arbeitet, und in sich stimmig: Er teilt
+     * sein Budget durch denselben Deckel wieder heraus.
+     *
+     * Der Messstand rechnet Punkte mal *wirklich gelaufene* Schritte. Die
+     * beiden liegen weit auseinander - auf dem Partyrechner 9203 gegen 132,
+     * ein Faktor 70 -, weil bei flachem Zoom fast jeder Punkt lange vor dem
+     * Deckel entkommt. Keine der beiden Zahlen ist falsch; nur zusammen in
+     * einen Satz gehoeren sie nicht.
+     */
     raus(
-      'Durchsatz',
+      'Durchsatz (Deckel)',
       a.fraktal.durchsatz
         ? `${(a.fraktal.durchsatz / 1e6).toFixed(2)} Mio Punkt-Schritte/ms`
         : null,
     );
     raus('Bildabstand', `${a.fraktal.abstandMs} ms`);
-    raus('Bildschirmtakt', `${a.fraktal.taktMs} ms`);
+    raus('Zieltakt', `${a.fraktal.taktMs} ms`);
+    raus('Bildschirmtakt', a.fraktal.schirmTaktMs ? `${a.fraktal.schirmTaktMs} ms` : null);
     raus('Ueberzug zeichnen', `${a.fraktal.ueberzugMs} ms`);
   } else {
     raus('Fraktal', 'laeuft nicht');

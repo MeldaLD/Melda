@@ -153,6 +153,18 @@
         -->
         <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
         <!--
+          Das Schachbrett: halb so viele gerechnete Bildpunkte je Bild, die
+          andere Hälfte aus den vier Nachbarn ergänzt. Gespeichert wird dabei
+          die Ausstiegszeit und nicht die Farbe - Palette, Farbversatz und
+          Drop-Welle entstehen in jedem Bild neu und bleiben deshalb auf dem
+          Schlag. Aus als Vorgabe, bis auf dem Zielgerät gemessen ist, dass es
+          dort mehr bringt als es kostet.
+        -->
+        <label class="knopfzeile" title="Halb so viele gerechnete Punkte je Bild – die Farbe bleibt trotzdem in jedem Bild neu">
+          <input type="checkbox" id="schachbrettWahl" />
+          Schachbrett
+        </label>
+        <!--
           Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet die
           Bühne selbst heraus; was er nicht wissen kann, steht hier: wie viele
           Bilder Windows noch einschiebt, und wie weit die Boxen von der

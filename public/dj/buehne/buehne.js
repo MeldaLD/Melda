@@ -21,6 +21,7 @@ import {
   mandalasAktive,
   mandalaBericht,
   bildzielSetzen,
+  schachbrettSetzen,
 } from '../gemeinsam/visualmodi.js';
 
 const $ = (id) => document.getElementById(id);
@@ -554,6 +555,29 @@ function mandalasMerken() {
   localStorage.setItem('djMandalas', JSON.stringify(mandalasAktive()));
 }
 
+/*
+ * Was der Messstand als teuer vermerkt hat.
+ *
+ * Ein Vermerk, kein Verbot. Der Messstand nimmt diese Mandalas aus der
+ * Vorauswahl, aber sie stehen hier weiter in der Liste und lassen sich mit
+ * einem Klick einschalten - wer eines davon schoen findet und selbst
+ * nachsieht, dass es traegt, soll das duerfen.
+ *
+ * Das Feld ist normalerweise leer, und das ist der erwartete Zustand: Auf
+ * einer Radeon RX 9070 XT lagen alle einundfuenfzig Mandalas zwischen 0,98x
+ * und 1,06x, bei einer Messstreuung von ±16 bis ±26 Prozent je Mandala. Es
+ * gab schlicht keinen Ausreisser. Die Anzeige hier ist fuer den Tag, an dem
+ * es einen gibt.
+ */
+function teuerLaut() {
+  try {
+    const roh = localStorage.getItem('djMandalasTeuer');
+    return roh ? new Map(Object.entries(JSON.parse(roh))) : new Map();
+  } catch {
+    return new Map();
+  }
+}
+
 let mandalaTakt = null;
 
 function mandalaZeichnen() {
@@ -564,6 +588,7 @@ function mandalaZeichnen() {
   // einem Telefon etwas anderes als auf einem Spielerechner.
   const gemessen = bericht.filter((m) => m.ms !== null).map((m) => m.ms);
   const mittel = gemessen.length ? gemessen.reduce((a, b) => a + b, 0) / gemessen.length : 0;
+  const teuer = teuerLaut();
 
   // Beim ersten Aufbau die Zeilen anlegen, danach nur noch die Werte
   // nachziehen - sonst verliert ein Kaestchen unter dem Finger den Fokus.
@@ -585,9 +610,14 @@ function mandalaZeichnen() {
       });
       const name = document.createElement('span');
       name.textContent = m.name;
+      // Der Vermerk des Messstands. Steht neben dem Namen und nicht bei den
+      // Kosten: Die Kosten sind das, was gerade laeuft, der Vermerk das, was
+      // einmal gemessen wurde.
+      const vermerk = document.createElement('span');
+      vermerk.className = 'vermerk';
       const kosten = document.createElement('span');
       kosten.className = 'kosten';
-      zeile.append(kasten, name, kosten);
+      zeile.append(kasten, name, vermerk, kosten);
       liste.append(zeile);
     }
   }
@@ -597,6 +627,13 @@ function mandalaZeichnen() {
     if (!m) continue;
     zeile.querySelector('input').checked = m.an;
     zeile.classList.toggle('laeuft', m.laeuft);
+    const vermerk = zeile.querySelector('.vermerk');
+    const f = teuer.get(m.id);
+    vermerk.textContent = f ? `teuer ${f.toFixed(2)}×` : '';
+    vermerk.title = f
+      ? `Der Messstand hat dieses Mandala mit dem ${f.toFixed(2)}-fachen der ` +
+        'Rechenzeit gemessen und aus der Vorauswahl genommen. Einschalten geht trotzdem.'
+      : '';
     const kosten = zeile.querySelector('.kosten');
     kosten.textContent = m.ms === null ? '–' : `${m.ms.toFixed(2)} ms`;
     kosten.classList.toggle('schwer', m.ms !== null && mittel > 0 && m.ms > mittel * 1.5);
@@ -702,6 +739,35 @@ $('pcModus').addEventListener('click', () => {
   zuruf(`PC-Modus: Güte hoch, 60 Bilder/s, alle ${MANDALAS.length} Mandalas. ` +
     'Ob es trägt, sagt der Messstand.');
 });
+
+/*
+ * Das Schachbrett.
+ *
+ * Halb so viele gerechnete Bildpunkte je Bild; die andere Haelfte wird aus
+ * den vier Nachbarn ergaenzt. Was dabei zwischengespeichert wird, ist die
+ * Ausstiegszeit und nicht die Farbe - die entsteht in jedem Bild neu, damit
+ * Palette, Farbversatz und Drop-Welle auf dem Schlag bleiben. Genau daran
+ * haengt, ob der Handel gut ist: Halbe Geometrie faellt kaum auf, halbe Farbe
+ * waere das Ende der Kopplung zwischen Musik und Bild.
+ *
+ * Die Wahl haelt ueber einen Neustart, weil sie zum Geraet gehoert und nicht
+ * zum Abend.
+ */
+{
+  const gemerkt = localStorage.getItem('djSchachbrett') === 'ja';
+  $('schachbrettWahl').checked = gemerkt;
+  schachbrettSetzen(gemerkt);
+  $('schachbrettWahl').addEventListener('change', (e) => {
+    const an = e.target.checked;
+    schachbrettSetzen(an);
+    localStorage.setItem('djSchachbrett', an ? 'ja' : 'nein');
+    zuruf(
+      an
+        ? 'Schachbrett an: halb so viele gerechnete Punkte. Die Farbe bleibt in jedem Bild neu.'
+        : 'Schachbrett aus: jeder Punkt wird gerechnet.',
+    );
+  });
+}
 
 /*
  * Bild gegen Ton nachstellen.

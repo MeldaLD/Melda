@@ -71,7 +71,7 @@ in vec2 platz;
 void main() { gl_Position = vec4(platz, 0.0, 1.0); }
 `;
 
-const PUNKTE = `#version 300 es
+const GRUNDLAGE = `#version 300 es
 precision highp float;
 precision highp int;
 
@@ -139,8 +139,6 @@ uniform vec2  reiheC;
 uniform vec2  reiheD;
 uniform float reiheFalle;
 uniform float reiheNah;
-
-out vec4 ergebnis;
 
 vec2 kmal(vec2 a, vec2 b) {
   return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
@@ -349,8 +347,25 @@ vec2 falten(vec2 p, float n) {
   return faltSpiegel(p, n);
 }
 
-void main() {
-  vec2 bild = (gl_FragCoord.xy / feld) * 2.0 - 1.0;
+/*
+ * Der Rechenteil, ausgeloest aus main().
+ *
+ * Zurueck kommt nicht die Farbe, sondern das, was das Fraktal ueber diesen
+ * Punkt weiss: die geglaettete Ausstiegszeit, die Bahnfalle, die groesste
+ * Annaeherung an den Ursprung und ob der Punkt ueberhaupt entkommen ist.
+ *
+ * Die Trennung ist der ganze Zweck: Die Rechnung ist teuer und aendert sich
+ * langsam, die Farbe ist billig und aendert sich mit jedem Schlag. Wer beides
+ * in einem Zug macht, muss die teure Haelfte so oft wiederholen wie die
+ * billige. Getrennt laesst sich die teure seltener machen, ohne dass die
+ * Musik im Bild etwas davon merkt - siehe das Schachbrett weiter unten.
+ *
+ * punktXY ist die Stelle im gerechneten Bild, in Bildpunkten. Frueher stand
+ * dort gl_FragCoord.xy; als Parameter kann der Schachbrettdurchgang eine
+ * andere Stelle einsetzen als die, an der er gerade zeichnet.
+ */
+vec4 rechnen(vec2 punktXY) {
+  vec2 bild = (punktXY / feld) * 2.0 - 1.0;
   bild.y *= seite;
   // Drehung: Zoom und Drehung zusammen ergeben die Spirale, die das Auge
   // festhaelt. Ohne sie faellt der Blick nach ein paar Sekunden ab.
@@ -491,9 +506,30 @@ void main() {
     else Z = Zn;
   }
 
+  /*
+   * Statt einer Farbe kommt hier der Befund heraus. Die geglaettete
+   * Ausstiegszeit steckt in x, die Bahnfalle in y, die groesste Annaeherung
+   * in z, und w sagt, ob der Punkt entkommen ist.
+   */
+  float muRaus = raus > 0.0 ? float(n) + 1.0 - log2(log2(sqrt(raus))) : 0.0;
+  return vec4(muRaus, kreuz, naechster, raus > 0.0 ? 1.0 : 0.0);
+}
+
+/*
+ * Aus dem Befund eine Farbe machen.
+ *
+ * Billig - ein paar Rechenschritte und ein Nachschlagen in der Farbtabelle.
+ * Genau deshalb steht das hier getrennt: Dieser Teil laeuft in *jedem* Bild
+ * und fuer *jeden* Punkt, auch wenn die Rechnung darueber uebersprungen
+ * wurde. Palette, Farbversatz und Drop-Welle bleiben damit vollstaendig
+ * lebendig, egal wie selten das Fraktal selbst neu gerechnet wird.
+ */
+vec3 faerben(vec4 w) {
+  float kreuz = w.y;
+  float naechster = w.z;
   vec3 farbe;
-  if (raus > 0.0) {
-    float mu = float(n) + 1.0 - log2(log2(sqrt(raus)));
+  if (w.w > 0.5) {
+    float mu = w.x;
     // Die Wurzelkennlinie: Ohne sie liegen die Baender in der Tiefe so dicht,
     // dass das Bild flimmert, und im Flachen so weit, dass es einfarbig wird.
     float p = pow(max(mu, 1.0), 0.45) * dichte;
@@ -526,7 +562,116 @@ void main() {
     float t = clamp(sqrt(naechster) * 1.9, 0.0, 1.0);
     farbe = texture(farben, vec2(t, 0.5)).rgb * innenHell + vec3(0.02, 0.02, 0.03);
   }
-  ergebnis = vec4(farbe, 1.0);
+  return farbe;
+}
+`;
+
+/*
+ * Der bisherige Weg: rechnen und faerben in einem Zug, ein Bildpunkt je
+ * Bildpunkt. Bleibt die Vorgabe und der Massstab, an dem sich alles andere
+ * messen lassen muss.
+ */
+const PUNKTE = GRUNDLAGE + `
+out vec4 ergebnis;
+void main() {
+  ergebnis = vec4(faerben(rechnen(gl_FragCoord.xy)), 1.0);
+}
+`;
+
+/* --- Das Schachbrett ------------------------------------------------------
+ *
+ * Der Trick, mit dem die PS4 Pro ihre vier K gemacht hat, und er passt hier
+ * besser als dort.
+ *
+ * Gerechnet wird nur die Haelfte der Bildpunkte - die schwarzen Felder eines
+ * Schachbretts. Im naechsten Bild die weissen. Die jeweils fehlende Haelfte
+ * wird aus den vier Nachbarn ergaenzt, und das ist der Punkt: Auf einem
+ * Schachbrett sind *alle vier* Nachbarn eines fehlenden Feldes gerechnet.
+ * Nicht drei, nicht zwei - vier. Deshalb braucht die Ergaenzung kein
+ * Vorbild aus dem letzten Bild, keine Bewegungsvektoren und keine
+ * Ausnahmebehandlung fuer neu aufgedeckte Stellen. Sie kann nicht
+ * nachziehen, weil sie nichts Altes anfasst.
+ *
+ * Warum es hier besonders gut passt: Zwischengespeichert wird nicht die
+ * *Farbe*, sondern die Ausstiegszeit. Die Farbe entsteht daraus in jedem
+ * Bild neu. Palette, Farbversatz, Bahnfalle und die Drop-Welle laufen also
+ * ungebremst weiter und sitzen auf dem Schlag - halbiert wird allein die
+ * Geometrie, und die aendert sich zwischen zwei Bildern ohnehin kaum.
+ *
+ * Und der Grund, warum es ueberhaupt etwas spart: Ein "if" ueber die Parität
+ * im vollen Bild wuerde *nichts* bringen. Auf einer Grafikkarte laufen
+ * benachbarte Punkte in einer Gruppe im Gleichschritt; nehmen die einen den
+ * einen Zweig und die anderen den anderen, kostet die Gruppe die Summe
+ * beider. Deshalb wird in einen halb so breiten Puffer gezeichnet, in dem
+ * jeder Punkt echte Arbeit hat, und die Stelle im vollen Bild erst daraus
+ * ausgerechnet.
+ */
+
+/*
+ * Durchgang 1: nur rechnen, in den halb breiten Puffer.
+ *
+ * Aus der Spalte hx und der Zeile py wird die Stelle im vollen Bild:
+ *   px = 2*hx + ((py + versatzBrett) mod 2)
+ * Damit liegt jede gerechnete Stelle auf einem Feld gleicher Farbe, und der
+ * Wechsel von Bild zu Bild ist ein Wechsel von versatzBrett zwischen 0 und 1.
+ */
+const HALBBILD = GRUNDLAGE + `
+uniform int versatzBrett;
+out vec4 ergebnis;
+void main() {
+  int hx = int(gl_FragCoord.x);
+  int py = int(gl_FragCoord.y);
+  int px = 2 * hx + ((py + versatzBrett) & 1);
+  ergebnis = rechnen(vec2(float(px) + 0.5, float(py) + 0.5));
+}
+`;
+
+/*
+ * Durchgang 2: aus dem halben Puffer das ganze Bild.
+ *
+ * Wer selbst gerechnet wurde, liest seinen eigenen Wert. Wer nicht, mittelt
+ * seine vier Nachbarn - aber nur die, die auf derselben Seite stehen: Ein
+ * Punkt innerhalb der Menge und einer ausserhalb haben keine gemeinsame
+ * Zwischenstufe, und ein Mittel aus beiden waere eine Farbe, die es an
+ * dieser Stelle nicht gibt. Also entscheidet die Mehrheit, und gemittelt
+ * wird nur innerhalb davon.
+ */
+const AUFLOESEN = GRUNDLAGE + `
+uniform sampler2D halbbild;
+uniform int versatzBrett;
+out vec4 ergebnis;
+
+vec4 halbHolen(int px, int py) {
+  int hx = (px - ((py + versatzBrett) & 1)) >> 1;
+  ivec2 gr = textureSize(halbbild, 0);
+  return texelFetch(halbbild, ivec2(clamp(hx, 0, gr.x - 1), clamp(py, 0, gr.y - 1)), 0);
+}
+
+void main() {
+  int px = int(gl_FragCoord.x);
+  int py = int(gl_FragCoord.y);
+  if (((px + py + versatzBrett) & 1) == 0) {
+    // Selbst gerechnet - nichts zu ergaenzen.
+    ergebnis = vec4(faerben(halbHolen(px, py)), 1.0);
+    return;
+  }
+  vec4 a = halbHolen(px - 1, py);
+  vec4 b = halbHolen(px + 1, py);
+  vec4 c = halbHolen(px, py - 1);
+  vec4 d = halbHolen(px, py + 1);
+  float drin = a.w + b.w + c.w + d.w;
+  // Mehrheit: Bei zwei zu zwei zaehlt "entkommen" - eine Flaeche, die
+  // faelschlich Farbe bekommt, faellt weniger auf als ein Loch im Muster.
+  float seite = drin >= 2.0 ? 1.0 : 0.0;
+  vec4 summe = vec4(0.0);
+  float zahl = 0.0;
+  if (a.w == seite) { summe += a; zahl += 1.0; }
+  if (b.w == seite) { summe += b; zahl += 1.0; }
+  if (c.w == seite) { summe += c; zahl += 1.0; }
+  if (d.w == seite) { summe += d; zahl += 1.0; }
+  vec4 w = zahl > 0.0 ? summe / zahl : a;
+  w.w = seite;
+  ergebnis = vec4(faerben(w), 1.0);
 }
 `;
 
@@ -536,6 +681,23 @@ let leinwand = null;
 let gl = null;
 let programm = null;
 let orte = null;
+// Die beiden Schachbrett-Durchgaenge und ihr Puffer. Alle vier bleiben null,
+// wenn die Karte keine Gleitkomma-Ziele kann - dann laeuft der bisherige Weg
+// weiter, und niemand merkt etwas.
+let programmHalb = null;
+let orteHalb = null;
+let programmLoesen = null;
+let orteLoesen = null;
+let brettRahmen = null;
+let brettTextur = null;
+let brettBreite = 0;
+let brettHoehe = 0;
+let brettMoeglich = false;
+let brettVersatz = 0;
+// Der Mittelwert der Farbtabelle - siehe gpuFarben().
+let mittelR = 0.5;
+let mittelG = 0.5;
+let mittelB = 0.5;
 let bahnTextur = null;
 let farbTextur = null;
 let bahnBreite = 0;
@@ -562,6 +724,40 @@ function schattiererBauen(quelle, art) {
   return s;
 }
 
+/*
+ * Ein Programm bauen. Der Platz wird fest auf 0 gebunden, damit alle
+ * Programme denselben Eckenpuffer benutzen koennen, ohne ihn umzustellen.
+ */
+function programmBauen(quelle) {
+  const p = gl.createProgram();
+  gl.attachShader(p, schattiererBauen(ECKEN, gl.VERTEX_SHADER));
+  gl.attachShader(p, schattiererBauen(quelle, gl.FRAGMENT_SHADER));
+  gl.bindAttribLocation(p, 0, 'platz');
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    throw new Error(`Verbinden: ${gl.getProgramInfoLog(p)}`);
+  }
+  return p;
+}
+
+// Alle Uniforms, die es geben kann. Ein Programm, das eines davon nicht
+// benutzt, liefert null - das schadet nicht, gl.uniform* mit null ist ein
+// erlaubtes Nichtstun.
+const UNIFORMS = [
+  'bahn', 'farben', 'feld', 'spanne', 'seite', 'dreh',
+  'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
+  'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
+  'reiheN', 'reiheS', 'reiheA', 'reiheB', 'reiheC', 'reiheD', 'reiheFalle', 'reiheNah',
+  'faltArt', 'faltWert', 'innenPruefen', 'innenEps',
+  'versatzBrett', 'halbbild',
+];
+
+function orteHolen(p) {
+  const o = {};
+  for (const name of UNIFORMS) o[name] = gl.getUniformLocation(p, name);
+  return o;
+}
+
 /**
  * Einmal aufbauen. Gibt false zurueck, wenn die Grafikkarte nicht mitspielt -
  * dann rechnet der Hauptprozessor weiter, und niemand merkt etwas ausser dass
@@ -582,13 +778,7 @@ export function gpuBereit() {
     });
     if (!gl) throw new Error('kein WebGL2');
 
-    programm = gl.createProgram();
-    gl.attachShader(programm, schattiererBauen(ECKEN, gl.VERTEX_SHADER));
-    gl.attachShader(programm, schattiererBauen(PUNKTE, gl.FRAGMENT_SHADER));
-    gl.linkProgram(programm);
-    if (!gl.getProgramParameter(programm, gl.LINK_STATUS)) {
-      throw new Error(`Verbinden: ${gl.getProgramInfoLog(programm)}`);
-    }
+    programm = programmBauen(PUNKTE);
     gl.useProgram(programm);
 
     // Zwei Dreiecke, die das ganze Bild ausfuellen.
@@ -599,20 +789,12 @@ export function gpuBereit() {
       new Float32Array([-1, -1, 3, -1, -1, 3]),
       gl.STATIC_DRAW,
     );
-    const platz = gl.getAttribLocation(programm, 'platz');
-    gl.enableVertexAttribArray(platz);
-    gl.vertexAttribPointer(platz, 2, gl.FLOAT, false, 0, 0);
+    // Der Platz ist in allen drei Programmen auf 0 gebunden (siehe
+    // programmBauen), also gilt dieselbe Einstellung fuer alle.
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-    orte = {};
-    for (const name of [
-      'bahn', 'farben', 'feld', 'spanne', 'seite', 'dreh',
-      'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
-      'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
-      'reiheN', 'reiheS', 'reiheA', 'reiheB', 'reiheC', 'reiheD', 'reiheFalle', 'reiheNah',
-      'faltArt', 'faltWert', 'innenPruefen', 'innenEps',
-    ]) {
-      orte[name] = gl.getUniformLocation(programm, name);
-    }
+    orte = orteHolen(programm);
 
     bahnTextur = gl.createTexture();
     gl.activeTexture(gl.TEXTURE0);
@@ -631,6 +813,39 @@ export function gpuBereit() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.uniform1i(orte.farben, 1);
+
+    /*
+     * Und das Schachbrett - wenn die Karte es hergibt.
+     *
+     * Gebraucht wird ein Gleitkomma-Ziel: Die Ausstiegszeit geht in die
+     * Tausende und die Bahnfalle in die Millionstel, beides passt in kein
+     * Byte. Fehlt EXT_color_buffer_float, bleibt es beim bisherigen Weg -
+     * das ist kein Fehler, nur langsamer.
+     */
+    if (gl.getExtension('EXT_color_buffer_float')) {
+      programmHalb = programmBauen(HALBBILD);
+      orteHalb = orteHolen(programmHalb);
+      gl.useProgram(programmHalb);
+      gl.uniform1i(orteHalb.bahn, 0);
+
+      programmLoesen = programmBauen(AUFLOESEN);
+      orteLoesen = orteHolen(programmLoesen);
+      gl.useProgram(programmLoesen);
+      gl.uniform1i(orteLoesen.bahn, 0);
+      gl.uniform1i(orteLoesen.farben, 1);
+      gl.uniform1i(orteLoesen.halbbild, 2);
+
+      brettRahmen = gl.createFramebuffer();
+      brettTextur = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, brettTextur);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      brettMoeglich = true;
+      gl.useProgram(programm);
+    }
     return true;
   } catch (fehler) {
     if (typeof console !== 'undefined') {
@@ -1134,8 +1349,18 @@ export function gpuFarben(tabelle) {
     sg += tabelle[i * 3 + 1];
     sb += tabelle[i * 3 + 2];
   }
+  /*
+   * Der Mittelwert wird gemerkt statt nur gesetzt.
+   *
+   * Seit es drei Programme gibt, kann eine Zahl nicht mehr einmal irgendwo
+   * hineingeschrieben werden und dann fuer alle gelten. Also liegt sie hier
+   * und wird bei jedem Bild in das Programm geschrieben, das gerade dran ist.
+   */
+  mittelR = sr / n / 255;
+  mittelG = sg / n / 255;
+  mittelB = sb / n / 255;
   gl.useProgram(programm);
-  gl.uniform3f(orte.mittelFarbe, sr / n / 255, sg / n / 255, sb / n / 255);
+  gl.uniform3f(orte.mittelFarbe, mittelR, mittelG, mittelB);
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, farbTextur);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, n, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, bild);
@@ -1182,27 +1407,45 @@ export function gpuZeichnen(lage) {
   bahnSichern(ziel, schritte);
   const bahnMs = performance.now() - vorBahn;
 
+  /*
+   * Die Werte fuer *ein* Programm setzen.
+   *
+   * Bis zum Schachbrett gab es nur eines, und die Zuweisungen standen frei im
+   * Ablauf. Jetzt sind es bis zu drei, und Uniforms gehoeren in WebGL zum
+   * Programm, nicht zum Zusammenhang - dieselbe Zahl muss also in jedes
+   * einzeln geschrieben werden. Als Funktion steht sie einmal da; jede
+   * andere Loesung waere dieselbe Liste zweimal, und die eine wuerde
+   * irgendwann von der anderen abweichen.
+   *
+   * Was ein Programm nicht benutzt, hat keinen Ort - gl.uniform* mit null ist
+   * ein erlaubtes Nichtstun. Deshalb bekommt jedes Programm dieselbe volle
+   * Liste, und der Uebersetzer entscheidet, was davon ankommt.
+   */
+  const grundSetzen = (o) => {
+    gl.uniform2f(o.feld, b, h);
+    gl.uniform1f(o.spanne, 1.6 / Math.pow(10, tiefe));
+    gl.uniform1f(o.seite, h / b);
+    gl.uniform1f(o.dreh, dreh);
+    gl.uniform1i(o.schritte, schritte);
+    gl.uniform1i(o.bahnBreite, bahnBreite);
+    gl.uniform1i(o.bahnLaenge, Math.max(2, bahnSchritte));
+    gl.uniform1f(o.versatz, versatz);
+    gl.uniform1f(o.dichte, dichte);
+    gl.uniform1f(o.innenHell, innenHell);
+    gl.uniform1f(o.welle, welle ?? 0);
+    gl.uniform1f(o.welleZeit, welleZeit ?? 0);
+    gl.uniform1f(o.mandala, mandala ?? 0);
+    gl.uniform1f(o.sterne, sterne ?? 6);
+    gl.uniform1i(o.faltArt, lage.faltArt ?? 0);
+    gl.uniform1f(o.faltWert, lage.faltWert ?? 0.5);
+    gl.uniform1i(o.innenPruefen, lage.innenPruefen ? 1 : 0);
+    gl.uniform1f(o.innenEps, lage.innenEps ?? 1e-12);
+    gl.uniform1f(o.fangAnteil, fangAnteil ?? 0);
+    gl.uniform3f(o.mittelFarbe, mittelR, mittelG, mittelB);
+  };
   gl.useProgram(programm);
   gl.viewport(0, 0, b, h);
-  gl.uniform2f(orte.feld, b, h);
-  gl.uniform1f(orte.spanne, 1.6 / Math.pow(10, tiefe));
-  gl.uniform1f(orte.seite, h / b);
-  gl.uniform1f(orte.dreh, dreh);
-  gl.uniform1i(orte.schritte, schritte);
-  gl.uniform1i(orte.bahnBreite, bahnBreite);
-  gl.uniform1i(orte.bahnLaenge, Math.max(2, bahnSchritte));
-  gl.uniform1f(orte.versatz, versatz);
-  gl.uniform1f(orte.dichte, dichte);
-  gl.uniform1f(orte.innenHell, innenHell);
-  gl.uniform1f(orte.welle, welle ?? 0);
-  gl.uniform1f(orte.welleZeit, welleZeit ?? 0);
-  gl.uniform1f(orte.mandala, mandala ?? 0);
-  gl.uniform1f(orte.sterne, sterne ?? 6);
-  gl.uniform1i(orte.faltArt, lage.faltArt ?? 0);
-  gl.uniform1f(orte.faltWert, lage.faltWert ?? 0.5);
-  gl.uniform1i(orte.innenPruefen, lage.innenPruefen ? 1 : 0);
-  gl.uniform1f(orte.innenEps, lage.innenEps ?? 1e-12);
-  gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
+  grundSetzen(orte);
 
   /*
    * Die Reihe wird nicht in jedem Bild neu gebaut.
@@ -1243,27 +1486,82 @@ export function gpuZeichnen(lage) {
     reiheAlter++;
   }
 
-  if (reiheN > 0) {
-    const sJetzt = spanneJetzt * Math.sqrt(1 + seiteJetzt * seiteJetzt);
-    let faktor = sJetzt / reiheS;
-    gl.uniform1i(orte.reiheN, reiheN);
-    gl.uniform1f(orte.reiheS, sJetzt);
-    for (const [ort, k] of [[orte.reiheA, 0], [orte.reiheB, 1], [orte.reiheC, 2], [orte.reiheD, 3]]) {
-      gl.uniform2f(ort, reiheKoeff[k * 2] * faktor, reiheKoeff[k * 2 + 1] * faktor);
-      faktor *= sJetzt / reiheS;
+  const reiheSetzen = (o) => {
+    if (reiheN > 0) {
+      const sJetzt = spanneJetzt * Math.sqrt(1 + seiteJetzt * seiteJetzt);
+      let faktor = sJetzt / reiheS;
+      gl.uniform1i(o.reiheN, reiheN);
+      gl.uniform1f(o.reiheS, sJetzt);
+      for (const [ort, k] of [[o.reiheA, 0], [o.reiheB, 1], [o.reiheC, 2], [o.reiheD, 3]]) {
+        gl.uniform2f(ort, reiheKoeff[k * 2] * faktor, reiheKoeff[k * 2 + 1] * faktor);
+        faktor *= sJetzt / reiheS;
+      }
+      gl.uniform1f(o.reiheFalle, reiheFalle);
+      gl.uniform1f(o.reiheNah, reiheNah);
+    } else {
+      gl.uniform1i(o.reiheN, 0);
+      gl.uniform1f(o.reiheS, 1);
     }
-    gl.uniform1f(orte.reiheFalle, reiheFalle);
-    gl.uniform1f(orte.reiheNah, reiheNah);
-  } else {
-    gl.uniform1i(orte.reiheN, 0);
-    gl.uniform1f(orte.reiheS, 1);
+  };
+  reiheSetzen(orte);
+
+  /*
+   * Und jetzt zeichnen - auf einem von zwei Wegen.
+   *
+   * Der bisherige: ein Durchgang, jeder Bildpunkt rechnet und faerbt sich
+   * selbst.
+   *
+   * Das Schachbrett: zwei Durchgaenge. Der erste rechnet die halbe Anzahl
+   * Punkte in einen halb so breiten Gleitkommapuffer, der zweite macht daraus
+   * das ganze Bild. Der zweite ist billig - ein paar Texturzugriffe und die
+   * Farbtabelle -, der erste kostet die Haelfte von vorher.
+   *
+   * Der Wechsel der Parität steht *vor* dem Zeichnen und nicht danach: So
+   * gehoert die Zahl, die im Puffer steht, sichtbar zu dem Bild, das gerade
+   * entsteht, und nicht zum vorigen.
+   */
+  const brettAn = brettMoeglich && lage.schachbrett === true;
+  if (!brettAn) {
+    uhrStarten();
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    uhrStoppen();
+    return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs, brett: false, punkte: b * h };
   }
 
+  const hb = Math.ceil(b / 2);
+  if (brettBreite !== hb || brettHoehe !== h) {
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, brettTextur);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, hb, h, 0, gl.RGBA, gl.FLOAT, null);
+    brettBreite = hb;
+    brettHoehe = h;
+  }
+  brettVersatz = brettVersatz ^ 1;
+
   uhrStarten();
+  // Durchgang 1: die halbe Anzahl Punkte, nur rechnen.
+  gl.useProgram(programmHalb);
+  grundSetzen(orteHalb);
+  reiheSetzen(orteHalb);
+  gl.uniform1i(orteHalb.versatzBrett, brettVersatz);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, brettRahmen);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, brettTextur, 0);
+  gl.viewport(0, 0, hb, h);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // Durchgang 2: daraus das ganze Bild.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.useProgram(programmLoesen);
+  grundSetzen(orteLoesen);
+  gl.uniform1i(orteLoesen.versatzBrett, brettVersatz);
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, brettTextur);
+  gl.viewport(0, 0, b, h);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   uhrStoppen();
 
-  return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs };
+  gl.useProgram(programm);
+  return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs, brett: true, punkte: hb * h };
 }
 
 /*

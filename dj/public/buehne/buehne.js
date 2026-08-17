@@ -21,6 +21,7 @@ import {
   mandalasAktive,
   mandalaBericht,
   bildzielSetzen,
+  schachbrettSetzen,
 } from '../gemeinsam/visualmodi.js';
 
 const $ = (id) => document.getElementById(id);
@@ -738,6 +739,35 @@ $('pcModus').addEventListener('click', () => {
   zuruf(`PC-Modus: Güte hoch, 60 Bilder/s, alle ${MANDALAS.length} Mandalas. ` +
     'Ob es trägt, sagt der Messstand.');
 });
+
+/*
+ * Das Schachbrett.
+ *
+ * Halb so viele gerechnete Bildpunkte je Bild; die andere Haelfte wird aus
+ * den vier Nachbarn ergaenzt. Was dabei zwischengespeichert wird, ist die
+ * Ausstiegszeit und nicht die Farbe - die entsteht in jedem Bild neu, damit
+ * Palette, Farbversatz und Drop-Welle auf dem Schlag bleiben. Genau daran
+ * haengt, ob der Handel gut ist: Halbe Geometrie faellt kaum auf, halbe Farbe
+ * waere das Ende der Kopplung zwischen Musik und Bild.
+ *
+ * Die Wahl haelt ueber einen Neustart, weil sie zum Geraet gehoert und nicht
+ * zum Abend.
+ */
+{
+  const gemerkt = localStorage.getItem('djSchachbrett') === 'ja';
+  $('schachbrettWahl').checked = gemerkt;
+  schachbrettSetzen(gemerkt);
+  $('schachbrettWahl').addEventListener('change', (e) => {
+    const an = e.target.checked;
+    schachbrettSetzen(an);
+    localStorage.setItem('djSchachbrett', an ? 'ja' : 'nein');
+    zuruf(
+      an
+        ? 'Schachbrett an: halb so viele gerechnete Punkte. Die Farbe bleibt in jedem Bild neu.'
+        : 'Schachbrett aus: jeder Punkt wird gerechnet.',
+    );
+  });
+}
 
 /*
  * Bild gegen Ton nachstellen.

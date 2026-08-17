@@ -796,10 +796,46 @@ function auswerten(roh) {
   const andereBilder = zielBilder === 30 ? 60 : 30;
   const andereBudget = Math.max(roh.taktMs, 1000 / andereBilder) * BUDGETANTEIL;
 
+  /*
+   * Ist ein Mandala teuer genug, um es aus der Vorauswahl zu nehmen?
+   *
+   * Die Frage kam auf, nachdem zwei Laeufe auf derselben Radeon RX 9070 XT
+   * vorlagen, und die Antwort war dort ein klares Nein. Damit sie das naechste
+   * Mal nicht wieder von Hand beantwortet werden muss, steht die Regel hier.
+   *
+   * Zwei Huerden, und beide muessen genommen werden:
+   *
+   * 1. Der Ueberschuss muss groesser sein als die eigene Streuung. Ein
+   *    Mandala, das im Mittel vier Prozent ueber dem Bezug liegt, seine
+   *    Einzelwerte aber ueber sechsundzwanzig Prozent verteilt, hat nichts
+   *    gezeigt - es hat gerauscht. Genau das war der Fall: Ueber alle
+   *    einundfuenfzig lag die ganze Spanne bei acht Prozent (0,98x bis 1,06x),
+   *    die mittlere Streuung eines einzelnen Mandalas dagegen bei sechzehn bis
+   *    sechsundzwanzig. Kein einziges kam ueber seinen eigenen Fehlerbalken.
+   *
+   * 2. Der Ueberschuss muss ausserdem absolut etwas bedeuten. Ein sehr ruhig
+   *    gemessenes Mandala koennte die erste Huerde mit drei Prozent nehmen,
+   *    und drei Prozent sind nichts: Die Tiefenleiter selbst kostet zwischen
+   *    ihrer billigsten und ihrer teuersten Stelle das Vierundzwanzigfache.
+   *    Was unter einem Drittel liegt, verschwindet dahinter.
+   *
+   * Dass die Regel heute niemanden trifft, ist kein Argument gegen sie. Auf
+   * einem schwachen Geraet - und das iPad ist eines - kann sie greifen, und
+   * dann greift sie aus einem Grund, der in der Zahl steht.
+   */
+  const TEUER_MINDESTENS = 1.33;
+  const teuerLaut = (id) => {
+    const f = faktoren.get(id);
+    if (!f) return false;
+    const ueberschuss = f.faktor - 1;
+    return ueberschuss > (f.streuung ?? 0) && f.faktor >= TEUER_MINDESTENS;
+  };
+
   const jeMandala = MANDALAS.map((m) => ({
     ...m,
     faktor: faktoren.get(m.id)?.faktor ?? null,
     streuung: faktoren.get(m.id)?.streuung ?? null,
+    teuer: teuerLaut(m.id),
     tiefen: Object.fromEntries(roh.flaechen.map((f) => [f.schluessel, traegtBis(m.id, f.schluessel)])),
     tiefenAndere: Object.fromEntries(
       roh.flaechen.map((f) => [f.schluessel, traegtBis(m.id, f.schluessel, andereBudget)]),
@@ -994,8 +1030,10 @@ function urteilBauen(roh, aus) {
   ]);
   saetze.push([
     'gut',
-    `Durchsatz ${aus.durchsatz.toFixed(1)} Millionen Punkt-Schritte je Millisekunde. ` +
-      'Das ist die Zahl, mit der sich Geräte vergleichen lassen.',
+    `Durchsatz ${aus.durchsatz.toFixed(1)} Millionen wirksame Punkt-Schritte je Millisekunde. ` +
+      'Das ist die Zahl, mit der sich Geräte vergleichen lassen. Gezählt werden nur ' +
+      'Schritte, die wirklich gelaufen sind – die Technikanzeige der Bühne rechnet gegen ' +
+      'den Schrittdeckel und nennt darum eine viel größere Zahl.',
   ]);
 
   /*
@@ -1041,6 +1079,39 @@ function urteilBauen(roh, aus) {
         'Mandalas auf jeder Zoomstufe durch. Entweder ein niedrigeres Bildziel wählen ' +
         '(oben rechts) oder in der Auswahl ausdünnen – die Spalte „bis Tiefe" sagt, welche.',
     ]);
+  }
+
+  /*
+   * Sind einzelne Mandalas die Bremse?
+   *
+   * Die naheliegende Vermutung vor der Tabelle, und auf jedem bisher
+   * gemessenen Geraet falsch. Sie hier ausdruecklich zu beantworten spart
+   * einen Irrweg: Wer die Faktoren ohne diesen Satz liest, sortiert nach der
+   * zweiten Nachkommastelle und nimmt Mandalas heraus, deren Unterschied
+   * kleiner ist als der Messfehler.
+   */
+  {
+    const teure = aus.jeMandala.filter((m) => m.teuer);
+    const mitFaktor = aus.jeMandala.filter((m) => m.faktor !== null);
+    if (teure.length) {
+      saetze.push([
+        'offen',
+        `${teure.length} Mandalas sind messbar teurer als der Rest: ` +
+          teure.map((m) => `${m.name} (${m.faktor.toFixed(2)}×)`).join(', ') +
+          '. „Übernehmen" lässt sie weg; im Menü der Bühne stehen sie mit Vermerk und lassen sich einschalten.',
+      ]);
+    } else if (mitFaktor.length >= 5) {
+      const spanneVon = Math.min(...mitFaktor.map((m) => m.faktor));
+      const spanneBis = Math.max(...mitFaktor.map((m) => m.faktor));
+      const str = mitFaktor.map((m) => (m.streuung ?? 0) * 100).sort((a, b) => a - b);
+      saetze.push([
+        'gut',
+        `Kein Mandala ist auffällig teuer – alle liegen zwischen ${spanneVon.toFixed(2)}× und ` +
+          `${spanneBis.toFixed(2)}×, bei einer Streuung von im Mittel ±${str[str.length >> 1].toFixed(0)} % je Mandala. ` +
+          'Der Unterschied zwischen zwei Mandalas ist kleiner als der Messfehler eines einzelnen: ' +
+          'Die Auswahl kostet keine Leistung, sie ist Geschmack.',
+      ]);
+    }
   }
 
   const g = aus.geschaetzteAnteile;
@@ -1105,7 +1176,13 @@ function berichtBauen(roh, aus) {
   zeilen.push(`Bildschirm ${window.innerWidth}x${window.innerHeight} @ ${window.devicePixelRatio || 1}x`);
   zeilen.push(`Bildtakt   ${roh.taktMs.toFixed(2)} ms, Budget fürs Fraktal ${aus.budgetMs.toFixed(2)} ms`);
   zeilen.push(`Zeitmessung der Karte: ${roh.auskunft.zeitmessung ? 'ja' : 'nein (Wanduhr)'}`);
-  zeilen.push(`Durchsatz  ${aus.durchsatz.toFixed(2)} Mio. Punkt-Schritte/ms`);
+  // "wirksam" ist kein Beiwerk: Die Technikanzeige der Buehne nennt eine Zahl
+  // desselben Namens, rechnet sie aber gegen den Schrittdeckel. Ohne den
+  // Zusatz sehen die beiden wie ein Widerspruch aus.
+  zeilen.push(
+    `Durchsatz  ${aus.durchsatz.toFixed(2)} Mio. wirksame Punkt-Schritte/ms ` +
+      '(nur gelaufene Schritte; die Technikanzeige der Bühne rechnet gegen den Deckel und liegt darum höher)',
+  );
   zeilen.push('');
   zeilen.push('Tiefenkurve (ms je Bild, Bezugsmandala Rosette 6, ≈ = hochgerechnet):');
   zeilen.push(
@@ -1147,10 +1224,46 @@ function berichtBauen(roh, aus) {
       .map((f) => `${f.name} bis ${m.tiefen[f.schluessel]?.tiefste ?? '?'}`)
       .join(', ');
     zeilen.push(
-      `  ${m.name.padEnd(20)} ${(m.faktor ?? 0).toFixed(2)}×  (±${((m.streuung ?? 0) * 100).toFixed(0)} %)  ${tiefen}`,
+      `  ${m.name.padEnd(20)} ${(m.faktor ?? 0).toFixed(2)}×  (±${((m.streuung ?? 0) * 100).toFixed(0)} %)${m.teuer ? '  TEUER' : ''}  ${tiefen}`,
     );
   }
   zeilen.push('');
+  /*
+   * Und die Antwort auf die Frage, die man vor dieser Tabelle hat.
+   *
+   * Sie ohne Auswertung hinzustellen laedt zum Vergleichen der zweiten
+   * Nachkommastelle ein - und genau das ist hier falsch, weil die Spanne
+   * ueber alle Mandalas kleiner ist als der Fehler eines einzelnen. Der Satz
+   * sagt das, statt es dem Leser zu ueberlassen.
+   */
+  {
+    const teure = aus.jeMandala.filter((m) => m.teuer);
+    const mitFaktor = aus.jeMandala.filter((m) => m.faktor !== null);
+    const spanne = mitFaktor.length
+      ? `${Math.min(...mitFaktor.map((m) => m.faktor)).toFixed(2)}× bis ${Math.max(...mitFaktor.map((m) => m.faktor)).toFixed(2)}×`
+      : '?';
+    const streuungen = mitFaktor.map((m) => (m.streuung ?? 0) * 100).sort((a, b) => a - b);
+    const mittlereStreuung = streuungen.length ? streuungen[streuungen.length >> 1] : 0;
+    if (teure.length) {
+      zeilen.push(
+        `Auffällig teuer (Überschuss größer als die eigene Streuung und mindestens ${'1.33'}×): ` +
+          teure.map((m) => `${m.name} ${m.faktor.toFixed(2)}×`).join(', ') + '.',
+      );
+      zeilen.push('Diese nimmt "Übernehmen" aus der Vorauswahl; einschalten geht im Menü der Bühne.');
+    } else {
+      zeilen.push(
+        `Kein Mandala ist auffällig teuer. Die ganze Spanne liegt bei ${spanne}, die Streuung`,
+      );
+      zeilen.push(
+        `eines einzelnen Mandalas über die Tiefen im Mittel bei ±${mittlereStreuung.toFixed(0)} % – also größer als`,
+      );
+      zeilen.push(
+        'der Unterschied zwischen dem billigsten und dem teuersten. Die Auswahl ist hier eine',
+      );
+      zeilen.push('Geschmacksfrage und keine Leistungsfrage.');
+    }
+    zeilen.push('');
+  }
   const fehler = aus.abweichungen.length ? median(aus.abweichungen) : null;
   zeilen.push(
     fehler === null
@@ -1210,10 +1323,28 @@ function anzeigen(roh) {
     const stufe = empfehlung?.flaeche ?? roh.flaechen[roh.flaechen.length - 1];
     const gute = aus.jeMandala
       .filter((m) => (m.tiefen[stufe.schluessel]?.tiefste ?? 0) >= 10)
+      .filter((m) => !m.teuer)
       .map((m) => m.id);
     const nehmen = gute.length ? gute : aus.jeMandala.slice(0, 8).map((m) => m.id);
     localStorage.setItem('djMandalas', JSON.stringify(nehmen));
     localStorage.setItem('dj-bildguete', stufe.schluessel);
+    /*
+     * Die Aussortierten stehen daneben - nicht als Verbot, als Vermerk.
+     *
+     * Der Unterschied ist wichtig: Aus der Vorauswahl genommen heisst nicht
+     * abgeschaltet. Die Buehne setzt hinter diese Mandalas im Menue ein
+     * Zeichen und den gemessenen Faktor; einschalten kann man sie mit einem
+     * Klick. Wer eines davon schoen findet und selbst nachsieht, dass es
+     * traegt, soll nicht gegen eine Messung argumentieren muessen, die er
+     * nicht sieht.
+     */
+    const teure = aus.jeMandala.filter((m) => m.teuer);
+    localStorage.setItem(
+      'djMandalasTeuer',
+      JSON.stringify(
+        Object.fromEntries(teure.map((m) => [m.id, Number((m.faktor ?? 1).toFixed(2))])),
+      ),
+    );
     /*
      * Das Bildziel gehoert mit uebernommen.
      *
@@ -1224,7 +1355,8 @@ function anzeigen(roh) {
     localStorage.setItem('djBildziel', String(aus.zielBilder));
     $('uebernehmen').textContent =
       `Übernommen: ${nehmen.length} Mandalas, Güte „${stufe.name}", ` +
-      `${aus.zielBilder || 'voller'} Bilder/s`;
+      `${aus.zielBilder || 'voller'} Bilder/s` +
+      (teure.length ? ` · ${teure.length} als teuer vermerkt` : '');
   };
 
   // Fuer die Abnahme und fuers Nachschauen in der Konsole.

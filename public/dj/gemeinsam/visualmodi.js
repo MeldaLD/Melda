@@ -983,8 +983,22 @@ export function bremseNachfuehren(bremse, abstandMs, taktMs) {
 }
 
 let mandelAbstandMittel = 16.7;
-// Die gemessene Bildschirmperiode - siehe Begruendung beim Regler.
+/*
+ * Zwei Perioden, und sie auseinanderzuhalten ist keine Pedanterie.
+ *
+ * mandelTaktMs ist die Periode, auf die der Regler *hinarbeitet* - der
+ * gemessene Takt, nach oben gezogen vom Bildziel. Das ist die richtige Zahl
+ * fuer jede Rechnung im Regler.
+ *
+ * mandelSchirmTaktMs ist, was der Bildschirm wirklich liefert. Die beiden
+ * sind auf einem 145-Hz-Monitor mit Ziel 60 nicht dasselbe: 16,7 gegen 6,9.
+ * Die Technikanzeige hat lange die erste Zahl gezeigt und "ein Bildschirm,
+ * der 60 hergibt" dazu geschrieben - auf dem Partyrechner also 60 statt 145
+ * behauptet, aus reiner Namensverwechslung. Wer daraus schliesst, sein
+ * Monitor laufe langsamer als er tut, sucht am falschen Ende.
+ */
 let mandelTaktMs = 16.7;
+let mandelSchirmTaktMs = 16.7;
 
 /* --- Das Bildziel ---------------------------------------------------------
  *
@@ -1040,6 +1054,18 @@ export function gpuZwingen(an) {
     mandelAufGpu = null;
     mandelGpuZaeh = 0;
   }
+}
+
+/**
+ * Das Schachbrett ein- oder ausschalten - halb so viele gerechnete Punkte je
+ * Bild, ergaenzt aus den vier Nachbarn. Die Farbe entsteht weiter in jedem
+ * Bild neu, Palette und Drop-Welle bleiben also unberuehrt.
+ */
+export function schachbrettSetzen(an) {
+  mandelSchachbrett = !!an;
+}
+export function schachbrett() {
+  return mandelSchachbrett;
 }
 /*
  * Der Wachdienst gegen das tote Bild.
@@ -1200,6 +1226,14 @@ const MANDEL_SPREIZUNG_MIN = 0.02;
 // Unter dieser Streuung der Helligkeit ist das Bild eine Flaeche.
 const MANDEL_STREUUNG_MIN = 4;
 let mandelPunkte = 0;
+/*
+ * Das Schachbrett - halb so viele Punkte je Bild.
+ *
+ * Aus bleibt die Vorgabe, bis auf dem Zielgeraet gemessen ist, dass es dort
+ * mehr bringt als es kostet. Der Schalter steht in der Buehne unter "Technik"
+ * und im Messstand; die Abnahme setzt ihn ueber schachbrettZwingen().
+ */
+let mandelSchachbrett = false;
 // Anfangstiefe des ersten Ziels - siehe start in MANDEL_ZIELE.
 let mandelTiefe = 1.1;
 let mandelSchwung = 0;
@@ -2363,6 +2397,7 @@ function mandelbrotZeichnen(stift, lage) {
       sterne: mandelSterne,
       faltArt: mandalaJetzt.art,
       faltWert: mandalaJetzt.wert ?? 0.5,
+      schachbrett: mandelSchachbrett,
       /*
        * Innenerkennung - nur wo sie erlaubt *und* noetig ist.
        *
@@ -2388,7 +2423,18 @@ function mandelbrotZeichnen(stift, lage) {
       guete: Math.min(mandelGuete, stufe.fraktal),
       reihe: mandelReihe,
     });
-    mandelPunkte = bild.breite * bild.hoehe;
+    /*
+     * Wieviele Punkte wirklich gerechnet wurden.
+     *
+     * Frueher war das immer Breite mal Hoehe. Mit dem Schachbrett ist es die
+     * Haelfte, und der Unterschied gehoert in die Zahl: Aus mandelPunkte
+     * ergibt sich der Durchsatz, aus dem Durchsatz das Budget, und aus dem
+     * Budget die Aufloesung. Stuende hier weiter die volle Zahl, waere die
+     * Ersparnis sofort wieder verrechnet - der Regler haette geglaubt, die
+     * Karte sei doppelt so schnell geworden, und die Aufloesung
+     * hochgedreht, bis es wieder ruckelt.
+     */
+    mandelPunkte = bild.punkte ?? bild.breite * bild.hoehe;
     mandelLetztesBild = bild;
 
     // Was dieses Mandala auf *diesem* Geraet gekostet hat. Nur echte
@@ -2410,11 +2456,18 @@ function mandelbrotZeichnen(stift, lage) {
         ueberblendung: mandelUeberblendung,
         schritte: schritteGpu,
         breite: bild.breite,
+        hoehe: bild.hoehe,
+        // Was das Schachbrett angeht: ob es lief und wieviele Punkte wirklich
+        // gerechnet wurden. Beides braucht die Abnahme, um "halbiert" nicht
+        // glauben zu muessen.
+        brett: bild.brett === true,
+        punkte: mandelPunkte,
         guete: Math.min(mandelGuete, stufe.fraktal),
         durchsatz: mandelDurchsatz,
         bremse: mandelBremse,
         abstandMittel: mandelAbstandMittel,
         taktMs: mandelTaktMs,
+        schirmTaktMs: mandelSchirmTaktMs,
         // Nicht abstandMs: das wird erst weiter unten berechnet, und ein Zugriff
         // davor wirft in jedem Bild.
         abstandMs: sekunden * 1000,
@@ -2536,6 +2589,16 @@ function mandelbrotZeichnen(stift, lage) {
       if (sortiert.length >= 16) {
         const fuenftel = sortiert[Math.floor(sortiert.length * 0.2)];
         const gemessen = Math.min(16.8, Math.max(4, fuenftel));
+        /*
+         * Ohne den Deckel von 16,8: Der ist eine Notbremse fuer den Regler
+         * ("dreissig sind nicht das Ziel") und hat in einer Auskunftszahl
+         * nichts zu suchen. Was hier steht, ist das untere Fuenftel der
+         * Bildabstaende - auf einem Geraet, das den Bildschirm nicht
+         * ausfaehrt, also eher die eigene Rate als die des Bildschirms. Es
+         * ist die beste Zahl, die der Browser hergibt; eine echte Auskunft
+         * ueber die Bildwiederholrate gibt es im Web nicht.
+         */
+        mandelSchirmTaktMs = Math.max(4, fuenftel);
         /*
          * Und jetzt das Bildziel darueber. Es hebt den Takt an, es senkt ihn
          * nie: Wer sechzig will, bekommt auf einem 145-Hz-Bildschirm 16,7 ms
@@ -2919,6 +2982,7 @@ function mandelbrotZeichnen(stift, lage) {
       durchsatz: mandelDurchsatz,
       abstandMs: sekunden * 1000,
       taktMs: mandelTaktMs,
+      schirmTaktMs: mandelSchirmTaktMs,
       mandala: mandelMandala,
       sterne: mandelSterne,
       fang: mandelFang,

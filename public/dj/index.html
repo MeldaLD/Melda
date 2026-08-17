@@ -731,6 +731,19 @@ header {
   border-color: var(--gut);
 }
 
+/* Der Vermerk des Messstands. Zurueckhaltend gehalten: Er ist ein Hinweis auf
+   eine frühere Messung, keine Warnung vor dem, was gerade passiert - und in
+   aller Regel steht hier ohnehin nichts. */
+.mandala-liste .vermerk:not(:empty) {
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--akzent);
+  border-radius: 0.4rem;
+  color: var(--akzent);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .mandala-liste .kosten {
   margin-left: auto;
   color: var(--leise);
@@ -889,6 +902,18 @@ header {
           getan hat.
         -->
         <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
+        <!--
+          Das Schachbrett: halb so viele gerechnete Bildpunkte je Bild, die
+          andere Hälfte aus den vier Nachbarn ergänzt. Gespeichert wird dabei
+          die Ausstiegszeit und nicht die Farbe - Palette, Farbversatz und
+          Drop-Welle entstehen in jedem Bild neu und bleiben deshalb auf dem
+          Schlag. Aus als Vorgabe, bis auf dem Zielgerät gemessen ist, dass es
+          dort mehr bringt als es kostet.
+        -->
+        <label class="knopfzeile" title="Halb so viele gerechnete Punkte je Bild – die Farbe bleibt trotzdem in jedem Bild neu">
+          <input type="checkbox" id="schachbrettWahl" />
+          Schachbrett
+        </label>
         <!--
           Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet die
           Bühne selbst heraus; was er nicht wissen kann, steht hier: wie viele
@@ -3393,7 +3418,7 @@ in vec2 platz;
 void main() { gl_Position = vec4(platz, 0.0, 1.0); }
 `;
 
-const PUNKTE = `#version 300 es
+const GRUNDLAGE = `#version 300 es
 precision highp float;
 precision highp int;
 
@@ -3461,8 +3486,6 @@ uniform vec2  reiheC;
 uniform vec2  reiheD;
 uniform float reiheFalle;
 uniform float reiheNah;
-
-out vec4 ergebnis;
 
 vec2 kmal(vec2 a, vec2 b) {
   return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
@@ -3671,8 +3694,25 @@ vec2 falten(vec2 p, float n) {
   return faltSpiegel(p, n);
 }
 
-void main() {
-  vec2 bild = (gl_FragCoord.xy / feld) * 2.0 - 1.0;
+/*
+ * Der Rechenteil, ausgeloest aus main().
+ *
+ * Zurueck kommt nicht die Farbe, sondern das, was das Fraktal ueber diesen
+ * Punkt weiss: die geglaettete Ausstiegszeit, die Bahnfalle, die groesste
+ * Annaeherung an den Ursprung und ob der Punkt ueberhaupt entkommen ist.
+ *
+ * Die Trennung ist der ganze Zweck: Die Rechnung ist teuer und aendert sich
+ * langsam, die Farbe ist billig und aendert sich mit jedem Schlag. Wer beides
+ * in einem Zug macht, muss die teure Haelfte so oft wiederholen wie die
+ * billige. Getrennt laesst sich die teure seltener machen, ohne dass die
+ * Musik im Bild etwas davon merkt - siehe das Schachbrett weiter unten.
+ *
+ * punktXY ist die Stelle im gerechneten Bild, in Bildpunkten. Frueher stand
+ * dort gl_FragCoord.xy; als Parameter kann der Schachbrettdurchgang eine
+ * andere Stelle einsetzen als die, an der er gerade zeichnet.
+ */
+vec4 rechnen(vec2 punktXY) {
+  vec2 bild = (punktXY / feld) * 2.0 - 1.0;
   bild.y *= seite;
   // Drehung: Zoom und Drehung zusammen ergeben die Spirale, die das Auge
   // festhaelt. Ohne sie faellt der Blick nach ein paar Sekunden ab.
@@ -3813,9 +3853,30 @@ void main() {
     else Z = Zn;
   }
 
+  /*
+   * Statt einer Farbe kommt hier der Befund heraus. Die geglaettete
+   * Ausstiegszeit steckt in x, die Bahnfalle in y, die groesste Annaeherung
+   * in z, und w sagt, ob der Punkt entkommen ist.
+   */
+  float muRaus = raus > 0.0 ? float(n) + 1.0 - log2(log2(sqrt(raus))) : 0.0;
+  return vec4(muRaus, kreuz, naechster, raus > 0.0 ? 1.0 : 0.0);
+}
+
+/*
+ * Aus dem Befund eine Farbe machen.
+ *
+ * Billig - ein paar Rechenschritte und ein Nachschlagen in der Farbtabelle.
+ * Genau deshalb steht das hier getrennt: Dieser Teil laeuft in *jedem* Bild
+ * und fuer *jeden* Punkt, auch wenn die Rechnung darueber uebersprungen
+ * wurde. Palette, Farbversatz und Drop-Welle bleiben damit vollstaendig
+ * lebendig, egal wie selten das Fraktal selbst neu gerechnet wird.
+ */
+vec3 faerben(vec4 w) {
+  float kreuz = w.y;
+  float naechster = w.z;
   vec3 farbe;
-  if (raus > 0.0) {
-    float mu = float(n) + 1.0 - log2(log2(sqrt(raus)));
+  if (w.w > 0.5) {
+    float mu = w.x;
     // Die Wurzelkennlinie: Ohne sie liegen die Baender in der Tiefe so dicht,
     // dass das Bild flimmert, und im Flachen so weit, dass es einfarbig wird.
     float p = pow(max(mu, 1.0), 0.45) * dichte;
@@ -3848,7 +3909,116 @@ void main() {
     float t = clamp(sqrt(naechster) * 1.9, 0.0, 1.0);
     farbe = texture(farben, vec2(t, 0.5)).rgb * innenHell + vec3(0.02, 0.02, 0.03);
   }
-  ergebnis = vec4(farbe, 1.0);
+  return farbe;
+}
+`;
+
+/*
+ * Der bisherige Weg: rechnen und faerben in einem Zug, ein Bildpunkt je
+ * Bildpunkt. Bleibt die Vorgabe und der Massstab, an dem sich alles andere
+ * messen lassen muss.
+ */
+const PUNKTE = GRUNDLAGE + `
+out vec4 ergebnis;
+void main() {
+  ergebnis = vec4(faerben(rechnen(gl_FragCoord.xy)), 1.0);
+}
+`;
+
+/* --- Das Schachbrett ------------------------------------------------------
+ *
+ * Der Trick, mit dem die PS4 Pro ihre vier K gemacht hat, und er passt hier
+ * besser als dort.
+ *
+ * Gerechnet wird nur die Haelfte der Bildpunkte - die schwarzen Felder eines
+ * Schachbretts. Im naechsten Bild die weissen. Die jeweils fehlende Haelfte
+ * wird aus den vier Nachbarn ergaenzt, und das ist der Punkt: Auf einem
+ * Schachbrett sind *alle vier* Nachbarn eines fehlenden Feldes gerechnet.
+ * Nicht drei, nicht zwei - vier. Deshalb braucht die Ergaenzung kein
+ * Vorbild aus dem letzten Bild, keine Bewegungsvektoren und keine
+ * Ausnahmebehandlung fuer neu aufgedeckte Stellen. Sie kann nicht
+ * nachziehen, weil sie nichts Altes anfasst.
+ *
+ * Warum es hier besonders gut passt: Zwischengespeichert wird nicht die
+ * *Farbe*, sondern die Ausstiegszeit. Die Farbe entsteht daraus in jedem
+ * Bild neu. Palette, Farbversatz, Bahnfalle und die Drop-Welle laufen also
+ * ungebremst weiter und sitzen auf dem Schlag - halbiert wird allein die
+ * Geometrie, und die aendert sich zwischen zwei Bildern ohnehin kaum.
+ *
+ * Und der Grund, warum es ueberhaupt etwas spart: Ein "if" ueber die Parität
+ * im vollen Bild wuerde *nichts* bringen. Auf einer Grafikkarte laufen
+ * benachbarte Punkte in einer Gruppe im Gleichschritt; nehmen die einen den
+ * einen Zweig und die anderen den anderen, kostet die Gruppe die Summe
+ * beider. Deshalb wird in einen halb so breiten Puffer gezeichnet, in dem
+ * jeder Punkt echte Arbeit hat, und die Stelle im vollen Bild erst daraus
+ * ausgerechnet.
+ */
+
+/*
+ * Durchgang 1: nur rechnen, in den halb breiten Puffer.
+ *
+ * Aus der Spalte hx und der Zeile py wird die Stelle im vollen Bild:
+ *   px = 2*hx + ((py + versatzBrett) mod 2)
+ * Damit liegt jede gerechnete Stelle auf einem Feld gleicher Farbe, und der
+ * Wechsel von Bild zu Bild ist ein Wechsel von versatzBrett zwischen 0 und 1.
+ */
+const HALBBILD = GRUNDLAGE + `
+uniform int versatzBrett;
+out vec4 ergebnis;
+void main() {
+  int hx = int(gl_FragCoord.x);
+  int py = int(gl_FragCoord.y);
+  int px = 2 * hx + ((py + versatzBrett) & 1);
+  ergebnis = rechnen(vec2(float(px) + 0.5, float(py) + 0.5));
+}
+`;
+
+/*
+ * Durchgang 2: aus dem halben Puffer das ganze Bild.
+ *
+ * Wer selbst gerechnet wurde, liest seinen eigenen Wert. Wer nicht, mittelt
+ * seine vier Nachbarn - aber nur die, die auf derselben Seite stehen: Ein
+ * Punkt innerhalb der Menge und einer ausserhalb haben keine gemeinsame
+ * Zwischenstufe, und ein Mittel aus beiden waere eine Farbe, die es an
+ * dieser Stelle nicht gibt. Also entscheidet die Mehrheit, und gemittelt
+ * wird nur innerhalb davon.
+ */
+const AUFLOESEN = GRUNDLAGE + `
+uniform sampler2D halbbild;
+uniform int versatzBrett;
+out vec4 ergebnis;
+
+vec4 halbHolen(int px, int py) {
+  int hx = (px - ((py + versatzBrett) & 1)) >> 1;
+  ivec2 gr = textureSize(halbbild, 0);
+  return texelFetch(halbbild, ivec2(clamp(hx, 0, gr.x - 1), clamp(py, 0, gr.y - 1)), 0);
+}
+
+void main() {
+  int px = int(gl_FragCoord.x);
+  int py = int(gl_FragCoord.y);
+  if (((px + py + versatzBrett) & 1) == 0) {
+    // Selbst gerechnet - nichts zu ergaenzen.
+    ergebnis = vec4(faerben(halbHolen(px, py)), 1.0);
+    return;
+  }
+  vec4 a = halbHolen(px - 1, py);
+  vec4 b = halbHolen(px + 1, py);
+  vec4 c = halbHolen(px, py - 1);
+  vec4 d = halbHolen(px, py + 1);
+  float drin = a.w + b.w + c.w + d.w;
+  // Mehrheit: Bei zwei zu zwei zaehlt "entkommen" - eine Flaeche, die
+  // faelschlich Farbe bekommt, faellt weniger auf als ein Loch im Muster.
+  float seite = drin >= 2.0 ? 1.0 : 0.0;
+  vec4 summe = vec4(0.0);
+  float zahl = 0.0;
+  if (a.w == seite) { summe += a; zahl += 1.0; }
+  if (b.w == seite) { summe += b; zahl += 1.0; }
+  if (c.w == seite) { summe += c; zahl += 1.0; }
+  if (d.w == seite) { summe += d; zahl += 1.0; }
+  vec4 w = zahl > 0.0 ? summe / zahl : a;
+  w.w = seite;
+  ergebnis = vec4(faerben(w), 1.0);
 }
 `;
 
@@ -3858,6 +4028,23 @@ let leinwand = null;
 let gl = null;
 let programm = null;
 let orte = null;
+// Die beiden Schachbrett-Durchgaenge und ihr Puffer. Alle vier bleiben null,
+// wenn die Karte keine Gleitkomma-Ziele kann - dann laeuft der bisherige Weg
+// weiter, und niemand merkt etwas.
+let programmHalb = null;
+let orteHalb = null;
+let programmLoesen = null;
+let orteLoesen = null;
+let brettRahmen = null;
+let brettTextur = null;
+let brettBreite = 0;
+let brettHoehe = 0;
+let brettMoeglich = false;
+let brettVersatz = 0;
+// Der Mittelwert der Farbtabelle - siehe gpuFarben().
+let mittelR = 0.5;
+let mittelG = 0.5;
+let mittelB = 0.5;
 let bahnTextur = null;
 let farbTextur = null;
 let bahnBreite = 0;
@@ -3884,6 +4071,40 @@ function schattiererBauen(quelle, art) {
   return s;
 }
 
+/*
+ * Ein Programm bauen. Der Platz wird fest auf 0 gebunden, damit alle
+ * Programme denselben Eckenpuffer benutzen koennen, ohne ihn umzustellen.
+ */
+function programmBauen(quelle) {
+  const p = gl.createProgram();
+  gl.attachShader(p, schattiererBauen(ECKEN, gl.VERTEX_SHADER));
+  gl.attachShader(p, schattiererBauen(quelle, gl.FRAGMENT_SHADER));
+  gl.bindAttribLocation(p, 0, 'platz');
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
+    throw new Error(`Verbinden: ${gl.getProgramInfoLog(p)}`);
+  }
+  return p;
+}
+
+// Alle Uniforms, die es geben kann. Ein Programm, das eines davon nicht
+// benutzt, liefert null - das schadet nicht, gl.uniform* mit null ist ein
+// erlaubtes Nichtstun.
+const UNIFORMS = [
+  'bahn', 'farben', 'feld', 'spanne', 'seite', 'dreh',
+  'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
+  'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
+  'reiheN', 'reiheS', 'reiheA', 'reiheB', 'reiheC', 'reiheD', 'reiheFalle', 'reiheNah',
+  'faltArt', 'faltWert', 'innenPruefen', 'innenEps',
+  'versatzBrett', 'halbbild',
+];
+
+function orteHolen(p) {
+  const o = {};
+  for (const name of UNIFORMS) o[name] = gl.getUniformLocation(p, name);
+  return o;
+}
+
 /**
  * Einmal aufbauen. Gibt false zurueck, wenn die Grafikkarte nicht mitspielt -
  * dann rechnet der Hauptprozessor weiter, und niemand merkt etwas ausser dass
@@ -3904,13 +4125,7 @@ function gpuBereit() {
     });
     if (!gl) throw new Error('kein WebGL2');
 
-    programm = gl.createProgram();
-    gl.attachShader(programm, schattiererBauen(ECKEN, gl.VERTEX_SHADER));
-    gl.attachShader(programm, schattiererBauen(PUNKTE, gl.FRAGMENT_SHADER));
-    gl.linkProgram(programm);
-    if (!gl.getProgramParameter(programm, gl.LINK_STATUS)) {
-      throw new Error(`Verbinden: ${gl.getProgramInfoLog(programm)}`);
-    }
+    programm = programmBauen(PUNKTE);
     gl.useProgram(programm);
 
     // Zwei Dreiecke, die das ganze Bild ausfuellen.
@@ -3921,20 +4136,12 @@ function gpuBereit() {
       new Float32Array([-1, -1, 3, -1, -1, 3]),
       gl.STATIC_DRAW,
     );
-    const platz = gl.getAttribLocation(programm, 'platz');
-    gl.enableVertexAttribArray(platz);
-    gl.vertexAttribPointer(platz, 2, gl.FLOAT, false, 0, 0);
+    // Der Platz ist in allen drei Programmen auf 0 gebunden (siehe
+    // programmBauen), also gilt dieselbe Einstellung fuer alle.
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 
-    orte = {};
-    for (const name of [
-      'bahn', 'farben', 'feld', 'spanne', 'seite', 'dreh',
-      'schritte', 'bahnBreite', 'bahnLaenge', 'versatz', 'dichte', 'innenHell', 'mittelFarbe',
-      'welle', 'welleZeit', 'mandala', 'sterne', 'fangAnteil',
-      'reiheN', 'reiheS', 'reiheA', 'reiheB', 'reiheC', 'reiheD', 'reiheFalle', 'reiheNah',
-      'faltArt', 'faltWert', 'innenPruefen', 'innenEps',
-    ]) {
-      orte[name] = gl.getUniformLocation(programm, name);
-    }
+    orte = orteHolen(programm);
 
     bahnTextur = gl.createTexture();
     gl.activeTexture(gl.TEXTURE0);
@@ -3953,6 +4160,39 @@ function gpuBereit() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.uniform1i(orte.farben, 1);
+
+    /*
+     * Und das Schachbrett - wenn die Karte es hergibt.
+     *
+     * Gebraucht wird ein Gleitkomma-Ziel: Die Ausstiegszeit geht in die
+     * Tausende und die Bahnfalle in die Millionstel, beides passt in kein
+     * Byte. Fehlt EXT_color_buffer_float, bleibt es beim bisherigen Weg -
+     * das ist kein Fehler, nur langsamer.
+     */
+    if (gl.getExtension('EXT_color_buffer_float')) {
+      programmHalb = programmBauen(HALBBILD);
+      orteHalb = orteHolen(programmHalb);
+      gl.useProgram(programmHalb);
+      gl.uniform1i(orteHalb.bahn, 0);
+
+      programmLoesen = programmBauen(AUFLOESEN);
+      orteLoesen = orteHolen(programmLoesen);
+      gl.useProgram(programmLoesen);
+      gl.uniform1i(orteLoesen.bahn, 0);
+      gl.uniform1i(orteLoesen.farben, 1);
+      gl.uniform1i(orteLoesen.halbbild, 2);
+
+      brettRahmen = gl.createFramebuffer();
+      brettTextur = gl.createTexture();
+      gl.activeTexture(gl.TEXTURE2);
+      gl.bindTexture(gl.TEXTURE_2D, brettTextur);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      brettMoeglich = true;
+      gl.useProgram(programm);
+    }
     return true;
   } catch (fehler) {
     if (typeof console !== 'undefined') {
@@ -4456,8 +4696,18 @@ function gpuFarben(tabelle) {
     sg += tabelle[i * 3 + 1];
     sb += tabelle[i * 3 + 2];
   }
+  /*
+   * Der Mittelwert wird gemerkt statt nur gesetzt.
+   *
+   * Seit es drei Programme gibt, kann eine Zahl nicht mehr einmal irgendwo
+   * hineingeschrieben werden und dann fuer alle gelten. Also liegt sie hier
+   * und wird bei jedem Bild in das Programm geschrieben, das gerade dran ist.
+   */
+  mittelR = sr / n / 255;
+  mittelG = sg / n / 255;
+  mittelB = sb / n / 255;
   gl.useProgram(programm);
-  gl.uniform3f(orte.mittelFarbe, sr / n / 255, sg / n / 255, sb / n / 255);
+  gl.uniform3f(orte.mittelFarbe, mittelR, mittelG, mittelB);
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D, farbTextur);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, n, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, bild);
@@ -4504,27 +4754,45 @@ function gpuZeichnen(lage) {
   bahnSichern(ziel, schritte);
   const bahnMs = performance.now() - vorBahn;
 
+  /*
+   * Die Werte fuer *ein* Programm setzen.
+   *
+   * Bis zum Schachbrett gab es nur eines, und die Zuweisungen standen frei im
+   * Ablauf. Jetzt sind es bis zu drei, und Uniforms gehoeren in WebGL zum
+   * Programm, nicht zum Zusammenhang - dieselbe Zahl muss also in jedes
+   * einzeln geschrieben werden. Als Funktion steht sie einmal da; jede
+   * andere Loesung waere dieselbe Liste zweimal, und die eine wuerde
+   * irgendwann von der anderen abweichen.
+   *
+   * Was ein Programm nicht benutzt, hat keinen Ort - gl.uniform* mit null ist
+   * ein erlaubtes Nichtstun. Deshalb bekommt jedes Programm dieselbe volle
+   * Liste, und der Uebersetzer entscheidet, was davon ankommt.
+   */
+  const grundSetzen = (o) => {
+    gl.uniform2f(o.feld, b, h);
+    gl.uniform1f(o.spanne, 1.6 / Math.pow(10, tiefe));
+    gl.uniform1f(o.seite, h / b);
+    gl.uniform1f(o.dreh, dreh);
+    gl.uniform1i(o.schritte, schritte);
+    gl.uniform1i(o.bahnBreite, bahnBreite);
+    gl.uniform1i(o.bahnLaenge, Math.max(2, bahnSchritte));
+    gl.uniform1f(o.versatz, versatz);
+    gl.uniform1f(o.dichte, dichte);
+    gl.uniform1f(o.innenHell, innenHell);
+    gl.uniform1f(o.welle, welle ?? 0);
+    gl.uniform1f(o.welleZeit, welleZeit ?? 0);
+    gl.uniform1f(o.mandala, mandala ?? 0);
+    gl.uniform1f(o.sterne, sterne ?? 6);
+    gl.uniform1i(o.faltArt, lage.faltArt ?? 0);
+    gl.uniform1f(o.faltWert, lage.faltWert ?? 0.5);
+    gl.uniform1i(o.innenPruefen, lage.innenPruefen ? 1 : 0);
+    gl.uniform1f(o.innenEps, lage.innenEps ?? 1e-12);
+    gl.uniform1f(o.fangAnteil, fangAnteil ?? 0);
+    gl.uniform3f(o.mittelFarbe, mittelR, mittelG, mittelB);
+  };
   gl.useProgram(programm);
   gl.viewport(0, 0, b, h);
-  gl.uniform2f(orte.feld, b, h);
-  gl.uniform1f(orte.spanne, 1.6 / Math.pow(10, tiefe));
-  gl.uniform1f(orte.seite, h / b);
-  gl.uniform1f(orte.dreh, dreh);
-  gl.uniform1i(orte.schritte, schritte);
-  gl.uniform1i(orte.bahnBreite, bahnBreite);
-  gl.uniform1i(orte.bahnLaenge, Math.max(2, bahnSchritte));
-  gl.uniform1f(orte.versatz, versatz);
-  gl.uniform1f(orte.dichte, dichte);
-  gl.uniform1f(orte.innenHell, innenHell);
-  gl.uniform1f(orte.welle, welle ?? 0);
-  gl.uniform1f(orte.welleZeit, welleZeit ?? 0);
-  gl.uniform1f(orte.mandala, mandala ?? 0);
-  gl.uniform1f(orte.sterne, sterne ?? 6);
-  gl.uniform1i(orte.faltArt, lage.faltArt ?? 0);
-  gl.uniform1f(orte.faltWert, lage.faltWert ?? 0.5);
-  gl.uniform1i(orte.innenPruefen, lage.innenPruefen ? 1 : 0);
-  gl.uniform1f(orte.innenEps, lage.innenEps ?? 1e-12);
-  gl.uniform1f(orte.fangAnteil, fangAnteil ?? 0);
+  grundSetzen(orte);
 
   /*
    * Die Reihe wird nicht in jedem Bild neu gebaut.
@@ -4565,27 +4833,82 @@ function gpuZeichnen(lage) {
     reiheAlter++;
   }
 
-  if (reiheN > 0) {
-    const sJetzt = spanneJetzt * Math.sqrt(1 + seiteJetzt * seiteJetzt);
-    let faktor = sJetzt / reiheS;
-    gl.uniform1i(orte.reiheN, reiheN);
-    gl.uniform1f(orte.reiheS, sJetzt);
-    for (const [ort, k] of [[orte.reiheA, 0], [orte.reiheB, 1], [orte.reiheC, 2], [orte.reiheD, 3]]) {
-      gl.uniform2f(ort, reiheKoeff[k * 2] * faktor, reiheKoeff[k * 2 + 1] * faktor);
-      faktor *= sJetzt / reiheS;
+  const reiheSetzen = (o) => {
+    if (reiheN > 0) {
+      const sJetzt = spanneJetzt * Math.sqrt(1 + seiteJetzt * seiteJetzt);
+      let faktor = sJetzt / reiheS;
+      gl.uniform1i(o.reiheN, reiheN);
+      gl.uniform1f(o.reiheS, sJetzt);
+      for (const [ort, k] of [[o.reiheA, 0], [o.reiheB, 1], [o.reiheC, 2], [o.reiheD, 3]]) {
+        gl.uniform2f(ort, reiheKoeff[k * 2] * faktor, reiheKoeff[k * 2 + 1] * faktor);
+        faktor *= sJetzt / reiheS;
+      }
+      gl.uniform1f(o.reiheFalle, reiheFalle);
+      gl.uniform1f(o.reiheNah, reiheNah);
+    } else {
+      gl.uniform1i(o.reiheN, 0);
+      gl.uniform1f(o.reiheS, 1);
     }
-    gl.uniform1f(orte.reiheFalle, reiheFalle);
-    gl.uniform1f(orte.reiheNah, reiheNah);
-  } else {
-    gl.uniform1i(orte.reiheN, 0);
-    gl.uniform1f(orte.reiheS, 1);
+  };
+  reiheSetzen(orte);
+
+  /*
+   * Und jetzt zeichnen - auf einem von zwei Wegen.
+   *
+   * Der bisherige: ein Durchgang, jeder Bildpunkt rechnet und faerbt sich
+   * selbst.
+   *
+   * Das Schachbrett: zwei Durchgaenge. Der erste rechnet die halbe Anzahl
+   * Punkte in einen halb so breiten Gleitkommapuffer, der zweite macht daraus
+   * das ganze Bild. Der zweite ist billig - ein paar Texturzugriffe und die
+   * Farbtabelle -, der erste kostet die Haelfte von vorher.
+   *
+   * Der Wechsel der Parität steht *vor* dem Zeichnen und nicht danach: So
+   * gehoert die Zahl, die im Puffer steht, sichtbar zu dem Bild, das gerade
+   * entsteht, und nicht zum vorigen.
+   */
+  const brettAn = brettMoeglich && lage.schachbrett === true;
+  if (!brettAn) {
+    uhrStarten();
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    uhrStoppen();
+    return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs, brett: false, punkte: b * h };
   }
 
+  const hb = Math.ceil(b / 2);
+  if (brettBreite !== hb || brettHoehe !== h) {
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, brettTextur);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, hb, h, 0, gl.RGBA, gl.FLOAT, null);
+    brettBreite = hb;
+    brettHoehe = h;
+  }
+  brettVersatz = brettVersatz ^ 1;
+
   uhrStarten();
+  // Durchgang 1: die halbe Anzahl Punkte, nur rechnen.
+  gl.useProgram(programmHalb);
+  grundSetzen(orteHalb);
+  reiheSetzen(orteHalb);
+  gl.uniform1i(orteHalb.versatzBrett, brettVersatz);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, brettRahmen);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, brettTextur, 0);
+  gl.viewport(0, 0, hb, h);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  // Durchgang 2: daraus das ganze Bild.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.useProgram(programmLoesen);
+  grundSetzen(orteLoesen);
+  gl.uniform1i(orteLoesen.versatzBrett, brettVersatz);
+  gl.activeTexture(gl.TEXTURE2);
+  gl.bindTexture(gl.TEXTURE_2D, brettTextur);
+  gl.viewport(0, 0, b, h);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
   uhrStoppen();
 
-  return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs };
+  gl.useProgram(programm);
+  return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs, brett: true, punkte: hb * h };
 }
 
 /*
@@ -7409,8 +7732,22 @@ function bremseNachfuehren(bremse, abstandMs, taktMs) {
 }
 
 let mandelAbstandMittel = 16.7;
-// Die gemessene Bildschirmperiode - siehe Begruendung beim Regler.
+/*
+ * Zwei Perioden, und sie auseinanderzuhalten ist keine Pedanterie.
+ *
+ * mandelTaktMs ist die Periode, auf die der Regler *hinarbeitet* - der
+ * gemessene Takt, nach oben gezogen vom Bildziel. Das ist die richtige Zahl
+ * fuer jede Rechnung im Regler.
+ *
+ * mandelSchirmTaktMs ist, was der Bildschirm wirklich liefert. Die beiden
+ * sind auf einem 145-Hz-Monitor mit Ziel 60 nicht dasselbe: 16,7 gegen 6,9.
+ * Die Technikanzeige hat lange die erste Zahl gezeigt und "ein Bildschirm,
+ * der 60 hergibt" dazu geschrieben - auf dem Partyrechner also 60 statt 145
+ * behauptet, aus reiner Namensverwechslung. Wer daraus schliesst, sein
+ * Monitor laufe langsamer als er tut, sucht am falschen Ende.
+ */
 let mandelTaktMs = 16.7;
+let mandelSchirmTaktMs = 16.7;
 
 /* --- Das Bildziel ---------------------------------------------------------
  *
@@ -7466,6 +7803,18 @@ function gpuZwingen(an) {
     mandelAufGpu = null;
     mandelGpuZaeh = 0;
   }
+}
+
+/**
+ * Das Schachbrett ein- oder ausschalten - halb so viele gerechnete Punkte je
+ * Bild, ergaenzt aus den vier Nachbarn. Die Farbe entsteht weiter in jedem
+ * Bild neu, Palette und Drop-Welle bleiben also unberuehrt.
+ */
+function schachbrettSetzen(an) {
+  mandelSchachbrett = !!an;
+}
+function schachbrett() {
+  return mandelSchachbrett;
 }
 /*
  * Der Wachdienst gegen das tote Bild.
@@ -7626,6 +7975,14 @@ const MANDEL_SPREIZUNG_MIN = 0.02;
 // Unter dieser Streuung der Helligkeit ist das Bild eine Flaeche.
 const MANDEL_STREUUNG_MIN = 4;
 let mandelPunkte = 0;
+/*
+ * Das Schachbrett - halb so viele Punkte je Bild.
+ *
+ * Aus bleibt die Vorgabe, bis auf dem Zielgeraet gemessen ist, dass es dort
+ * mehr bringt als es kostet. Der Schalter steht in der Buehne unter "Technik"
+ * und im Messstand; die Abnahme setzt ihn ueber schachbrettZwingen().
+ */
+let mandelSchachbrett = false;
 // Anfangstiefe des ersten Ziels - siehe start in MANDEL_ZIELE.
 let mandelTiefe = 1.1;
 let mandelSchwung = 0;
@@ -8789,6 +9146,7 @@ function mandelbrotZeichnen(stift, lage) {
       sterne: mandelSterne,
       faltArt: mandalaJetzt.art,
       faltWert: mandalaJetzt.wert ?? 0.5,
+      schachbrett: mandelSchachbrett,
       /*
        * Innenerkennung - nur wo sie erlaubt *und* noetig ist.
        *
@@ -8814,7 +9172,18 @@ function mandelbrotZeichnen(stift, lage) {
       guete: Math.min(mandelGuete, stufe.fraktal),
       reihe: mandelReihe,
     });
-    mandelPunkte = bild.breite * bild.hoehe;
+    /*
+     * Wieviele Punkte wirklich gerechnet wurden.
+     *
+     * Frueher war das immer Breite mal Hoehe. Mit dem Schachbrett ist es die
+     * Haelfte, und der Unterschied gehoert in die Zahl: Aus mandelPunkte
+     * ergibt sich der Durchsatz, aus dem Durchsatz das Budget, und aus dem
+     * Budget die Aufloesung. Stuende hier weiter die volle Zahl, waere die
+     * Ersparnis sofort wieder verrechnet - der Regler haette geglaubt, die
+     * Karte sei doppelt so schnell geworden, und die Aufloesung
+     * hochgedreht, bis es wieder ruckelt.
+     */
+    mandelPunkte = bild.punkte ?? bild.breite * bild.hoehe;
     mandelLetztesBild = bild;
 
     // Was dieses Mandala auf *diesem* Geraet gekostet hat. Nur echte
@@ -8836,11 +9205,18 @@ function mandelbrotZeichnen(stift, lage) {
         ueberblendung: mandelUeberblendung,
         schritte: schritteGpu,
         breite: bild.breite,
+        hoehe: bild.hoehe,
+        // Was das Schachbrett angeht: ob es lief und wieviele Punkte wirklich
+        // gerechnet wurden. Beides braucht die Abnahme, um "halbiert" nicht
+        // glauben zu muessen.
+        brett: bild.brett === true,
+        punkte: mandelPunkte,
         guete: Math.min(mandelGuete, stufe.fraktal),
         durchsatz: mandelDurchsatz,
         bremse: mandelBremse,
         abstandMittel: mandelAbstandMittel,
         taktMs: mandelTaktMs,
+        schirmTaktMs: mandelSchirmTaktMs,
         // Nicht abstandMs: das wird erst weiter unten berechnet, und ein Zugriff
         // davor wirft in jedem Bild.
         abstandMs: sekunden * 1000,
@@ -8962,6 +9338,16 @@ function mandelbrotZeichnen(stift, lage) {
       if (sortiert.length >= 16) {
         const fuenftel = sortiert[Math.floor(sortiert.length * 0.2)];
         const gemessen = Math.min(16.8, Math.max(4, fuenftel));
+        /*
+         * Ohne den Deckel von 16,8: Der ist eine Notbremse fuer den Regler
+         * ("dreissig sind nicht das Ziel") und hat in einer Auskunftszahl
+         * nichts zu suchen. Was hier steht, ist das untere Fuenftel der
+         * Bildabstaende - auf einem Geraet, das den Bildschirm nicht
+         * ausfaehrt, also eher die eigene Rate als die des Bildschirms. Es
+         * ist die beste Zahl, die der Browser hergibt; eine echte Auskunft
+         * ueber die Bildwiederholrate gibt es im Web nicht.
+         */
+        mandelSchirmTaktMs = Math.max(4, fuenftel);
         /*
          * Und jetzt das Bildziel darueber. Es hebt den Takt an, es senkt ihn
          * nie: Wer sechzig will, bekommt auf einem 145-Hz-Bildschirm 16,7 ms
@@ -9345,6 +9731,7 @@ function mandelbrotZeichnen(stift, lage) {
       durchsatz: mandelDurchsatz,
       abstandMs: sekunden * 1000,
       taktMs: mandelTaktMs,
+      schirmTaktMs: mandelSchirmTaktMs,
       mandala: mandelMandala,
       sterne: mandelSterne,
       fang: mandelFang,
@@ -10577,7 +10964,10 @@ function fraktalFragen(mandel, bild) {
     // einem Nachbau in Software unterscheidet.
     durchsatz: mandel.durchsatz ?? null,
     abstandMs: rund(mandel.abstandMs, 1),
+    // Zwei Perioden: das Ziel des Reglers und was der Bildschirm liefert.
+    // Auf einem 145-Hz-Monitor mit Ziel 60 sind das 16,7 und 6,9 ms.
     taktMs: rund(mandel.taktMs, 1),
+    schirmTaktMs: rund(mandel.schirmTaktMs, 1),
     guetestufe: bild?.guetestufe ?? null,
     ueberzugMs: rund(bild?.bildMs, 2),
     reihe: mandel.reihe ?? null,
@@ -10593,6 +10983,10 @@ function fraktalFragen(mandel, bild) {
  * beantwortet die Frage "wird meine Hardware genutzt" naemlich nicht - man
  * muss wissen, welche Zahl wofuer steht. Also steht das Urteil oben, und die
  * Zahlen darunter belegen es.
+ *
+ * Ausgefuehrt, damit die Abnahme das nachrechnen kann, ohne eine Grafikkarte
+ * zu brauchen: Die Saetze hier sind das, was der Mensch am Ende liest, und
+ * genau darin steckte zuletzt eine Falschaussage ueber die Bildrate.
  */
 function urteil(a) {
   const zeilen = [];
@@ -10634,7 +11028,8 @@ function urteil(a) {
   } else if (durchsatz >= ECHTE_KARTE_AB) {
     zeilen.push([
       'gut',
-      `Die Grafikeinheit rechnet${name ? ` (${name})` : ''} - ${(durchsatz / 1e6).toFixed(1)} Millionen Punkt-Schritte je Millisekunde.`,
+      `Die Grafikeinheit rechnet${name ? ` (${name})` : ''} - ${(durchsatz / 1e6).toFixed(1)} Millionen Punkt-Schritte je Millisekunde, ` +
+        'gegen den Schrittdeckel gerechnet. Nicht mit dem Messstand vergleichen, der zaehlt anders.',
     ]);
     /*
      * Und die Frage, die man sich nur einmal im Leben nicht stellt: Ist das
@@ -10705,13 +11100,50 @@ function urteil(a) {
     ]);
   }
 
-  // 3. Trifft das Bild den Takt des Bildschirms?
+  /*
+   * 3. Trifft das Bild den Takt, auf den gezielt wird?
+   *
+   * Hier stand "bei einem Bildschirm, der 60 hergibt" - gerechnet aber aus
+   * taktMs, und das ist das *Ziel* des Reglers, nicht der Bildschirm. Auf dem
+   * Partyrechner (145 Hz, Ziel 60) behauptete die Anzeige damit einen
+   * 60-Hz-Monitor. Verglichen wird weiter mit dem Ziel - danach richtet sich
+   * der Regler -, aber der Bildschirm wird jetzt daneben genannt und nicht
+   * mehr mit ihm verwechselt.
+   */
   if (a.fraktal.abstandMs && a.fraktal.taktMs) {
     const bilder = 1000 / a.fraktal.abstandMs;
-    const moeglich = 1000 / a.fraktal.taktMs;
+    const ziel = 1000 / a.fraktal.taktMs;
+    const schirm = a.fraktal.schirmTaktMs ? 1000 / a.fraktal.schirmTaktMs : null;
+    // Der Bildschirm wird nur erwaehnt, wo er dem Ziel wirklich voraus ist -
+    // sonst ist es dieselbe Zahl zweimal.
+    const dazu =
+      schirm && schirm > ziel * 1.15
+        ? ` Der Bildschirm gaebe ${schirm.toFixed(0)} her; auf ${ziel.toFixed(0)} zu zielen ist die Wahl unter "Bilder/s" und kauft Schaerfe.`
+        : '';
+    /*
+     * Drei Stufen, nicht zwei - und die Schwelle war zu grosszuegig.
+     *
+     * Bisher galt alles bis 1,25 Perioden als "gut". Auf dem Rechner, der
+     * das aufgedeckt hat, hiess das: 48 Bilder je Sekunde bei einem Ziel von
+     * 60, also jedes fuenfte Bild weg, gemeldet als "gut". Es ging gerade so
+     * durch - 20,8 zu 16,7 sind 1,246 - und war damit die unbrauchbarste
+     * Sorte Auskunft: formal richtig, praktisch beruhigend, wo Handlungsbedarf
+     * ist.
+     *
+     * Woran die neue Grenze haengt: Der Regler selbst pendelt sich bei vier
+     * verpassten Bildern von hundert ein (siehe bremseNachfuehren). Eine
+     * Anzeige, die erst bei fuenfundzwanzig Prozent Ausfall Alarm gibt, misst
+     * also mit einem sechsmal groberen Mass als die Maschine, ueber die sie
+     * berichtet. Bis 1,1 Perioden ist das, worauf der Regler zielt; darueber
+     * stimmt etwas nicht, auch wenn es noch fluessig aussieht.
+     */
+    const verhaeltnis = a.fraktal.abstandMs / a.fraktal.taktMs;
     zeilen.push([
-      a.fraktal.abstandMs <= a.fraktal.taktMs * 1.25 ? 'gut' : 'schlecht',
-      `${bilder.toFixed(0)} Bilder je Sekunde bei einem Bildschirm, der ${moeglich.toFixed(0)} hergibt.`,
+      verhaeltnis <= 1.1 ? 'gut' : verhaeltnis <= 1.35 ? 'offen' : 'schlecht',
+      `${bilder.toFixed(0)} Bilder je Sekunde bei einem Ziel von ${ziel.toFixed(0)}.${dazu}` +
+        (verhaeltnis > 1.1
+          ? ` Das ist ${(100 - 100 / verhaeltnis).toFixed(0)} Prozent unter dem Ziel - der Regler zielt auf hoechstens vier.`
+          : ''),
     ]);
   }
 
@@ -10807,14 +11239,28 @@ function technikAlsText(a) {
     );
     raus('Zoomtiefe', a.fraktal.tiefe);
     raus('Stelle', a.fraktal.ziel);
+    /*
+     * Zwei Zahlen, ein Name - deshalb steht hier "(Deckel)" dabei.
+     *
+     * Die Buehne rechnet Punkte mal Schrittdeckel durch Zeit. Das ist die
+     * Zahl, mit der der Regler arbeitet, und in sich stimmig: Er teilt
+     * sein Budget durch denselben Deckel wieder heraus.
+     *
+     * Der Messstand rechnet Punkte mal *wirklich gelaufene* Schritte. Die
+     * beiden liegen weit auseinander - auf dem Partyrechner 9203 gegen 132,
+     * ein Faktor 70 -, weil bei flachem Zoom fast jeder Punkt lange vor dem
+     * Deckel entkommt. Keine der beiden Zahlen ist falsch; nur zusammen in
+     * einen Satz gehoeren sie nicht.
+     */
     raus(
-      'Durchsatz',
+      'Durchsatz (Deckel)',
       a.fraktal.durchsatz
         ? `${(a.fraktal.durchsatz / 1e6).toFixed(2)} Mio Punkt-Schritte/ms`
         : null,
     );
     raus('Bildabstand', `${a.fraktal.abstandMs} ms`);
-    raus('Bildschirmtakt', `${a.fraktal.taktMs} ms`);
+    raus('Zieltakt', `${a.fraktal.taktMs} ms`);
+    raus('Bildschirmtakt', a.fraktal.schirmTaktMs ? `${a.fraktal.schirmTaktMs} ms` : null);
     raus('Ueberzug zeichnen', `${a.fraktal.ueberzugMs} ms`);
   } else {
     raus('Fraktal', 'laeuft nicht');
@@ -11388,6 +11834,29 @@ function mandalasMerken() {
   localStorage.setItem('djMandalas', JSON.stringify(mandalasAktive()));
 }
 
+/*
+ * Was der Messstand als teuer vermerkt hat.
+ *
+ * Ein Vermerk, kein Verbot. Der Messstand nimmt diese Mandalas aus der
+ * Vorauswahl, aber sie stehen hier weiter in der Liste und lassen sich mit
+ * einem Klick einschalten - wer eines davon schoen findet und selbst
+ * nachsieht, dass es traegt, soll das duerfen.
+ *
+ * Das Feld ist normalerweise leer, und das ist der erwartete Zustand: Auf
+ * einer Radeon RX 9070 XT lagen alle einundfuenfzig Mandalas zwischen 0,98x
+ * und 1,06x, bei einer Messstreuung von ±16 bis ±26 Prozent je Mandala. Es
+ * gab schlicht keinen Ausreisser. Die Anzeige hier ist fuer den Tag, an dem
+ * es einen gibt.
+ */
+function teuerLaut() {
+  try {
+    const roh = localStorage.getItem('djMandalasTeuer');
+    return roh ? new Map(Object.entries(JSON.parse(roh))) : new Map();
+  } catch {
+    return new Map();
+  }
+}
+
 let mandalaTakt = null;
 
 function mandalaZeichnen() {
@@ -11398,6 +11867,7 @@ function mandalaZeichnen() {
   // einem Telefon etwas anderes als auf einem Spielerechner.
   const gemessen = bericht.filter((m) => m.ms !== null).map((m) => m.ms);
   const mittel = gemessen.length ? gemessen.reduce((a, b) => a + b, 0) / gemessen.length : 0;
+  const teuer = teuerLaut();
 
   // Beim ersten Aufbau die Zeilen anlegen, danach nur noch die Werte
   // nachziehen - sonst verliert ein Kaestchen unter dem Finger den Fokus.
@@ -11419,9 +11889,14 @@ function mandalaZeichnen() {
       });
       const name = document.createElement('span');
       name.textContent = m.name;
+      // Der Vermerk des Messstands. Steht neben dem Namen und nicht bei den
+      // Kosten: Die Kosten sind das, was gerade laeuft, der Vermerk das, was
+      // einmal gemessen wurde.
+      const vermerk = document.createElement('span');
+      vermerk.className = 'vermerk';
       const kosten = document.createElement('span');
       kosten.className = 'kosten';
-      zeile.append(kasten, name, kosten);
+      zeile.append(kasten, name, vermerk, kosten);
       liste.append(zeile);
     }
   }
@@ -11431,6 +11906,13 @@ function mandalaZeichnen() {
     if (!m) continue;
     zeile.querySelector('input').checked = m.an;
     zeile.classList.toggle('laeuft', m.laeuft);
+    const vermerk = zeile.querySelector('.vermerk');
+    const f = teuer.get(m.id);
+    vermerk.textContent = f ? `teuer ${f.toFixed(2)}×` : '';
+    vermerk.title = f
+      ? `Der Messstand hat dieses Mandala mit dem ${f.toFixed(2)}-fachen der ` +
+        'Rechenzeit gemessen und aus der Vorauswahl genommen. Einschalten geht trotzdem.'
+      : '';
     const kosten = zeile.querySelector('.kosten');
     kosten.textContent = m.ms === null ? '–' : `${m.ms.toFixed(2)} ms`;
     kosten.classList.toggle('schwer', m.ms !== null && mittel > 0 && m.ms > mittel * 1.5);
@@ -11536,6 +12018,35 @@ $('pcModus').addEventListener('click', () => {
   zuruf(`PC-Modus: Güte hoch, 60 Bilder/s, alle ${MANDALAS.length} Mandalas. ` +
     'Ob es trägt, sagt der Messstand.');
 });
+
+/*
+ * Das Schachbrett.
+ *
+ * Halb so viele gerechnete Bildpunkte je Bild; die andere Haelfte wird aus
+ * den vier Nachbarn ergaenzt. Was dabei zwischengespeichert wird, ist die
+ * Ausstiegszeit und nicht die Farbe - die entsteht in jedem Bild neu, damit
+ * Palette, Farbversatz und Drop-Welle auf dem Schlag bleiben. Genau daran
+ * haengt, ob der Handel gut ist: Halbe Geometrie faellt kaum auf, halbe Farbe
+ * waere das Ende der Kopplung zwischen Musik und Bild.
+ *
+ * Die Wahl haelt ueber einen Neustart, weil sie zum Geraet gehoert und nicht
+ * zum Abend.
+ */
+{
+  const gemerkt = localStorage.getItem('djSchachbrett') === 'ja';
+  $('schachbrettWahl').checked = gemerkt;
+  schachbrettSetzen(gemerkt);
+  $('schachbrettWahl').addEventListener('change', (e) => {
+    const an = e.target.checked;
+    schachbrettSetzen(an);
+    localStorage.setItem('djSchachbrett', an ? 'ja' : 'nein');
+    zuruf(
+      an
+        ? 'Schachbrett an: halb so viele gerechnete Punkte. Die Farbe bleibt in jedem Bild neu.'
+        : 'Schachbrett aus: jeder Punkt wird gerechnet.',
+    );
+  });
+}
 
 /*
  * Bild gegen Ton nachstellen.
