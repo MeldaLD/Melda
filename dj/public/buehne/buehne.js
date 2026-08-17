@@ -986,8 +986,21 @@ function schattenUmschalten(an) {
   zuruf(an ? 'Schatten-DJ an.' : 'Schatten-DJ aus.');
 }
 {
-  // Vorgabe ist an; nur ein ausdrueckliches "nein" schaltet ihn ab.
-  const gemerkt = localStorage.getItem('djSchatten') !== 'nein';
+  /*
+   * Vorgabe ist jetzt *aus*.
+   *
+   * Die Figur ist aus fuenf einzeln gezeichneten Teilen zusammengesetzt, und
+   * das sieht man ihr an: zwei Schultern uebereinander, harte Naehte an den
+   * Gelenken, nichts verformt sich. Der erste Mensch, der sie gesehen hat,
+   * fand sie unheimlich - und eine Figur, die Leuten Angst macht, gehoert
+   * nicht ungefragt auf eine Geburtstagsleinwand.
+   *
+   * Sie bleibt eingebaut und einschaltbar (Taste D), weil die Bewegung
+   * stimmt: Nicken auf den Schlag, Arm hoch beim Aufbau, Kopfhoerer im
+   * Breakdown, Hand am Regler. Was fehlt, ist die Gestalt, und die kommt aus
+   * einer *einzigen* Zeichnung statt aus fuenf - siehe SCHATTENDJ.md.
+   */
+  const gemerkt = localStorage.getItem('djSchatten') === 'ja';
   $('schattenWahl').checked = gemerkt;
   schattenSetzen(gemerkt);
   $('schattenWahl').addEventListener('change', (e) => schattenUmschalten(e.target.checked));

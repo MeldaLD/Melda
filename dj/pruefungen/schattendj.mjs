@@ -69,6 +69,14 @@ try {
        * Stelle, an der er gebraucht wird.
        */
       lauf(bilder, grund = {}, bei = null) {
+        /*
+         * Einschalten gehoert dazu: Seit die Vorgabe "aus" ist, schaltet die
+         * Buehne beim Laden ab, und die Abnahme importiert dasselbe Modul.
+         * Ohne diese Zeile zeichnet schattenZeichnen() gar nicht und alle
+         * Messwerte sind null - was zuerst wie ein Fehler in der Geometrie
+         * aussah.
+         */
+        m.schattenSetzen(true);
         m.schattenZuruecksetzen();
         const dt = 1 / 60;
         const proben = [];
@@ -162,6 +170,7 @@ try {
     const aus = [];
     for (const bpm of [100, 140, 175]) {
       const m = window.__probe.m;
+      m.schattenSetzen(true);
       m.schattenZuruecksetzen();
       const dt = 1 / 60;
       const proben = [];
@@ -322,6 +331,7 @@ try {
   console.log('\nAbschalten heisst abschalten:');
   const aus = await seite.evaluate(() => {
     const { m, stift } = window.__probe;
+    m.schattenZuruecksetzen();
     const lein = stift.canvas;
     const lage = {
       sekunden: 1 / 60,
