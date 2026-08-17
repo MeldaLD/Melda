@@ -64,7 +64,7 @@ function rund(wert, stellen = 1) {
  * Alles einsammeln. `mandel` ist window.__mandel, also der laufende Stand des
  * Fraktals; ohne ihn kommt trotzdem alles Uebrige.
  */
-export async function technikSammeln(mandel = null, bild = null) {
+export async function technikSammeln(mandel = null, bild = null, ton = null) {
   const gpu = gpuAuskunft();
   const auskunft = {
     gpu,
@@ -73,6 +73,10 @@ export async function technikSammeln(mandel = null, bild = null) {
     bildschirm: bildschirmFragen(),
     speicher: speicherFragen(),
     fraktal: fraktalFragen(mandel, bild),
+    // Was die Buehne beim Start ueber die Abtastrate entschieden hat. Kommt
+    // von aussen, weil es eine Entscheidung der Buehne ist und keine
+    // Eigenschaft des Geraets.
+    ton: ton ?? null,
   };
   // Einmal nachsehen, ob die Karte unsere Zahlen unveraendert herausgibt.
   // Siehe gpuGenauigkeit() - das ist die Antwort auf einen Widerspruch in der
@@ -513,6 +517,24 @@ export function technikAlsText(a) {
   if (a.speicher.da) {
     zeilen.push('', '— Speicher (nur Chrome) —');
     raus('benutzt', `${a.speicher.benutztMb} MB von ${a.speicher.grenzeMb} MB`);
+  }
+
+  /*
+   * Was die Buehne beim Start ueber den Ton entschieden hat.
+   *
+   * Ohne diese vier Zeilen ist eine gesenkte Abtastrate ein Geheimnis: Es
+   * klingt dumpfer und niemand weiss warum. Mit ihnen steht die ganze
+   * Rechnung da - Laenge, Budget, Rate, Vorlauf.
+   */
+  if (a.ton) {
+    zeilen.push('', '— Ton —');
+    raus('Abtastrate', `${a.ton.rate} Hz`);
+    raus('laengster Track', a.ton.laengste ? `${Math.round(a.ton.laengste / 60)} Minuten` : null);
+    raus('Speicher dafuer', `${Math.round(a.ton.budget / 1e6)} MB`);
+    raus(
+      'naechster im Voraus',
+      a.ton.vorladen === false ? 'nein - kein Platz fuer zwei' : 'ja',
+    );
   }
 
   return zeilen.join('\n');

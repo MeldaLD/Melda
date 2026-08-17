@@ -10864,7 +10864,7 @@ function rund(wert, stellen = 1) {
  * Alles einsammeln. `mandel` ist window.__mandel, also der laufende Stand des
  * Fraktals; ohne ihn kommt trotzdem alles Uebrige.
  */
-async function technikSammeln(mandel = null, bild = null) {
+async function technikSammeln(mandel = null, bild = null, ton = null) {
   const gpu = gpuAuskunft();
   const auskunft = {
     gpu,
@@ -10873,6 +10873,10 @@ async function technikSammeln(mandel = null, bild = null) {
     bildschirm: bildschirmFragen(),
     speicher: speicherFragen(),
     fraktal: fraktalFragen(mandel, bild),
+    // Was die Buehne beim Start ueber die Abtastrate entschieden hat. Kommt
+    // von aussen, weil es eine Entscheidung der Buehne ist und keine
+    // Eigenschaft des Geraets.
+    ton: ton ?? null,
   };
   // Einmal nachsehen, ob die Karte unsere Zahlen unveraendert herausgibt.
   // Siehe gpuGenauigkeit() - das ist die Antwort auf einen Widerspruch in der
@@ -11315,6 +11319,24 @@ function technikAlsText(a) {
     raus('benutzt', `${a.speicher.benutztMb} MB von ${a.speicher.grenzeMb} MB`);
   }
 
+  /*
+   * Was die Buehne beim Start ueber den Ton entschieden hat.
+   *
+   * Ohne diese vier Zeilen ist eine gesenkte Abtastrate ein Geheimnis: Es
+   * klingt dumpfer und niemand weiss warum. Mit ihnen steht die ganze
+   * Rechnung da - Laenge, Budget, Rate, Vorlauf.
+   */
+  if (a.ton) {
+    zeilen.push('', '— Ton —');
+    raus('Abtastrate', `${a.ton.rate} Hz`);
+    raus('laengster Track', a.ton.laengste ? `${Math.round(a.ton.laengste / 60)} Minuten` : null);
+    raus('Speicher dafuer', `${Math.round(a.ton.budget / 1e6)} MB`);
+    raus(
+      'naechster im Voraus',
+      a.ton.vorladen === false ? 'nein - kein Platz fuer zwei' : 'ja',
+    );
+  }
+
   return zeilen.join('\n');
 }
 
@@ -11386,13 +11408,151 @@ if (welt.leitung.art === 'allein') {
   $('startEcht').disabled = tracks.length === 0;
 }
 
+/* --- Wieviel Ton passt in dieses Geraet? ------------------------------------
+ *
+ * Der Anlass ist ein Absturz auf dem iPhone: Mit den Testklaengen lief die
+ * Buehne, mit hochgeladener Musik brach sie ab. Die Rechnung dahinter ist
+ * nicht knapp, sondern eindeutig.
+ *
+ * Ein dekodierter Puffer belegt
+ *
+ *     Dauer * Abtastrate * Kanaele * 4 Byte
+ *
+ * Bei einem Stundenmix in 44,1 kHz Stereo sind das 1,27 Gigabyte. Fuer *einen*.
+ * Die Buehne haelt den laufenden und den naechsten - also zweieinhalb. Ein
+ * Safari-Tab auf dem Telefon stirbt weit darunter, und zwar ohne Fehlermeldung:
+ * Die Seite ist einfach weg. Ein Sechsminueter dagegen sind 127 Megabyte, und
+ * damit lief es jahrelang unauffaellig. Nicht die Musik ist neu, die *Laenge*
+ * ist es.
+ *
+ * Zwei Stellschrauben gibt es, und beide muessen *vor* dem ersten Dekodieren
+ * gestellt werden:
+ *
+ *   1. Die Abtastrate des Rechenwerks. decodeAudioData rechnet beim Dekodieren
+ *      auf die Rate des AudioContext um - der Spitzenverbrauch haengt also an
+ *      ihr, und sie laesst sich hinterher nicht mehr aendern. 22,05 kHz statt
+ *      44,1 halbiert alles. Auf einem Telefonlautsprecher hoert das niemand;
+ *      auf der Anlage am Partyabend wuerde man es hoeren, und deshalb wird
+ *      heruntergegangen, wenn es sein muss, und nicht vorsichtshalber.
+ *   2. Ob der naechste Track schon im Voraus geladen wird. Das kostet den
+ *      zweiten Puffer.
+ *
+ * Deshalb wird die Bibliothek jetzt *vor* dem Rechenwerk geholt: Erst wenn der
+ * laengste Track bekannt ist, laesst sich die Rate waehlen.
+ */
+
+/** Wie lang ein Track ist - die Tempokarte weiss es, ohne dass etwas laedt. */
+function spielzeit(track) {
+  const a = track?.abschnitte;
+  if (!Array.isArray(a) || !a.length) return null;
+  const bis = a[a.length - 1]?.bis;
+  return Number.isFinite(bis) && bis > 0 ? bis : null;
+}
+
+/*
+ * Was sich dieses Geraet an dekodiertem Ton leisten kann.
+ *
+ * navigator.deviceMemory gibt es nur in Chrome und nur grob gerundet - genau
+ * dort, wo es am wenigsten gebraucht wird. Safari verschweigt es, und Safari
+ * ist der Browser, in dem es kracht. Also wird geschaetzt, und die Schaetzung
+ * steht hier offen statt in einer Konstanten zu verschwinden:
+ *
+ *   - Meldet der Browser einen Speicher, gilt ein Fuenftel davon. Der Rest
+ *     gehoert dem Bild, der Seite und dem Betriebssystem.
+ *   - Schweigt er, entscheidet die Bauart: ein Geraet mit Beruehrungspunkten
+ *     und ohne Zeiger ist ein Telefon oder ein Tablett - 600 MB. Alles andere
+ *     ist ein Rechner - 3 GB, und das ist immer noch vorsichtig.
+ *
+ * Die Zahlen sind keine Messung, sondern eine Grenze, unterhalb derer nichts
+ * passieren *kann*. Wer sie zu eng findet, sieht in der Technikanzeige nach,
+ * was wirklich belegt ist.
+ */
+function speicherBudget() {
+  const gemeldet = navigator.deviceMemory;
+  if (Number.isFinite(gemeldet) && gemeldet > 0) {
+    return Math.min(3e9, gemeldet * 1e9 * 0.2);
+  }
+  const zeiger = window.matchMedia?.('(pointer: fine)')?.matches;
+  const beruehrung = (navigator.maxTouchPoints ?? 0) > 0;
+  return beruehrung && !zeiger ? 600e6 : 3e9;
+}
+
+/*
+ * Die Abtastraten, in der Reihenfolge, in der aufgegeben wird.
+ *
+ * 16 kHz klingt hoerbar dumpf und steht trotzdem hier: Es ist die Stufe
+ * zwischen "spielt mit weniger Hoehen" und "spielt gar nicht", und auf einem
+ * Telefonlautsprecher ist der Unterschied kleiner als man denkt. Weiter
+ * herunter lohnt nicht - unter 16 kHz verliert eine Hi-Hat ihren Charakter,
+ * und dann stimmt das Bild zur Musik nicht mehr.
+ */
+const RATEN = [44100, 32000, 22050, 16000];
+
+/** Ein dekodierter Puffer in Byte: Dauer mal Rate mal zwei Kanaele mal vier. */
+const pufferBytes = (sekunden, rate) => sekunden * rate * 2 * 4;
+
+/*
+ * Die Rate waehlen - und notfalls den Vorlauf opfern statt der Musik.
+ *
+ * Drei Stufen, in dieser Reihenfolge, weil sie nach dem Preis geordnet sind:
+ *
+ *   1. Die hoechste Rate, bei der *zwei* Puffer passen. Das ist der bisherige
+ *      Betrieb: laufender und naechster liegen bereit, der Uebergang sitzt
+ *      auf dem Beat. Auf einem Rechner endet die Suche hier immer.
+ *   2. Passt das nicht, die hoechste Rate, bei der wenigstens *einer* passt -
+ *      dann ohne Vorlauf. Der naechste Track wird erst geholt, wenn er
+ *      gebraucht wird; das kann am Uebergang haken. Ein hakender Uebergang
+ *      ist aber unendlich viel besser als eine Seite, die stirbt.
+ *   3. Passt auch das nicht, die niedrigste Rate und ohne Vorlauf. Dann wird
+ *      es beim Laden eine Meldung geben statt eines Absturzes - siehe
+ *      pufferFuer().
+ *
+ * Die Reihenfolge ist wichtig: Erst die Klangqualitaet opfern, dann den
+ * Vorlauf. Umgekehrt haette der Partyrechner mit seinen 64 GB ploetzlich
+ * keinen Vorlauf mehr gehabt, obwohl er ihn muehelos traegt.
+ */
+function abtastrateWaehlen(bibliothek) {
+  const budget = speicherBudget();
+  const laengste = Math.max(0, ...bibliothek.map((t) => spielzeit(t) ?? 0));
+  if (!laengste) return { rate: 44100, laengste: 0, budget, vorladen: true };
+  for (const rate of RATEN) {
+    if (pufferBytes(laengste, rate) * 2 <= budget) {
+      return { rate, laengste, budget, vorladen: true };
+    }
+  }
+  for (const rate of RATEN) {
+    if (pufferBytes(laengste, rate) <= budget) {
+      return { rate, laengste, budget, vorladen: false };
+    }
+  }
+  return { rate: RATEN[RATEN.length - 1], laengste, budget, vorladen: false };
+}
+
+/*
+ * Offenlegen, damit die Abnahme rechnen kann, ohne eine Stunde Musik zu
+ * brauchen: Die Rechnung haengt allein an Laenge, Rate und Budget.
+ */
+welt.tonRechnung = { spielzeit, speicherBudget, abtastrateWaehlen, pufferBytes, RATEN };
+
 async function starten(demo) {
   welt.demo = demo;
   $('startDemo').disabled = true;
   $('startEcht').disabled = true;
 
   try {
-    welt.ctx = new (window.AudioContext ?? window.webkitAudioContext)({ sampleRate: 44100 });
+    /*
+     * Bei echter Musik zuerst die Bibliothek, dann das Rechenwerk - siehe
+     * oben. Im Pruefstand entstehen die Klaenge erst danach und richten sich
+     * ohnehin nach der Rate, die dasteht.
+     */
+    let wahl = { rate: 44100, laengste: 0, budget: speicherBudget() };
+    if (!demo) {
+      welt.bibliothek = await welt.leitung.bibliothek();
+      wahl = abtastrateWaehlen(welt.bibliothek);
+      welt.tonBudget = wahl;
+    }
+
+    welt.ctx = new (window.AudioContext ?? window.webkitAudioContext)({ sampleRate: wahl.rate });
     await welt.ctx.resume();
     welt.mixer = new Mixer(welt.ctx);
 
@@ -11410,8 +11570,6 @@ async function starten(demo) {
       $('pruefstandMarke').textContent =
         welt.leitung.art === 'allein' ? 'Prüfstand · ohne Server' : 'Prüfstand';
       $('pruefstandMarke').hidden = false;
-    } else {
-      welt.bibliothek = await welt.leitung.bibliothek();
     }
 
     $('startschirm').hidden = true;
@@ -11447,8 +11605,55 @@ async function naechstenErfragen() {
   return track;
 }
 
-async function pufferFuer(track) {
+/** Was gerade an dekodiertem Ton im Speicher liegt, in Byte. */
+function belegt() {
+  let summe = 0;
+  for (const p of welt.puffer.values()) summe += p.length * p.numberOfChannels * 4;
+  return summe;
+}
+
+/*
+ * Passt noch einer dazu? Und wenn nicht - was muss weg?
+ *
+ * Aufgeraeumt wird jetzt *vor* dem Dekodieren und nicht danach. Der
+ * Unterschied entscheidet auf einem Telefon ueber Leben und Tod der Seite:
+ * Wer erst den zweiten Stundenmix dekodiert und dann den ersten freigibt,
+ * haelt fuer einen Augenblick beide - und genau dieser Augenblick ist der,
+ * in dem der Tab stirbt.
+ */
+function platzSchaffen(brauchtBytes, behalten) {
+  const budget = welt.tonBudget?.budget ?? speicherBudget();
+  if (welt.demo) return true;
+  for (const id of [...welt.puffer.keys()]) {
+    if (belegt() + brauchtBytes <= budget) break;
+    if (behalten.includes(id)) continue;
+    welt.puffer.delete(id);
+  }
+  return belegt() + brauchtBytes <= budget;
+}
+
+async function pufferFuer(track, behalten = []) {
   if (welt.puffer.has(track.id)) return welt.puffer.get(track.id);
+
+  /*
+   * Vor dem Laden rechnen, nicht danach hoffen.
+   *
+   * Die Tempokarte kennt die Laenge, ohne dass ein Byte geflossen ist. Passt
+   * der Track auch nach dem Aufraeumen nicht, wird er gar nicht erst geholt -
+   * und der Grund steht in der Meldung. Vorher gab es an dieser Stelle keine
+   * Meldung: Die Seite war einfach weg, und auf dem Telefon sieht das aus wie
+   * "geht nicht", ohne jeden Hinweis worauf.
+   */
+  const dauer = spielzeit(track);
+  const braucht = dauer ? pufferBytes(dauer, welt.ctx.sampleRate) : 0;
+  if (braucht && !platzSchaffen(braucht, [track.id, ...behalten])) {
+    const mb = (x) => `${Math.round(x / 1e6)} MB`;
+    throw new Error(
+      `„${track.titel}" ist ${Math.round(dauer / 60)} Minuten lang und braucht dekodiert ` +
+        `${mb(braucht)}. Dieses Gerät hat dafür ${mb(welt.tonBudget?.budget ?? speicherBudget())}. ` +
+        'Auf einem Rechner läuft es; auf dem Telefon braucht es kürzere Dateien.',
+    );
+  }
 
   // `quelle` ist eine fertige Adresse (Supabase), `datei` ein Name im
   // Musikordner des lokalen Servers. Die Buehne muss nicht wissen, welches
@@ -11476,7 +11681,23 @@ async function naechstenVorbereiten() {
   welt.laedt = true;
   try {
     const track = await naechstenErfragen();
-    await pufferFuer(track);
+    /*
+     * Der laufende Track darf beim Vorladen nicht weggeraeumt werden - er
+     * spielt gerade. Ohne diese Liste warf platzSchaffen() genau den heraus,
+     * den man hoert.
+     */
+    const laeuft = welt.mixer?.laufendesDeck?.track?.id;
+    /*
+     * Wo zwei Puffer nicht nebeneinander passen, wird nur der *Titel*
+     * vorgemerkt und nicht der Ton. Geholt wird er dann in ueberblenden(),
+     * unmittelbar bevor er gebraucht wird - der laufende ist zu diesem
+     * Zeitpunkt fast durch und darf weichen.
+     */
+    if (welt.tonBudget?.vorladen === false) {
+      welt.naechster = track;
+      return;
+    }
+    await pufferFuer(track, laeuft ? [laeuft] : []);
     welt.naechster = track;
   } catch (fehler) {
     console.error('Nachschub fehlgeschlagen', fehler);
@@ -11503,7 +11724,9 @@ async function ueberblenden(artWunsch = null) {
   welt.naechster = null;
 
   try {
-    const puffer = welt.puffer.get(track.id) ?? (await pufferFuer(track));
+    const laufend = welt.mixer?.laufendesDeck?.track?.id;
+    const puffer =
+      welt.puffer.get(track.id) ?? (await pufferFuer(track, laufend ? [laufend] : []));
     const angepasst = welt.angleichAn ? track : { ...track, angleichDb: 0 };
     const plan = welt.mixer.uebergang(angepasst, puffer, artWunsch || null, welt.zielenergie);
 
@@ -11794,7 +12017,7 @@ document.addEventListener('keydown', (e) => {
 let technikTakt = null;
 
 async function technikZeichnen() {
-  const auskunft = await technikSammeln(window.__mandel ?? null, bild ?? null);
+  const auskunft = await technikSammeln(window.__mandel ?? null, bild ?? null, welt.tonBudget ?? null);
   const zeichen = { gut: '✓', schlecht: '✗', offen: '·' };
   $('technikUrteil').innerHTML = '';
   for (const [art, satz] of auskunft.urteil) {
