@@ -106,52 +106,86 @@ Momenten voller Symmetrie, und mit spürbarem Bauaufwand.
 
 ## Vorschlag 2: BLA statt Reihenentwicklung
 
-**Der größte Posten für die tiefen Zeilen – aber noch nicht fertig gedacht.**
+**Der größte Posten für die tiefen Zeilen. Verworfen, dann korrigiert.**
 
 Heute springt die Reihenentwicklung einmal am Anfang und überspringt damit
 bei Tiefe 16 genau 2694 von 12467 Schritten (**22 %**). BLA (bilineare
 Näherung, Zhuoran 2021) springt überall dort, wo der Sprung zulässig ist,
 und ist das, womit moderne Tiefenzoomer arbeiten.
 
-Prototyp gebaut und gezählt:
+Prototyp gebaut und gezählt (`node werkzeuge/blaprobe.mjs`):
 
 | Tiefe | echte Schritte ohne | mit BLA | Ersparnis |
 |---:|---:|---:|---:|
 | 10 | 1148 | 392 | **66 %** |
 | 12 | 2080 | 715 | **66 %** |
 | 14 | 3490 | 669 | **81 %** |
-| 16 | 8546 | 800 | **91 %** |
+| 16 | 8546 | 800 | **87 – 91 %** |
 
-**Und dann der Haken, der alles entscheidet.** Das Bild stimmt nicht. Bei
-Tiefe 16 weichen 11 % der Bildpunkte sichtbar ab, und zwar in der
-schlimmsten denkbaren Form:
+### Der Irrtum, und wie er aufgeflogen ist
 
-- Die abweichenden Punkte liegen **einzeln** – 53 bis 94 % von ihnen haben
-  keinen abweichenden Nachbarn. Das ist kein anderes Bild, das ist Grieß.
-- Und es sind bei jedem Bild **andere** Punkte: Zwischen Tiefe 16,00 und
-  16,02 überschneiden sich die abweichenden Mengen nur zu 2 bis 8 %.
+Mein erstes Urteil lautete: unbrauchbar. Bei Tiefe 16 weichen mit
+ε = 2⁻²⁴ 9,7 % der Bildpunkte sichtbar ab, davon liegen 57 % **einzeln** –
+kein anderes Bild, sondern Grieß –, und von Bild zu Bild sind es andere
+Punkte (7 % Überschneidung). Funkelndes Rauschen also, das Auffälligste, was
+es auf einer Leinwand gibt.
 
-Zusammen heißt das: **funkelndes Rauschen**. Auf einer Leinwand ist das das
-Auffälligste, was es gibt – auffälliger als jedes Ruckeln.
+Was dabei fehlte, war die Kontrolle: **Wie unruhig ist das Bild von sich
+aus?** Nachgemessen ohne jedes BLA (`node werkzeuge/bildunruhe.mjs`), bei
+Tiefe 16, für einen Tiefenschritt, wie er zwischen zwei Bildern passiert:
 
-Enger gestellt wird es besser, aber die Ersparnis fällt mit:
-
-| Toleranz | Ersparnis (Tiefe 16) | sichtbar abweichend |
+| Tiefenschritt | sichtbar geändert | davon einzeln |
 |---|---:|---:|
-| 1e-6 | 91 % | 11,3 % |
-| 1e-8 | 80 % | 6,2 % |
-| 1e-10 | 65 % | 2,2 % |
-| 1e-12 | 38 % | 0,9 % |
+| 0,0002 (ein Bild) | **35,9 %** | 12 % |
+| 0,002 | 54,8 % | 2 % |
+| 0,02 | 77,8 % | 0 % |
 
-Selbst bei 1e-12 flimmert noch fast jeder hundertste Punkt.
+Das Bild ändert sich in einem einzigen Bildschritt von selbst um 36 % – BLA
+ändert 9,7 %. Der Vorwurf „BLA verändert das Bild" ist damit erledigt.
 
-**Mein Verdacht, warum:** Der Prototyp springt über Stellen hinweg, an denen
-die Bahn eigentlich neu angesetzt werden müsste (Zhuorans Rebasing, die Zeile
-`if (r2 < dot(d,d) || m >= bahnLaenge-1)` im Schattierer). Genau die Punkte,
-bei denen das passiert, liegen verstreut und wechseln von Bild zu Bild – das
-paßt zum Befund. In der Literatur ist BLA korrekt; der Fehler liegt also
-vermutlich bei mir und nicht am Verfahren. **Das ist die eine Stelle, an der
-ich Recherche brauche.**
+Was **bleibt**, ist der Unterschied in der Art: Die natürliche Änderung ist zu
+88 % zusammenhängend – das Bild *bewegt sich*. Die BLA-Abweichung ist zu 57 %
+einzeln – sie *funkelt*. In absoluten Zahlen:
+
+- natürlich einzeln geänderte Punkte je Bild: 12 % von 35,9 % = **4,3 %**
+- durch BLA zusätzlich: 57 % von 9,7 % = **5,5 %**
+
+**BLA verdoppelt also ungefähr das Funkeln, das ohnehin da ist, und spart
+dafür 87 % der Rechenschritte.** Das ist ein ganz anderer Handel als „geht
+nicht", und ob er gut ist, entscheidet ein Blick auf die Leinwand und nicht
+diese Tabelle.
+
+### Was die Recherche geklärt hat
+
+- Mein Gültigkeitsradius war falsch. Richtig ist (Fraktaler 3):
+  `R = max(0, ε|A| − |B||c|/|A|)`, für Mandelbrot mit A = 2Z, B = 1 also
+  `R = max(0, 2ε|Z| − |c|/(2|Z|))`. Korrigiert – und es ändert am Ergebnis
+  **fast nichts** (87 % statt 91 % Ersparnis, 9,7 % statt 11,3 % Abweichung).
+  Die Formel war nicht die Ursache.
+- Die Verschmelzungsregel hatte ich richtig:
+  `R = max(0, min(R_x, (R_y − |B_x||c|)/|A_x|))`.
+- ε für float32 ist **2⁻²⁴ ≈ 5,96e-8** – nicht 2⁻²³.
+- Rebasing wird **an der BLA-Grenze** geprüft, nicht innerhalb des Sprungs.
+  So macht es der Prototyp bereits.
+- Es gibt eine ältere, rebasing-bewusste Bedingung:
+  `|z| ≪ (|Z| − |B||c|)/(|A| + 1)`. Ausprobiert: Sie macht die Abweichung
+  zusammenhängend statt einzeln (Grieß-Anteil fällt von 57 % auf 0–19 %),
+  ist aber so großzügig, dass 39 bis 90 % des Bildes anders werden. Für sich
+  genommen unbrauchbar; als Hinweis darauf, woher der Grieß kommt, wertvoll.
+- WebGL2 ohne Compute-Shader **kann** BLA: die Verschmelzungsstufen als
+  Mipmap-Ebenen, A/B in RGBA32F, R in R32F, Zugriff über
+  `texelFetch(tabelle, ivec2(j,0), stufe)`. Ein veröffentlichter Messwert für
+  genau diesen Weg existiert nicht.
+- Veröffentlichte Beschleunigungen: 5,2× bis 16,1× gegenüber Kalles
+  Fraktaler 2.15.5.
+
+### Wo es jetzt steht
+
+Nicht gebaut, nicht verworfen. Der nächste Schritt wäre kein weiterer
+Prototyp, sondern **hinsehen**: zwei Standbilder bei Tiefe 16, eines mit,
+eines ohne, nebeneinander. Wenn das zusätzliche Funkeln in Bewegung
+untergeht – und bei 36 % natürlicher Änderung je Bild spricht einiges dafür –,
+sind 87 % geschenkt.
 
 ## Vorschlag 3: die Fahrt nicht tiefer treiben, als der Rechner trägt
 
@@ -210,5 +244,8 @@ auffallen; sicher ist es erst, wenn man es sieht.
 3. **Vorschlag 1** (Kaleidoskop) – der größte Posten, aber erst nachdem die
    Bühne mitgeschrieben hat, wieviel des Abends überhaupt bei voller
    Symmetrie läuft.
-4. **Vorschlag 2** (BLA) – erst wenn die Frage nach dem Rebasing beantwortet
-   ist. Vorher ist es funkelndes Rauschen.
+4. **Vorschlag 2** (BLA) – die Frage nach dem Rebasing ist beantwortet
+   (Prüfung an der Sprunggrenze, so wie gebaut), und der Vorwurf des
+   Funkelns hat sich halbiert, als die Kontrolle nachgereicht wurde. Was
+   fehlt, ist kein Beweis mehr, sondern ein Blick: zwei Standbilder
+   nebeneinander.
