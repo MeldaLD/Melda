@@ -42,7 +42,7 @@ import path from 'node:path';
 
 const ADRESSE = process.env.DJ_ADRESSE ?? 'http://localhost:3000';
 const CHROM = process.env.CHROMIUM_PFAD;
-const QUELLE = path.resolve(process.argv[2] ?? 'werkzeuge/schattenquellen/figur.jpeg');
+const QUELLE = path.resolve(process.argv[2] ?? 'werkzeuge/schattenquellen/tpose.jpeg');
 const ZIEL = path.resolve('public/gemeinsam/schattenumriss.js');
 
 // Auf diese Hoehe wird vor dem Verfolgen verkleinert. Feiner bringt nichts:
@@ -202,50 +202,131 @@ try {
         s.map(([x, y]) => [(x - mitteX) / hoehe, (y - ly) / hoehe]),
       );
 
-      /*
-       * Was welche Schleife ist - und das ist ein Geschenk der Zeichnung.
+      /* --- Was welche Schleife ist ---------------------------------------
        *
-       * Erwartet hatte ich einen einzigen Umriss, aus dem die Arme per
-       * Gewichtung herausgeloest werden muessen. Herausgekommen sind vier
-       * *getrennte* Schleifen, weil die weisse Aermelnaht die Arme vom Rumpf
-       * abschneidet. Damit ist die Trennung schon in der Zeichnung erledigt,
-       * und die Naht deckt beim Drehen zugleich die Fuge ab - besser haette
-       * man es nicht anlegen koennen.
+       * Die Zeichnung bringt die Zerlegung mit: weisse Linien trennen Kopf
+       * vom Shirt, Unterarm vom Oberarm, Hose vom Shirt. Hier wird nur
+       * zugeordnet und an der Achsel nachgeschnitten - nicht geraten.
        *
-       * Zugeordnet wird nach Bauart, nicht nach Reihenfolge: Die groesste
-       * Schleife ist der Koerper. Von den uebrigen sind die beiden, die am
-       * weitesten nach unten reichen, die Arme (links und rechts nach ihrer
-       * Lage); was dann noch bleibt, gehoert zum Kopf und wird mit ihm
-       * gedreht - beim vorliegenden Bild der Kopfhoererbuegel.
+       * Zugeordnet wird nach Bauart, nie nach Reihenfolge, damit eine andere
+       * Zeichnung nicht alles ungueltig macht:
+       *
+       *   - Loecher sind Schleifen, die ganz in einer anderen liegen. Sie
+       *     gehoeren zu ihrer Wirtsschleife und werden mit ihr in einem Pfad
+       *     gefuellt; die Gerade-Ungerade-Regel macht daraus von selbst ein
+       *     Loch. Hier ist das der Spalt unter dem Kopfhoererbuegel.
+       *   - Der Kopf ist die Schleife, die den Scheitel enthaelt.
+       *   - Der Rumpf ist die groesste der uebrigen.
+       *   - Die Unterarme sind die zwei, die am weitesten von der Mitte weg
+       *     liegen.
+       *   - Was dann noch bleibt, steht still - hier die Hose.
        */
-      const mass = (s) => {
-        let lx2 = 1e9, rx2 = -1e9, ly2 = 1e9, ry2 = -1e9, sx = 0;
-        for (const [x, y] of s) {
+      const mass = (s2) => {
+        let lx2 = 1e9, rx2 = -1e9, ly2 = 1e9, ry2 = -1e9, sx = 0, sy = 0;
+        for (const [x, y] of s2) {
           if (x < lx2) lx2 = x; if (x > rx2) rx2 = x;
           if (y < ly2) ly2 = y; if (y > ry2) ry2 = y;
-          sx += x;
+          sx += x; sy += y;
         }
-        return { lx: lx2, rx: rx2, ly: ly2, ry: ry2, mx: sx / s.length };
+        return { lx: lx2, rx: rx2, ly: ly2, ry: ry2, mx: sx / s2.length, my: sy / s2.length };
       };
-      const masse = normiert.map(mass);
+      const flaeche = (s2) => {
+        let f2 = 0;
+        for (let i = 0; i < s2.length; i++) {
+          const [x1, y1] = s2[i];
+          const [x2, y2] = s2[(i + 1) % s2.length];
+          f2 += x1 * y2 - x2 * y1;
+        }
+        return Math.abs(f2) / 2;
+      };
+      const imInneren = (s2, px, py) => {
+        let ja = false;
+        for (let i = 0, j = s2.length - 1; i < s2.length; j = i++) {
+          const [xi, yi] = s2[i];
+          const [xj, yj] = s2[j];
+          if ((yi > py) !== (yj > py) && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi) ja = !ja;
+        }
+        return ja;
+      };
+
+      /* --- Messen entlang der eigenen Achse -------------------------------
+       *
+       * Alles Folgende misst Querschnitte - die schmalste Stelle des Halses,
+       * das Handgelenk, den Ballen. Die erste Fassung nahm dafuer waagerechte
+       * Zeilen, weil die Figur mit haengenden Armen gezeichnet war.
+       *
+       * Diese Zeichnung steht im T-Pose, und da liegen die Arme *quer*. Eine
+       * waagerechte Zeile durch einen waagerechten Unterarm misst nicht seine
+       * Dicke, sondern seine Laenge. Deshalb bekommt jedes Teil seine eigene
+       * Hauptachse (Hauptkomponente seiner Punktwolke), und gemessen wird
+       * senkrecht dazu. Damit ist es gleichgueltig, in welcher Haltung
+       * gezeichnet wurde.
+       */
+      const achseVon = (S) => {
+        const m = mass(S);
+        let sxx = 0, sxy = 0, syy = 0;
+        for (const [x, y] of S) {
+          const dx = x - m.mx;
+          const dy = y - m.my;
+          sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
+        }
+        const w = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+        return { cx: m.mx, cy: m.my, dx: Math.cos(w), dy: Math.sin(w) };
+      };
+      // In das Achsensystem: [quer, laengs]. 'laengs' liegt auf der zweiten
+      // Stelle, damit die vorhandene Zeilenmessung unveraendert weiterlaeuft.
+      const insSystem = (S, a2) =>
+        S.map(([x, y]) => {
+          const px = x - a2.cx;
+          const py = y - a2.cy;
+          return [-px * a2.dy + py * a2.dx, px * a2.dx + py * a2.dy];
+        });
+      const ausSystem = (a2, q, l) => [
+        a2.cx - q * a2.dy + l * a2.dx,
+        a2.cy + q * a2.dx + l * a2.dy,
+      ];
+      // Die Achse so drehen, dass 'laengs' von `weg` fort zeigt.
+      const achseWeg = (S, weg) => {
+        const a2 = achseVon(S);
+        const r = insSystem(S, a2);
+        let nahL = 0, nahD = Infinity;
+        for (let i = 0; i < S.length; i++) {
+          const d = (S[i][0] - weg[0]) ** 2 + (S[i][1] - weg[1]) ** 2;
+          if (d < nahD) { nahD = d; nahL = r[i][1]; }
+        }
+        return nahL > 0 ? { ...a2, dx: -a2.dx, dy: -a2.dy } : a2;
+      };
+      // Der Schwerpunkt der Punkte am aeussersten Ende einer Achse.
+      const endMitte = (S, a2, amEnde) => {
+        const r = insSystem(S, a2);
+        let lo = 1e9, hi = -1e9;
+        for (const [, l] of r) { if (l < lo) lo = l; if (l > hi) hi = l; }
+        const grenze = amEnde ? hi - (hi - lo) * 0.06 : lo + (hi - lo) * 0.06;
+        let sq = 0, sl = 0, n2 = 0;
+        for (const [q, l] of r) {
+          if (amEnde ? l >= grenze : l <= grenze) { sq += q; sl += l; n2++; }
+        }
+        return ausSystem(a2, sq / n2, sl / n2);
+      };
 
       /*
-       * Die Breite einer Schleife auf einer Hoehe - als echte Schnittpunkte
-       * mit den Kanten, nicht als Streuung der Eckpunkte.
+       * Querschnitte: echte Schnittpunkte mit den Kanten, nicht die Streuung
+       * der Eckpunkte.
        *
-       * Der Unterschied ist kein Feinschliff, sondern war ein Fehler: Zuerst
-       * wurden je Zeile die vorhandenen *Eckpunkte* zusammengefasst. Nach
-       * Douglas-Peucker liegen auf einer langen geraden Kante aber gar keine
-       * Eckpunkte mehr - in solchen Zeilen kam Breite null heraus, und die
-       * Suche nach der schmalsten Stelle fand statt des Halses eine Luecke in
-       * den Messdaten. Der Hals landete dadurch bei 0,185 mitten im Kiefer
-       * statt bei 0,245.
+       * Der Unterschied war ein Fehler: Zuerst wurden je Zeile die
+       * vorhandenen *Eckpunkte* zusammengefasst. Nach Douglas-Peucker liegen
+       * auf einer langen geraden Kante aber gar keine - in solchen Zeilen kam
+       * Breite null heraus, und die Suche nach der schmalsten Stelle fand
+       * statt des Halses eine Luecke in den Messdaten.
+       *
+       * Angewandt wird das gleich auf *gedrehte* Punktlisten, damit quer zur
+       * jeweiligen Achse gemessen wird und nicht quer zum Bild.
        */
-      const spanne = (s, y) => {
+      const spanne = (s2, y) => {
         let l = 1e9, r = -1e9;
-        for (let i = 0; i < s.length; i++) {
-          const [x1, y1] = s[i];
-          const [x2, y2] = s[(i + 1) % s.length];
+        for (let i = 0; i < s2.length; i++) {
+          const [x1, y1] = s2[i];
+          const [x2, y2] = s2[(i + 1) % s2.length];
           if ((y1 <= y) === (y2 <= y)) continue;
           const x = x1 + ((x2 - x1) * (y - y1)) / (y2 - y1);
           if (x < l) l = x;
@@ -253,208 +334,327 @@ try {
         }
         return r < l ? null : [l, r];
       };
-      const breiteBei = (s, y) => {
-        const p = spanne(s, y);
+      const breiteBei = (s2, y) => {
+        const p = spanne(s2, y);
         return p ? p[1] - p[0] : 0;
-      };
-      const achseBei = (s, y) => {
-        const p = spanne(s, y);
-        return p ? (p[0] + p[1]) / 2 : null;
       };
       // Fein genug, dass ein Handgelenk nicht zwischen zwei Proben faellt.
       const SCHRITT = 0.002;
-      const suchen = (s, von2, bis2, besser) => {
-        let wert = null, wo = von2;
+      const suchen = (s2, von2, bis2, besser) => {
+        let wert = null;
+        let wo = von2;
         for (let y = von2; y <= bis2; y += SCHRITT) {
-          const w = breiteBei(s, y);
+          const w = breiteBei(s2, y);
           if (w <= 0) continue;
           if (wert === null || besser(w, wert)) { wert = w; wo = y; }
         }
         return { y: wo, w: wert ?? 0 };
       };
-      const weiteste = (s, a, b3) => suchen(s, a, b3, (w, v) => w > v);
-      const engste = (s, a, b3) => suchen(s, a, b3, (w, v) => w < v);
+      const weiteste = (s2, a2, b3) => suchen(s2, a2, b3, (w, v) => w > v);
+      const engste = (s2, a2, b3) => suchen(s2, a2, b3, (w, v) => w < v);
       /*
        * Die Mitte einer schmalen Stelle statt ihres tiefsten Punktes.
        *
-       * Ein Handgelenk ist im Umriss kein spitzes Minimum, sondern eine flache
-       * Mulde: ueber fuenf Prozent der Armlaenge aendert sich die Breite um
-       * weniger als ein Zehntel Bildpunkt. Welche Probe darin die kleinste
-       * ist, entscheidet das Rauschen der Zeichnung. Gemessen kam links 0,829
-       * heraus und rechts 0,793 - fuer zwei spiegelgleich gezeichnete Arme.
-       * Die Mitte der Mulde ist stabil, der tiefste Punkt nicht.
+       * Ein Handgelenk ist im Umriss kein spitzes Minimum, sondern eine
+       * flache Mulde: ueber fuenf Prozent der Armlaenge aendert sich die
+       * Breite kaum. Welche Probe darin die kleinste ist, entscheidet das
+       * Rauschen der Zeichnung - gemessen kam links 0,829 heraus und rechts
+       * 0,793, fuer zwei spiegelgleich gezeichnete Arme. Die Mitte der Mulde
+       * ist stabil, der tiefste Punkt nicht.
        */
-      const muldenMitte = (s, a, b3, toleranz = 1.03) => {
-        const tief = engste(s, a, b3);
-        let von2 = null, bis2 = null;
-        for (let y = a; y <= b3; y += SCHRITT) {
-          const w = breiteBei(s, y);
+      const muldenMitte = (s2, a2, b3, toleranz = 1.03) => {
+        const tief = engste(s2, a2, b3);
+        let von2 = null;
+        let bis2 = null;
+        for (let y = a2; y <= b3; y += SCHRITT) {
+          const w = breiteBei(s2, y);
           if (w > 0 && w <= tief.w * toleranz) { if (von2 === null) von2 = y; bis2 = y; }
         }
         return von2 === null ? tief.y : (von2 + bis2) / 2;
       };
-      const koerper = 0; // schon nach Laenge sortiert
-      const rest = normiert.map((_, i) => i).filter((i) => i !== koerper);
-      rest.sort((a, b2) => masse[b2].ry - masse[a].ry);
-      const armIdx = rest.slice(0, 2).sort((a, b2) => masse[a].mx - masse[b2].mx);
-      const zubehoer = rest.slice(2);
 
-      const K = normiert[koerper];
+      const masse = normiert.map(mass);
+      const flaechen = normiert.map(flaeche);
 
-      /*
-       * Der Hals: die schmalste Stelle *zwischen* Kopf und Schultern.
+      // Loecher: Schwerpunkt liegt in einer groesseren Schleife.
+      const wirt = normiert.map((s2, i) => {
+        for (let j = 0; j < normiert.length; j++) {
+          if (j === i || flaechen[j] <= flaechen[i]) continue;
+          if (imInneren(normiert[j], masse[i].mx, masse[i].my)) return j;
+        }
+        return -1;
+      });
+      const obenAuf = normiert.map((_, i) => i).filter((i) => wirt[i] < 0);
+
+      const kopf = obenAuf.reduce((a2, i) => (masse[i].ly < masse[a2].ly ? i : a2), obenAuf[0]);
+      const ohneKopf = obenAuf.filter((i) => i !== kopf);
+      const koerper = ohneKopf.reduce((a2, i) => (flaechen[i] > flaechen[a2] ? i : a2), ohneKopf[0]);
+
+      /* --- Die Gliederkette finden ----------------------------------------
        *
-       * Oberhalb davon dreht der Kopf, unterhalb steht der Rumpf. Bei einem
-       * Plateau - und der Hals ist immer eines - wird die Mitte genommen; die
-       * erste gefundene Zeile waere sonst willkuerlich die oberste.
+       * Uebrig sind: zwei Oberarme, zwei Unterarme, der Kopfhoererbuegel und
+       * die Hose. Zugeordnet wird ueber Nachbarschaft, weil das ohne Wissen
+       * ueber diese eine Zeichnung auskommt:
+       *
+       *   1. Ein Armteil liegt seitlich neben dem Rumpf - sein Schwerpunkt
+       *      liegt weiter aussen als der halbe Rumpf breit ist. Hose und
+       *      Kopfhoerer fallen damit heraus, obwohl die Hose den Rumpf
+       *      beruehrt.
+       *   2. Je Seite ist der Oberarm das Teil, das dem Rumpf am naechsten
+       *      liegt, und der Unterarm das, was dem Oberarm am naechsten liegt.
+       *      Das ist die Kette Schulter - Ellenbogen - Hand, von innen nach
+       *      aussen abgelaufen.
+       *   3. Vom Rest gehoert zum Kopf, was dem Kopf naeher ist als dem
+       *      Rumpf. Alles andere steht still.
+       *
+       * Hier stand vorher ein Verfahren, das den Oberarm aus dem Rumpf
+       * *herausschneiden* musste, weil die vorige Zeichnung beide in einer
+       * Schleife hatte. Es ist weg: Diese Zeichnung trennt selbst, und ein
+       * Schnitt, den niemand mehr braucht, ist nur eine weitere Stelle, an
+       * der etwas schiefgehen kann.
        */
-      let halsY = 0.2;
+      const abstand = (A, B) => {
+        let d = Infinity;
+        for (const [ax, ay] of A) {
+          for (const [bx, by] of B) {
+            const q = (ax - bx) ** 2 + (ay - by) ** 2;
+            if (q < d) d = q;
+          }
+        }
+        return Math.sqrt(d);
+      };
+
+      const frei = ohneKopf.filter((i) => i !== koerper);
+      const halbeBreite = Math.max(Math.abs(masse[koerper].lx), Math.abs(masse[koerper].rx));
+      const seitlich = frei.filter((i) => Math.abs(masse[i].mx) > halbeBreite * 0.5);
+
+      const armPaare = [-1, 1].map((seite) => {
+        const meine = seitlich.filter((i) => Math.sign(masse[i].mx) === seite);
+        if (meine.length < 2) {
+          throw new Error(
+            `Auf einer Seite nur ${meine.length} Armteil(e) gefunden. Die Zeichnung braucht ` +
+              'je Seite Oberarm und Unterarm, durch eine weisse Linie getrennt.',
+          );
+        }
+        const oberarm = meine.reduce((a2, i) =>
+          abstand(normiert[i], normiert[koerper]) < abstand(normiert[a2], normiert[koerper]) ? i : a2,
+        );
+        const rest2 = meine.filter((i) => i !== oberarm);
+        const unterarm = rest2.reduce((a2, i) =>
+          abstand(normiert[i], normiert[oberarm]) < abstand(normiert[a2], normiert[oberarm]) ? i : a2,
+        );
+        return { seite, oberarm, unterarm };
+      });
+
+      const verbraucht = new Set([kopf, koerper, ...armPaare.flatMap((a2) => [a2.oberarm, a2.unterarm])]);
+      const uebrigNach = frei.filter((i) => !verbraucht.has(i));
+      const kopfTeile = uebrigNach.filter(
+        (i) => abstand(normiert[i], normiert[kopf]) <= abstand(normiert[i], normiert[koerper]),
+      );
+      const stillIdx = uebrigNach.filter((i) => !kopfTeile.includes(i));
+
+      /* --- Die Gelenke ----------------------------------------------------
+       *
+       * Alle am Bild gemessen. In der Vorgaengerzeichnung steckten Schulter
+       * und Ellenbogen unter einem T-Shirt-Aermel und mussten ueber
+       * Gliedmassenverhaeltnisse geschaetzt werden - mit einem Hebel von 4:1
+       * und entsprechend wackligem Ergebnis. Hier trennt die Zeichnung selbst
+       * an genau den Stellen, an denen die Knochen enden.
+       */
+      const KO = normiert[kopf];
+      let halsY;
       {
-        const kopf = weiteste(K, 0.03, 0.28).y;
-        const schulter = weiteste(K, 0.30, 0.75).y;
-        halsY = muldenMitte(K, kopf + SCHRITT, schulter - SCHRITT);
+        const schaedel = weiteste(KO, masse[kopf].ly + 0.02, masse[kopf].ly + 0.22).y;
+        halsY = muldenMitte(KO, schaedel + SCHRITT, masse[kopf].ry - SCHRITT);
       }
 
-      /*
-       * Die Gelenke je Arm - halb gemessen, halb Anatomie.
-       *
-       * Gemessen wird das *Handgelenk*: die schmalste Stelle zwischen
-       * Armmitte und Fingerspitze. Sie ist die einzige Stelle des Armes, die
-       * ein Umriss eindeutig verraet - Schulter und Ellenbogen liegen unter
-       * dem Aermel beziehungsweise in einer glatten Kontur ohne Einschnuerung.
-       *
-       * Aus dem Handgelenk folgt der Rest ueber die menschlichen
-       * Gliedmassenverhaeltnisse: Vom Schultergelenk bis zur Fingerspitze
-       * liegt das Handgelenk bei 75,5 %, der Ellenbogen bei 42,3 %. Damit
-       * ergibt sich das Schultergelenk rueckwaerts - und es landet dort, wo es
-       * hingehoert: im Rumpf, deutlich oberhalb der Aermelnaht. Die Naht als
-       * Drehpunkt zu nehmen (der naheliegende Fehler) laesst den Arm aus dem
-       * Aermel klappen statt in ihm zu drehen.
-       */
-      const HANDGELENK_ANTEIL = 0.755;
-      const ELLBOGEN_ANTEIL = 0.423;
+      const armMarken = armPaare.map((A) => {
+        const OA = normiert[A.oberarm];
+        const UA = normiert[A.unterarm];
+        const rumpfMitte = [masse[koerper].mx, masse[koerper].my];
 
-      const armMasse = armIdx.map((i) => {
-        const A = normiert[i];
-        const oben = masse[i].ly;
-        const unten = masse[i].ry;
-        const laenge = unten - oben;
-        const handgelenkY = muldenMitte(A, oben + laenge * 0.35, unten - laenge * 0.1);
-        return { i, A, oben, unten, laenge, handgelenkY };
-      });
-
-      /*
-       * Die Hoehe des Schultergelenks - am Rumpf gemessen, nicht am Arm.
-       *
-       * Der naheliegende Weg fuehrt rueckwaerts ueber das Handgelenk: Wenn es
-       * bei 75,5 % der Strecke Schulter-Fingerspitze liegt, laesst sich die
-       * Schulter ausrechnen. Der Weg ist verworfen, und zwar gemessen: Sein
-       * Hebel ist 1/(1-0,755) = 4,1, ein Messfehler von einem Prozent der
-       * Figurenhoehe wird zu vier. Die beiden spiegelgleich gezeichneten Arme
-       * lieferten so 0,357 und 0,210 fuer dieselbe Schulter, und selbst
-       * gemittelt landete sie bei 0,288 - ausserhalb des Rumpfes, der dort nur
-       * 0,098 breit ist. Ein Schultergelenk in der Luft.
-       *
-       * Der Rumpf sagt es direkter: Das Gelenk liegt dort, wo die Silhouette
-       * ihre volle Schulterbreite fast erreicht hat. Was darueber hinaus noch
-       * breiter wird, ist der Deltamuskel, der sich um das Gelenk herumlegt.
-       * Dort steigt die Breite steil an - ein Prozent Messfehler in der Breite
-       * kostet ein Drittel Prozent in der Hoehe, der Hebel ist also kleiner
-       * als eins statt vier.
-       */
-      const SCHULTER_ANTEIL = 0.8;
-      const schulterY = (() => {
-        const voll = weiteste(K, halsY, Math.min(...armMasse.map((a) => a.oben)));
-        for (let y = halsY; y <= voll.y; y += SCHRITT) {
-          if (breiteBei(K, y) >= voll.w * SCHULTER_ANTEIL) return y;
-        }
-        return (halsY + voll.y) / 2;
-      })();
-
-      /*
-       * Gegenprobe: Wo muesste das Handgelenk liegen, wenn die Schulter dort
-       * sitzt? Beide Wege sind unabhaengig - der eine kommt aus dem Rumpf, der
-       * andere aus den Gliedmassenverhaeltnissen. Stimmen sie ueberein, stimmt
-       * wahrscheinlich beides.
-       */
-      const gegenprobe = armMasse.map((a) => ({
-        gemessen: a.handgelenkY,
-        erwartet: schulterY + HANDGELENK_ANTEIL * (a.unten - schulterY),
-      }));
-
-      const armMarken = armMasse.map(({ i, A, oben, unten, laenge, handgelenkY }) => {
         /*
-         * Die Achse des Armes - eine Ausgleichsgerade durch die Mitten
-         * zwischen Aermelnaht und Handgelenk, nach oben bis zum Schultergelenk
-         * verlaengert. Der Arm haengt nicht senkrecht, sondern leicht nach
-         * aussen; wer ihn senkrecht annimmt, setzt das Schultergelenk zu weit
-         * innen und der Arm reisst beim Heben aus dem Aermel.
+         * Das Schultergelenk liegt *im* Rumpf, nicht an der Armwurzel.
+         *
+         * Genommen wird die Mitte des inneren Armendes und dann um ein
+         * Viertel der Armdicke weiter nach innen geschoben. Der Grund ist
+         * mechanisch: Dreht der Arm um seine aeusserste Wurzel, wandern
+         * deren Ecken beim Drehen heraus und es klafft. Liegt der Drehpunkt
+         * etwas tiefer, bleibt die Wurzel unter dem Shirt.
+         *
+         * Eine halbe Dicke war zu viel - damit sassen die Schultergelenke
+         * bei 0,103 Figurenhoehen und die Figur bekam die Schulterbreite
+         * eines Kindes, was die ganze Armgeometrie verzog. Ein Viertel
+         * genuegt, weil Arm und Rumpf einander an der Wurzel ohnehin
+         * ueberlappen.
          */
-        let n = 0, sy = 0, sx = 0, syy = 0, sxy = 0;
-        for (let y = oben + laenge * 0.06; y <= handgelenkY; y += SCHRITT) {
-          const x = achseBei(A, y);
-          if (x === null) continue;
-          n++; sy += y; sx += x; syy += y * y; sxy += x * y;
-        }
-        const nenner = n * syy - sy * sy;
-        const steigung = Math.abs(nenner) < 1e-9 ? 0 : (n * sxy - sx * sy) / nenner;
-        const achse0 = (sx - steigung * sy) / Math.max(n, 1);
-        const aufDerAchse = (y) => achse0 + steigung * y;
+        const achseO = achseWeg(OA, rumpfMitte);
+        const rO = insSystem(OA, achseO);
+        let loO = 1e9;
+        for (const [, l] of rO) if (l < loO) loO = l;
 
-        const ellbogenY = schulterY + ELLBOGEN_ANTEIL * (unten - schulterY);
-        // Die Hand als Endpunkt der Kette: die Mitte zwischen Handgelenk und
-        // Fingerspitze. Auf sie zielt die Umkehrkinematik, nicht auf die
-        // Spitze - eine Hand liegt mit dem Ballen auf dem Teller.
-        const handY = (handgelenkY + unten) / 2;
+        /*
+         * Die beiden Ecken der Armwurzel - die Enden des Schnitts, mit dem
+         * die Zeichnung den Arm vom Rumpf trennt. Sie sind die Grundlage fuer
+         * beides: das Gelenk und die Abdeckung der Fuge.
+         */
+        let e1 = null;
+        let e2 = null;
+        {
+          const grenze = loO + (breiteBei(rO, loO + 0.01) || 0.05) * 0.35;
+          let qmin = 1e9;
+          let qmax = -1e9;
+          for (const [q, l] of rO) {
+            if (l > grenze) continue;
+            if (q < qmin) { qmin = q; e1 = ausSystem(achseO, q, l); }
+            if (q > qmax) { qmax = q; e2 = ausSystem(achseO, q, l); }
+          }
+        }
+        // Obere Ecke zuerst - darauf verlaesst sich das Gelenk unten.
+        if (e1[1] > e2[1]) { const t = e1; e1 = e2; e2 = t; }
+        const wurzelLaenge = Math.hypot(e2[0] - e1[0], e2[1] - e1[1]);
+
+        /*
+         * Das Schultergelenk: die Mitte des Wurzelschnitts, ein Stueck weit
+         * in den Rumpf hineingeschoben.
+         *
+         * Das obere Drittel, und das ist zweimal korrigiert. Zuerst stand
+         * hier der Schwerpunkt der innersten Randpunkte, und der zieht
+         * dorthin, wo die Punkte dichter liegen - beim Aermelloch also an die
+         * Achselhoehle: gemessen 0,451, waehrend der Schnitt von 0,306 bis
+         * 0,471 reicht. Ein Schultergelenk fast in der Achsel, um das der
+         * ganze Arm schepperte.
+         *
+         * Die blosse Mitte war immer noch zu tief. Ein Schultergelenk sitzt
+         * nicht in der Mitte des Aermellochs, sondern in seinem oberen
+         * Drittel - der Aermelausschnitt reicht unten bis in die Achsel,
+         * oben endet er am Gelenk.
+         *
+         * Das Hineinschieben ist mechanisch: Dreht der Arm um einen Punkt auf
+         * seiner Wurzel, wandern deren Ecken beim Drehen heraus. Ein Fuenftel
+         * der Wurzellaenge tiefer bleibt die Wurzel unter dem Shirt.
+         */
+        const OBERES_DRITTEL = 0.35;
+        const schulter = [
+          e1[0] + (e2[0] - e1[0]) * OBERES_DRITTEL - achseO.dx * wurzelLaenge * 0.2,
+          e1[1] + (e2[1] - e1[1]) * OBERES_DRITTEL - achseO.dy * wurzelLaenge * 0.2,
+        ];
+        const dicke = breiteBei(rO, loO + 0.01);
+
+        // Der Ellenbogen: die Mitte zwischen den beiden Enden, die sich in
+        // der weissen Naht gegenueberstehen.
+        const endeO = endMitte(OA, achseO, true);
+        const achseU = achseWeg(UA, endeO);
+        const anfangU = endMitte(UA, achseU, false);
+        const ellbogen = [(endeO[0] + anfangU[0]) / 2, (endeO[1] + anfangU[1]) / 2];
+
+        /*
+         * Handgelenk und Ballen - laengs des Unterarms gemessen.
+         *
+         * Die Suche endet bei 70 % der Unterarmlaenge, und das ist eine
+         * Korrektur: Bei 90 % lief sie bis in die Fingerspitzen, wo der
+         * Umriss noch einmal schmal wird. Ein Arm bekam dadurch sein
+         * Handgelenk mitten in der Hand, obwohl beide spiegelgleich
+         * gezeichnet sind.
+         *
+         * Die Hand ist nicht die Spitze, sondern der *Ballen*: die breiteste
+         * Stelle hinter dem Gelenk. Dorthin zielt die Umkehrkinematik, denn
+         * mit dem Ballen liegt eine Hand auf einem Plattenteller.
+         */
+        const rU = insSystem(UA, achseU);
+        let lo = 1e9;
+        let hi = -1e9;
+        for (const [, l] of rU) { if (l < lo) lo = l; if (l > hi) hi = l; }
+        const L = hi - lo;
+        const gelenkL = muldenMitte(rU, lo + L * 0.3, lo + L * 0.7);
+        const ballenL = weiteste(rU, gelenkL + SCHRITT, hi - L * 0.05).y;
+        const querBei = (R, l) => {
+          const p = spanne(R, l);
+          return p ? (p[0] + p[1]) / 2 : 0;
+        };
+        const handgelenk = ausSystem(achseU, querBei(rU, gelenkL), gelenkL);
+        const hand = ausSystem(achseU, querBei(rU, ballenL), ballenL);
+
+        /*
+         * Die Gelenkdicke.
+         *
+         * Zwei starre Teile, die um einen gemeinsamen Punkt gegeneinander
+         * drehen, reissen an der Aussenseite der Beugung einen Keil auf -
+         * beide Enden sind gerade abgeschnitten. Ein Kreis im Gelenk deckt
+         * ihn ab, und zwar bei jedem Winkel. Sein Radius ist die halbe Dicke
+         * der Gliedmasse an dieser Stelle; groesser waere eine Beule,
+         * kleiner liesse den Keil stehen.
+         */
+        const dickeU = breiteBei(rU, lo + L * 0.06);
         return {
-          oben, unten,
-          mitteX: (masse[i].lx + masse[i].rx) / 2,
-          lx: masse[i].lx,
-          rx: masse[i].rx,
-          handgelenkY,
-          schulter: [aufDerAchse(schulterY), schulterY],
-          ellbogen: [aufDerAchse(ellbogenY), ellbogenY],
-          hand: [achseBei(A, handY) ?? aufDerAchse(handY), handY],
+          seite: A.seite,
+          schulter, ellbogen, hand, handgelenk,
+          schulterR: dicke * 0.5,
+          wurzel: [e1, e2],
+          ellbogenR: Math.max(breiteBei(rO, loO + (endeO ? 0 : 0) + 0.01), dickeU) * 0.5,
+          oberarm: OA, unterarm: UA,
         };
       });
 
       /*
-       * Der Aermel - die Zone des Rumpfes, die mit dem Arm mitgehen muss.
-       *
-       * Ohne sie reisst beim Heben des Armes ein weisser Keil zwischen Naht
-       * und Arm auf: Der Arm dreht, der Aermel bleibt stehen. In der
-       * Spielebranche loest man das nicht anders - die Randpunkte des Aermels
-       * bekommen anteilig das Gewicht des Oberarmknochens.
-       *
-       * Alle vier Zahlen sind am Bild abgelesen:
-       *   aussen - die breiteste Stelle des Rumpfes (die Naht selbst)
-       *   innen  - die Rumpfbreite knapp unterhalb der Naht (nur noch Torso)
-       *   oben   - wo der Rumpf von oben kommend erstmals 'innen' erreicht
-       *   voll   - die Hoehe der breitesten Stelle
+       * Gegenprobe: Passen die gemessenen Gelenke zu einem menschlichen Arm?
+       * Auf der Strecke Schulter-Fingerspitze liegt der Ellenbogen bei 42,3 %,
+       * das Handgelenk bei 75,5 %. Das ist hier *keine* Rechnung mehr, nur
+       * noch eine Warnlampe fuer eine krumme Zeichnung.
        */
-      const aermel = (() => {
-        const armOben = Math.min(...armMarken.map((a) => a.oben));
-        const armLaenge = Math.max(...armMarken.map((a) => a.unten)) - armOben;
-        const breit = weiteste(K, halsY, armOben);
-        const aussen = breit.w / 2;
-        const innen = breiteBei(K, armOben + armLaenge * 0.07) / 2;
-        let oben2 = halsY;
-        for (let y = halsY; y <= breit.y; y += SCHRITT) {
-          if (breiteBei(K, y) / 2 >= innen) { oben2 = y; break; }
-        }
-        return {
-          innen, aussen, oben: oben2, voll: breit.y,
-          ende: armOben + armLaenge * 0.1,
-        };
-      })();
+      const gegenprobe = armMarken
+        .map((a3) => {
+          let spitze = a3.hand;
+          let weitest = -1;
+          for (const [x, y] of a3.unterarm) {
+            const d = Math.hypot(x - a3.schulter[0], y - a3.schulter[1]);
+            if (d > weitest) { weitest = d; spitze = [x, y]; }
+          }
+          const bis = (p) =>
+            Math.hypot(p[0] - a3.schulter[0], p[1] - a3.schulter[1]) / weitest;
+          return [
+            { was: 'Ellenbogen', gemessen: bis(a3.ellbogen), erwartet: 0.423 },
+            { was: 'Handgelenk', gemessen: bis(a3.handgelenk), erwartet: 0.755 },
+          ];
+        })
+        .flat();
+
+      /*
+       * Ausgegeben wird in Zeichenreihenfolge, von hinten nach vorn:
+       * Oberarme, Kopf, Rumpf und was still steht, dann die Unterarme. Der
+       * Kopf vor dem Rumpf, damit der Kragen den Hals verdeckt; die Unterarme
+       * zuletzt, weil sie vor dem Koerper haengen.
+       */
+      const raus = [];
+      const nr = (punkte) => (raus.push(punkte), raus.length - 1);
+      const loecherVon = (i) => normiert.map((_, j) => j).filter((j) => wirt[j] === i);
+      const rollen = {
+        oberarme: armMarken.map((a2) => nr(a2.oberarm)),
+        kopf: nr(KO),
+        kopfTeile: [...loecherVon(kopf), ...kopfTeile].map((j) => nr(normiert[j])),
+        rumpf: nr(normiert[koerper]),
+        still: stillIdx.map((j) => nr(normiert[j])),
+        unterarme: armMarken.map((a2) => nr(a2.unterarm)),
+      };
 
       return {
-        schleifen: normiert,
+        schleifen: raus,
         breite: (rx - lx) / hoehe,
-        punkte: normiert.reduce((n, s) => n + s.length, 0),
-        roh: schleifen.reduce((n, s) => n + s.length, 0),
-        rollen: { koerper, arme: armIdx, zubehoer },
-        marken: { halsY, arme: armMarken, aermel },
+        punkte: raus.reduce((n, s2) => n + s2.length, 0),
+        roh: schleifen.reduce((n, s2) => n + s2.length, 0),
+        rollen,
+        marken: {
+          halsY,
+          arme: armMarken.map((a2) => ({
+            seite: a2.seite,
+            schulter: a2.schulter,
+            ellbogen: a2.ellbogen,
+            hand: a2.hand,
+            schulterR: a2.schulterR,
+            ellbogenR: a2.ellbogenR,
+            wurzel: a2.wurzel,
+          })),
+        },
         gegenprobe,
       };
     },
@@ -470,14 +670,17 @@ try {
 }
 
 console.log(`  ${aus.schleifen.length} Schleifen, ${aus.punkte} Punkte (aus ${aus.roh} rohen)`);
+console.log('  Gegenprobe gegen menschliche Gliedmassenverhaeltnisse:');
+let schief = 0;
 for (const g of aus.gegenprobe) {
   const ab = Math.abs(g.gemessen - g.erwartet);
+  if (ab > 0.05) schief++;
   console.log(
-    `    Handgelenk gemessen ${g.gemessen.toFixed(3)}, aus der Schulter erwartet ` +
-    `${g.erwartet.toFixed(3)} - Abweichung ${(ab * 100).toFixed(1)} % der Figurenhoehe` +
-    `${ab > 0.04 ? '  <-- pruefen!' : ''}`,
+    `    ${g.was} gemessen ${g.gemessen.toFixed(3)}, erwartet ${g.erwartet.toFixed(3)}` +
+    ` - Abweichung ${(ab * 100).toFixed(1)} %${ab > 0.05 ? '  <-- pruefen!' : ''}`,
   );
 }
+if (schief) console.log('  Achtung: Die Zeichnung weicht von menschlichen Proportionen ab.');
 for (const [i, s] of aus.schleifen.entries()) console.log(`    ${i}: ${s.length} Punkte`);
 
 const zahl = (v) => Number(v.toFixed(4));
@@ -486,10 +689,7 @@ const text = `// Der Umriss des Schatten-DJs - erzeugt, nicht von Hand geschrieb
 //   node werkzeuge/schattenumriss.mjs
 //
 // Geschlossene Streckenzuege, in Einheiten der Figurenhoehe: y = 0 ist der
-// Scheitel, y = 1 die Unterkante, x = 0 die Mitte. Gefuellt wird mit der
-// Gerade-Ungerade-Regel - damit werden eingeschlossene Schleifen (der Spalt
-// zwischen Kopfhoererbuegel und Schaedel) von selbst zu Loechern, ohne dass
-// jemand Aussen- von Innenrand unterscheiden muss.
+// Scheitel, y = 1 die Unterkante, x = 0 die Mitte.
 //
 // ${aus.schleifen.length} Schleifen, ${aus.punkte} Punkte. Breite ${zahl(aus.breite)} Figurenhoehen.
 
@@ -500,25 +700,36 @@ export const UMRISS = ${JSON.stringify(
 export const UMRISS_BREITE = ${zahl(aus.breite)};
 
 /*
- * Welche Schleife was ist, und die Gelenke - alles am Bild gemessen.
+ * Welche Schleife was ist - in Zeichenreihenfolge, von hinten nach vorn.
  *
- * koerper: Kopf, Rumpf und Huefte in einem Stueck.
- * arme:    die beiden freistehenden Arme, links zuerst.
- * zubehoer: was mit dem Kopf mitgeht (hier der Kopfhoererbuegel).
+ * oberarme    je Seite einer, dreht um die Schulter
+ * kopf        Kopf und Hals, dreht um den Hals
+ * kopfTeile   was mit dem Kopf mitgeht: der Kopfhoererbuegel und was im
+ *             Kopf ausgespart bleibt. Alles in einem Pfad mit dem Kopf,
+ *             Gerade-Ungerade - dadurch werden eingeschlossene Schleifen von
+ *             selbst zu Loechern
+ * rumpf       das Shirt, steht still
+ * still       was sonst noch stillsteht (die Hose)
+ * unterarme   je Seite einer, drehen um den Ellenbogen
  */
 export const ROLLEN = ${JSON.stringify(aus.rollen)};
 
+/*
+ * Die Gelenke, alle am Bild gemessen. Die Zeichnung trennt an genau den
+ * Stellen, an denen die Knochen enden - deshalb steht hier keine geschaetzte
+ * Zahl mehr.
+ */
 export const MARKEN = ${JSON.stringify({
   halsY: zahl(aus.marken.halsY),
   arme: aus.marken.arme.map((a) => ({
-    oben: zahl(a.oben), unten: zahl(a.unten),
-    mitteX: zahl(a.mitteX), lx: zahl(a.lx), rx: zahl(a.rx),
-    handgelenkY: zahl(a.handgelenkY),
+    seite: a.seite,
     schulter: a.schulter.map(zahl),
     ellbogen: a.ellbogen.map(zahl),
     hand: a.hand.map(zahl),
+    schulterR: zahl(a.schulterR),
+    ellbogenR: zahl(a.ellbogenR),
+    wurzel: a.wurzel.map((p) => p.map(zahl)),
   })),
-  aermel: Object.fromEntries(Object.entries(aus.marken.aermel).map(([k, v]) => [k, zahl(v)])),
 })};
 `;
 
