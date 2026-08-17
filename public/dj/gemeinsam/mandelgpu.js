@@ -693,6 +693,10 @@ let brettTextur = null;
 let brettBreite = 0;
 let brettHoehe = 0;
 let brettMoeglich = false;
+// RGBA32F oder RGBA16F - was die Karte als Ziel wirklich annimmt.
+let brettFormat = 0;
+// Ob der erste Durchgang nachweislich etwas geschrieben hat.
+let brettGeprueft = false;
 let brettVersatz = 0;
 // Der Mittelwert der Farbtabelle - siehe gpuFarben().
 let mittelR = 0.5;
@@ -869,6 +873,41 @@ function brettBereit() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    /*
+     * Kann die Karte in dieses Format ueberhaupt *hineinzeichnen*?
+     *
+     * Das war der Fehler, und er ist auf dem iPad aufgeschlagen: Das ganze
+     * Bild wurde eine flache Farbflaeche, vom Mandala war nichts mehr zu
+     * sehen. Genau so sieht es aus, wenn der halbe Puffer leer bleibt - der
+     * Aufloesedurchgang liest dann ueberall Nullen, haelt jeden Punkt fuer
+     * einen Innenpunkt und faerbt ihn mit der ersten Farbe der Palette.
+     *
+     * Der Grund: EXT_color_buffer_float *vorhanden* heisst nicht RGBA32F
+     * *bezeichenbar*. Die Erweiterung meldet sich auf Geraeten, auf denen der
+     * Rahmenpuffer mit einem 32-Bit-Gleitkommaziel unvollstaendig bleibt -
+     * und ein unvollstaendiger Rahmenpuffer zeichnet still gar nichts. Ich
+     * habe die Erweiterung abgefragt und den Rahmenpuffer nicht.
+     *
+     * Also wird gefragt, und zwar mit einer Ausweichstufe: RGBA16F traegt
+     * unsere Zahlen auch. Die Ausstiegszeit geht bis rund zwoelftausend und
+     * passt damit bequem in ein halbes Gleitkomma; die Schrittweite dort ist
+     * acht, was nach der Wurzelkennlinie einen Farbschritt von drei
+     * Zehntausendstel eines Bandes ergibt - unsichtbar.
+     */
+    let format = null;
+    for (const versuch of [gl.RGBA32F, gl.RGBA16F]) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, versuch, 8, 8, 0, gl.RGBA, gl.FLOAT, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, brettRahmen);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, brettTextur, 0);
+      const stand = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      if (stand === gl.FRAMEBUFFER_COMPLETE) { format = versuch; break; }
+    }
+    if (format === null) {
+      throw new Error('kein Gleitkomma-Rahmenpuffer - Schachbrett nicht moeglich');
+    }
+    brettFormat = format;
     // Zuletzt, damit ein Abbruch mittendrin nicht als "fertig" gilt.
     programmLoesen = geloest;
     gl.useProgram(programm);
@@ -880,6 +919,8 @@ function brettBereit() {
     brettMoeglich = false;
     programmHalb = null;
     programmLoesen = null;
+    brettGeprueft = false;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.useProgram(programm);
     return false;
   }
@@ -1561,7 +1602,7 @@ export function gpuZeichnen(lage) {
   if (brettBreite !== hb || brettHoehe !== h) {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, brettTextur);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, hb, h, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, brettFormat, hb, h, 0, gl.RGBA, gl.FLOAT, null);
     brettBreite = hb;
     brettHoehe = h;
   }
@@ -1577,6 +1618,48 @@ export function gpuZeichnen(lage) {
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, brettTextur, 0);
   gl.viewport(0, 0, hb, h);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  /*
+   * Einmal nachsehen, ob wirklich etwas herausgekommen ist.
+   *
+   * Ein vollstaendiger Rahmenpuffer ist noch kein Beweis - es gibt Treiber,
+   * die ihn melden und trotzdem nichts schreiben. Der Preis fuer die
+   * Gewissheit ist *ein* Rueckgriff auf die Karte, einmal beim Einschalten;
+   * jedes Bild waere hier verboten (siehe pruefungen/wabern.mjs: ein
+   * Rueckgriff je sechstes Bild hat die Fahrt sichtbar zerrissen).
+   *
+   * Als leer gilt ein Feld, in dem sechzehn Punkte in allen vier Kanaelen
+   * exakt null sind. Das kann ein echtes Bild nicht liefern: Die groesste
+   * Annaeherung an den Ursprung ist auch bei Innenpunkten groesser als null,
+   * und entkommene Punkte tragen ihre Ausstiegszeit.
+   */
+  if (!brettGeprueft) {
+    brettGeprueft = true;
+    const proben = new Float32Array(4 * 16);
+    const px = Math.max(0, Math.floor(hb / 2) - 2);
+    const py = Math.max(0, Math.floor(h / 2) - 2);
+    gl.readPixels(px, py, 4, 4, gl.RGBA, gl.FLOAT, proben);
+    if (proben.every((x) => x === 0)) {
+      if (typeof console !== 'undefined') {
+        console.warn(
+          'Schachbrett: der halbe Puffer bleibt leer - diese Karte kann nicht ' +
+            'in ein Gleitkommaziel zeichnen. Es bleibt beim bisherigen Weg.',
+        );
+      }
+      brettMoeglich = false;
+      programmHalb = null;
+      programmLoesen = null;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.useProgram(programm);
+      gl.viewport(0, 0, b, h);
+      // Dieses eine Bild noch auf dem bisherigen Weg, damit nichts blinkt.
+      grundSetzen(orte);
+      reiheSetzen(orte);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      uhrStoppen();
+      return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs, brett: false, punkte: b * h };
+    }
+  }
 
   // Durchgang 2: daraus das ganze Bild.
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);

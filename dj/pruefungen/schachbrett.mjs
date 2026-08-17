@@ -196,6 +196,51 @@ try {
         );
       }
 
+      console.log('\nDas Bild bleibt ein Bild und wird keine Flaeche:');
+      /*
+       * Der Fehler, um den es hier geht, war auf einem iPad zu sehen: Mit
+       * Schachbrett wurde das ganze Bild eine flache Farbflaeche, vom Mandala
+       * blieb nichts uebrig. Die Ursache lag im halben Puffer - er blieb
+       * leer, weil die Karte zwar EXT_color_buffer_float meldet, aber keinen
+       * vollstaendigen Rahmenpuffer mit einem Gleitkommaziel zustande bringt.
+       * Der Aufloesedurchgang liest dann ueberall Nullen, haelt jeden Punkt
+       * fuer einen Innenpunkt und faerbt ihn mit der ersten Farbe der
+       * Palette.
+       *
+       * Geprueft wird deshalb nicht "sieht aehnlich aus", sondern das
+       * Einfachste, was diesen Fall ausschliesst: Steht ueberhaupt noch
+       * Struktur im Bild? Eine Flaeche hat keine Streuung.
+       */
+      const streuung = await seite.evaluate(async () => {
+        const { schachbrettSetzen, mandelAbdruck } = await import('/gemeinsam/visualmodi.js');
+        const messen = async () => {
+          for (let i = 0; i < 10; i++) await new Promise((f) => requestAnimationFrame(f));
+          const a = mandelAbdruck(120, 80);
+          if (!a) return null;
+          const echte = a.filter((x) => x > 0);
+          if (echte.length < 100) return null;
+          const mittel = echte.reduce((s, x) => s + x, 0) / echte.length;
+          const varianz = echte.reduce((s, x) => s + (x - mittel) ** 2, 0) / echte.length;
+          return Math.sqrt(varianz);
+        };
+        schachbrettSetzen(false);
+        await new Promise((f) => setTimeout(f, 1200));
+        const ohne = await messen();
+        schachbrettSetzen(true);
+        await new Promise((f) => setTimeout(f, 1200));
+        const mit = await messen();
+        return { ohne, mit };
+      });
+      if (!streuung?.ohne || !streuung?.mit) {
+        pruefe('Streuung messbar', false, 'kein brauchbarer Abzug');
+      } else {
+        pruefe(
+          'mit Schachbrett steht noch Struktur im Bild',
+          streuung.mit > streuung.ohne * 0.5,
+          `Streuung ${streuung.mit.toFixed(1)} gegen ${streuung.ohne.toFixed(1)}`,
+        );
+      }
+
       console.log('\nDie Farbe lebt weiter - der eigentliche Zweck der Bauart:');
       /*
        * Das ist die Zusage, an der alles haengt. Wenn das Schachbrett die

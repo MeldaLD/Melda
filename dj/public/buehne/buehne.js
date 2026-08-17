@@ -1005,7 +1005,7 @@ function schattenUmschalten(an) {
   const gemerkt = Number(localStorage.getItem('djVersatzHand') ?? 0);
   $('versatzRegler').value = String(gemerkt);
   const zeigen = (ms) => {
-    $('versatzWert').textContent = `Bild ${ms > 0 ? '+' : ''}${ms} ms`;
+    $('versatzWert').textContent = `${ms > 0 ? '+' : ''}${ms} ms`;
     if (welt.mixer) welt.mixer.versatzHand = ms / 1000;
   };
   zeigen(gemerkt);

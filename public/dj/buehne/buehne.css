@@ -367,12 +367,19 @@ header {
   bottom: 1.2rem;
   transform: translateX(-50%);
   z-index: 3;
+  /*
+   * Zeilen statt einer umbrechenden Reihe.
+   *
+   * Vorher stand hier flex-wrap: Alles floss in eine Reihe und brach um, wo
+   * gerade Platz war - die Umbruchstelle wanderte mit der Fenstergroesse, und
+   * damit stand nie zweimal dasselbe nebeneinander. Als Spalte aus Gruppen
+   * liegt jede Sache immer an derselben Stelle.
+   */
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  max-width: min(60rem, 94vw);
-  padding: 0.6rem 0.9rem;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-width: min(62rem, 94vw);
+  padding: 0.5rem 0.9rem 0.6rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.9rem;
   background: rgba(8, 8, 14, 0.82);
@@ -386,6 +393,66 @@ header {
 .steuerung.sichtbar {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* --- Die Gruppen ---------------------------------------------------------
+ *
+ * Eine Zeile je Thema, links das Etikett. Die feste Breite des Etiketts ist
+ * das, was die Zeilen untereinander ausrichtet - ohne sie faengt jede Zeile
+ * woanders an, und die Einteilung waere nur behauptet statt sichtbar.
+ */
+.gruppe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0;
+}
+
+.gruppe + .gruppe {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.gruppen-titel {
+  flex: 0 0 4.2rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--leise);
+  opacity: 0.75;
+}
+
+/* Was am Abend niemand anfasst, tritt zurueck - aber nur in der Farbe, nicht
+   in der Groesse: Wer es doch braucht, sucht meist im Halbdunkel. */
+.gruppe.leise button,
+.gruppe.leise select,
+.gruppe.leise .knopfartig {
+  opacity: 0.78;
+}
+
+.gruppe.leise:hover button,
+.gruppe.leise:hover select,
+.gruppe.leise:hover .knopfartig {
+  opacity: 1;
+}
+
+/* Ein kleiner Abstandhalter innerhalb einer Gruppe: trennt die Regler, die
+   etwas einstellen, von den Knoepfen, die etwas oeffnen. */
+.trenner {
+  width: 1px;
+  height: 1.3rem;
+  margin: 0 0.25rem;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.fuss-gruppe {
+  padding-top: 0.3rem;
+  min-height: 0;
+}
+
+.fuss-gruppe:empty,
+.gruppe:has(> .naechster-grund:empty) .naechster[hidden] {
+  display: none;
 }
 
 .steuerung button,
@@ -414,16 +481,34 @@ header {
   display: inline-block;
 }
 
+/* --- Schieber -------------------------------------------------------------
+ *
+ * Name links, Wert rechts, Regler dazwischen. Der Wert stand frueher *vor*
+ * dem Regler und wanderte beim Ziehen mit seiner Stellenzahl - die ganze
+ * Zeile zuckte dann bei jeder Bewegung. Rechts mit fester Mindestbreite
+ * steht er still.
+ */
 .schieber {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   font-size: 0.85rem;
   color: var(--leise);
 }
 
+.schieber-name {
+  font-size: 0.78rem;
+  opacity: 0.8;
+}
+
+.schieber-wert {
+  min-width: 3.6rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+}
+
 .schieber input[type='range'] {
-  width: 9rem;
+  width: 7.5rem;
   accent-color: var(--akzent);
 }
 

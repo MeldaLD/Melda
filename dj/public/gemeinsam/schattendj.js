@@ -201,7 +201,7 @@ function masse(breite, hoehe) {
    *                      wie eine Puppe
    *   Oberarm            1,0, Unterarm 0,95 Kopfhoehen
    */
-  const pultH = Math.max(34, hoehe * 0.13);
+  const pultH = Math.max(30, hoehe * 0.105);
   const pultOben = hoehe - pultH;
   const kopfH = pultH * 0.85;
   const mitte = breite * 0.5;
@@ -211,12 +211,15 @@ function masse(breite, hoehe) {
    *
    * Zuerst standen hier 0,55 Kopfhoehen, und der DJ sah aus, als sei er im
    * Pult versunken - nur Kopf und Schulteransatz ragten heraus. Bei einem
-   * echten Pult liegt die Kante etwa auf Hueft- bis Brusthoehe, der ganze
-   * Oberkoerper ist zu sehen. 1,35 Kopfhoehen sind der Brustkorb; damit
-   * nimmt die ganze Figur gut vierzig Prozent der Bildhoehe ein, und das ist
-   * die Grenze, ab der sie dem Fraktal den Platz nimmt.
+   * echten Pult liegt die Kante etwa auf Brusthoehe. Dann bleiben Kopf,
+   * Schultern und die Oberarme - der oberste Teil, mehr braucht es nicht.
+   *
+   * Bei 1,35 Kopfhoehen stand der halbe Brustkorb frei und die Figur nahm
+   * gut vierzig Prozent des Bildes ein; das war zu viel und liess sie
+   * zugleich breit und kraftlos wirken. Mit 0,80 nimmt sie noch knapp ein
+   * Viertel, und das Fraktal behaelt die Buehne.
    */
-  const schulterY = pultOben - kopfH * 1.35;
+  const schulterY = pultOben - kopfH * 0.80;
   const kopfY = schulterY - kopfH * 0.68;
 
   return {
@@ -226,21 +229,43 @@ function masse(breite, hoehe) {
     pultH,
     // Das Pult darf die Figur nicht erschlagen: gut die halbe Breite, und
     // hoechstens sieben Kopfhoehen.
-    pultB: Math.min(breite * 0.56, kopfH * 7),
+    // Breit genug, dass die Figur darin steht statt darauf zu sitzen - aber
+    // hoechstens gut die halbe Bildbreite, sonst wird aus dem Pult eine
+    // Bande quer durchs Bild.
+    pultB: Math.min(breite * 0.52, kopfH * 9.5),
     kopfH,
     kopfB: kopfH * 0.78,
     kopfY,
     schulterY,
-    schulterB: kopfH * 1.15,
+    schulterB: kopfH * 0.98,
     // Die Hueftbreite entscheidet ueber die Form des Oberkoerpers. Schmaler
     // als die Schultern - sonst wird die Figur ein Kegel.
-    hueftB: kopfH * 0.95,
-    oberarm: kopfH * 1.0,
-    unterarm: kopfH * 0.95,
-    armDick: kopfH * 0.30,
+    hueftB: kopfH * 0.92,
+    oberarm: kopfH * 0.92,
+    unterarm: kopfH * 0.86,
+    /*
+     * Die Armdicke. Bei 0,30 Kopfhoehen war der DJ breit und hatte trotzdem
+     * Streichhoelzer als Arme - eine Silhouette verzeiht das nicht, weil es
+     * ausser dem Umriss nichts gibt, woran das Auge Kraft ablesen koennte.
+     * Ein Oberarm ist etwa halb so dick wie ein Kopf breit.
+     */
+    armDick: kopfH * 0.40,
     // Die Teller ragen mit ihrer oberen Haelfte ueber die Pultkante.
-    tellerX: kopfH * 2.15,
-    tellerR: kopfH * 0.66,
+    tellerX: kopfH * 2.0,
+    /*
+     * Die Plattenteller - und hier stand der peinlichste Fehler.
+     *
+     * Als halbe Kreise links und rechts neben dem Koerper lasen sie sich
+     * nicht als Plattenteller, sondern als *Essensglocken*: zwei Hauben, ein
+     * Kellner dazwischen. Der erste Mensch, der das Bild gesehen hat, sagte
+     * genau das.
+     *
+     * Ein Plattenteller liegt flach auf der Platte. Von vorn sieht man davon
+     * nur eine sehr flache Ellipse, die kaum ueber die Kante ragt - und
+     * genau so gehoert es gezeichnet. Breit und niedrig statt rund und hoch.
+     */
+    tellerR: kopfH * 0.85,
+    tellerH: kopfH * 0.17,
     reglerB: kopfH * 1.35,
   };
 }
@@ -433,13 +458,23 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * zu verstimmen wird hier verstaerkt, denn nur diese Zahl entscheidet
    * darueber, wie weit der Kopf wirklich wandert.
    */
-  const nickPx = nickX * m.kopfH * 0.42;
+  /*
+   * Wie weit das Nicken den Koerper bewegt.
+   *
+   * Bei 0,42 war es rechnerisch da und praktisch nicht zu sehen - "die
+   * Bewegungen passten nicht zum Beat" hiess in Wirklichkeit "ich sehe keine
+   * Bewegung". Mit 0,85 wandert der Kopf auf einer Leinwand rund zwoelf
+   * Bildpunkte, und der Schlag ist von hinten im Raum zu erkennen.
+   */
+  const nickPx = nickX * m.kopfH * 0.85;
   letzterNickPx = nickPx;
   const seitePx = wiegen * m.kopfH * 0.11;
 
   const kopfX = m.mitte + seitePx * 1.4 + kopfDreh * m.kopfH * 0.12;
-  const kopfY = m.kopfY + nickPx + neigung * m.kopfH * 0.55;
-  const schulterY = m.schulterY + nickPx * 0.5 + neigung * m.kopfH * 0.32;
+  // Der Kopf geht am weitesten, die Schultern gehen mit - ein Nicken aus
+  // dem Hals allein sieht aus wie ein Wackelkopf im Auto.
+  const kopfY = m.kopfY + nickPx * 1.35 + neigung * m.kopfH * 0.55;
+  const schulterY = m.schulterY + nickPx * 0.85 + neigung * m.kopfH * 0.32;
   const schulterLx = m.mitte - m.schulterB + seitePx;
   const schulterRx = m.mitte + m.schulterB + seitePx;
 
@@ -507,7 +542,7 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
     stift.beginPath();
     stift.ellipse(
       m.mitte + seite * m.tellerX, m.pultOben,
-      m.tellerR, m.tellerR * 0.72, 0, Math.PI, 0,
+      m.tellerR, m.tellerH, 0, Math.PI, 0,
     );
     stift.fill();
   }

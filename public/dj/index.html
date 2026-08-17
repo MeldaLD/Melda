@@ -375,12 +375,19 @@ header {
   bottom: 1.2rem;
   transform: translateX(-50%);
   z-index: 3;
+  /*
+   * Zeilen statt einer umbrechenden Reihe.
+   *
+   * Vorher stand hier flex-wrap: Alles floss in eine Reihe und brach um, wo
+   * gerade Platz war - die Umbruchstelle wanderte mit der Fenstergroesse, und
+   * damit stand nie zweimal dasselbe nebeneinander. Als Spalte aus Gruppen
+   * liegt jede Sache immer an derselben Stelle.
+   */
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  max-width: min(60rem, 94vw);
-  padding: 0.6rem 0.9rem;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-width: min(62rem, 94vw);
+  padding: 0.5rem 0.9rem 0.6rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.9rem;
   background: rgba(8, 8, 14, 0.82);
@@ -394,6 +401,66 @@ header {
 .steuerung.sichtbar {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* --- Die Gruppen ---------------------------------------------------------
+ *
+ * Eine Zeile je Thema, links das Etikett. Die feste Breite des Etiketts ist
+ * das, was die Zeilen untereinander ausrichtet - ohne sie faengt jede Zeile
+ * woanders an, und die Einteilung waere nur behauptet statt sichtbar.
+ */
+.gruppe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0;
+}
+
+.gruppe + .gruppe {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.gruppen-titel {
+  flex: 0 0 4.2rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--leise);
+  opacity: 0.75;
+}
+
+/* Was am Abend niemand anfasst, tritt zurueck - aber nur in der Farbe, nicht
+   in der Groesse: Wer es doch braucht, sucht meist im Halbdunkel. */
+.gruppe.leise button,
+.gruppe.leise select,
+.gruppe.leise .knopfartig {
+  opacity: 0.78;
+}
+
+.gruppe.leise:hover button,
+.gruppe.leise:hover select,
+.gruppe.leise:hover .knopfartig {
+  opacity: 1;
+}
+
+/* Ein kleiner Abstandhalter innerhalb einer Gruppe: trennt die Regler, die
+   etwas einstellen, von den Knoepfen, die etwas oeffnen. */
+.trenner {
+  width: 1px;
+  height: 1.3rem;
+  margin: 0 0.25rem;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.fuss-gruppe {
+  padding-top: 0.3rem;
+  min-height: 0;
+}
+
+.fuss-gruppe:empty,
+.gruppe:has(> .naechster-grund:empty) .naechster[hidden] {
+  display: none;
 }
 
 .steuerung button,
@@ -422,16 +489,34 @@ header {
   display: inline-block;
 }
 
+/* --- Schieber -------------------------------------------------------------
+ *
+ * Name links, Wert rechts, Regler dazwischen. Der Wert stand frueher *vor*
+ * dem Regler und wanderte beim Ziehen mit seiner Stellenzahl - die ganze
+ * Zeile zuckte dann bei jeder Bewegung. Rechts mit fester Mindestbreite
+ * steht er still.
+ */
 .schieber {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   font-size: 0.85rem;
   color: var(--leise);
 }
 
+.schieber-name {
+  font-size: 0.78rem;
+  opacity: 0.8;
+}
+
+.schieber-wert {
+  min-width: 3.6rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+}
+
 .schieber input[type='range'] {
-  width: 9rem;
+  width: 7.5rem;
   accent-color: var(--akzent);
 }
 
@@ -860,97 +945,114 @@ header {
         zerschneiden; beim Entwickeln ist sie mit einer Handbewegung wieder da.
       -->
       <div class="steuerung" id="steuerung">
-        <span class="naechster-grund" id="naechsterGrund"></span>
-        <span class="naechster" id="naechster" hidden></span>
-        <button id="wiedergabe" title="Anhalten und weiterlaufen lassen">▶</button>
-        <button id="jetztUeberblenden">Jetzt überblenden</button>
-        <select id="artWahl" title="Übergangsart erzwingen">
-          <option value="">automatisch</option>
-          <option value="blende">Lange Blende</option>
-          <option value="aufzug">Filteraufzug</option>
-          <option value="echo">Echo-Schnitt</option>
-          <option value="schnitt">Harter Schnitt</option>
-        </select>
-        <select id="modusWahl" title="Visualisierung: automatisch oder fest">
-          <option value="">Bild: automatisch</option>
-        </select>
-        <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
-        </select>
         <!--
-          Das Bildziel. Es steht neben der Güte, weil beide dasselbe Geld
-          ausgeben: Wer weniger Bilder je Sekunde verlangt, bekommt schärfere.
-          Auf einem 145-Hz-Monitor ist das der Unterschied zwischen der
-          niedrigsten und der mittleren Stufe.
+          Drei Gruppen, und die Einteilung ist keine Kosmetik.
+          
+          Vorher stand hier eine einzige umbrechende Reihe: Knoepfe, Auswahlen,
+          Haken und Schieber nebeneinander, in der Reihenfolge, in der sie
+          ueber die Monate dazugekommen sind. Wer etwas suchte, musste alles
+          lesen. Jetzt steht links, worum es geht, und rechts stehen nur die
+          Regler, die dazu gehoeren:
+
+            Musik     - was zu hoeren ist
+            Bild      - was zu sehen ist
+            Leistung  - wie teuer das eine wie das andere sein darf
+
+          Die dritte Gruppe fasst man am Abend nicht an; sie steht deshalb
+          unten und ist leiser gesetzt.
         -->
-        <select id="bildzielWahl" title="Wieviele Bilder je Sekunde angestrebt werden. Weniger Bilder heißt mehr Schärfe je Bild.">
-          <option value="30">30 Bilder/s</option>
-          <option value="60" selected>60 Bilder/s</option>
-          <option value="0">voller Bildtakt</option>
-        </select>
-        <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
-        <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik</button>
-        <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas</button>
-        <!-- Das Ziel wird erst im Browser gesetzt: Die Bühne läuft unter /buehne
-             und als gebaute Einzeldatei unter /dj, und der Messstand liegt
-             jeweils woanders. Siehe messstandVerlinken() in buehne.js. -->
-        <a id="messstandLink" class="knopfartig" title="Was schafft dieses Gerät?">Messstand</a>
-        <!--
-          Der PC-Modus ist eine Voreinstellung und kein Zaubertrick: Er stellt
-          Güte, Bildziel und Mandala-Auswahl auf das, was ein Rechner mit
-          eigener Grafikkarte tragen kann. Genau das lässt sich auch von Hand
-          einstellen - der Knopf spart nur die drei Griffe und sagt, was er
-          getan hat.
-        -->
-        <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
-        <!--
-          Das Schachbrett: halb so viele gerechnete Bildpunkte je Bild, die
-          andere Hälfte aus den vier Nachbarn ergänzt. Gespeichert wird dabei
-          die Ausstiegszeit und nicht die Farbe - Palette, Farbversatz und
-          Drop-Welle entstehen in jedem Bild neu und bleiben deshalb auf dem
-          Schlag. Aus als Vorgabe, bis auf dem Zielgerät gemessen ist, dass es
-          dort mehr bringt als es kostet.
-        -->
-        <label class="knopfzeile" title="Halb so viele gerechnete Punkte je Bild – die Farbe bleibt trotzdem in jedem Bild neu">
-          <input type="checkbox" id="schachbrettWahl" />
-          Schachbrett
-        </label>
-        <!--
-          Der Schatten-DJ: eine Silhouette hinter einem Pult im unteren Teil
-          des Bildes. Er nickt auf den Schlag, zieht beim Aufbau den Arm hoch,
-          reisst beim Drop beide hoch, nimmt im Breakdown den Kopfhörer ans
-          Ohr und legt beim Übergang die Hand an den Regler - alles aus
-          denselben Zahlen, aus denen auch das Bild entsteht.
-        -->
-        <label class="knopfzeile" title="Silhouette eines DJs am Pult, die sich zur laufenden Musik bewegt (Taste D)">
-          <input type="checkbox" id="schattenWahl" checked />
-          Schatten-DJ
-        </label>
-        <!--
-          Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet die
-          Bühne selbst heraus; was er nicht wissen kann, steht hier: wie viele
-          Bilder Windows noch einschiebt, und wie weit die Boxen von der
-          Leinwand weg stehen. Schall braucht 3 ms je Meter.
-        -->
-        <label class="schieber" title="Bild gegen Ton verschieben. Plus heißt: Bild früher. Schall braucht 3 ms je Meter Abstand zu den Boxen.">
-          <span id="versatzWert">Bild ±0 ms</span>
-          <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
-        </label>
-        <label class="schieber">
-          <span id="energieWert">50 %</span>
-          <input type="range" id="energieRegler" min="0" max="100" value="50" />
-        </label>
-        <span class="fussnote" id="energieQuelle"></span>
-        <label class="schalter">
-          <input type="checkbox" id="angleichAn" checked />
-          Angleich
-        </label>
-        <label
-          class="schalter"
-          title="Reihenentwicklung: überspringt bei tiefen Zooms einen Teil der Rechnung. Zum Vergleichen abschaltbar."
-        >
-          <input type="checkbox" id="reiheAn" checked />
-          Reihe
-        </label>
+        <div class="gruppe">
+          <span class="gruppen-titel">Musik</span>
+          <button id="wiedergabe" title="Anhalten und weiterlaufen lassen">▶</button>
+          <button id="jetztUeberblenden">Jetzt überblenden</button>
+          <select id="artWahl" title="Übergangsart erzwingen">
+            <option value="">Übergang: automatisch</option>
+            <option value="blende">Lange Blende</option>
+            <option value="aufzug">Filteraufzug</option>
+            <option value="echo">Echo-Schnitt</option>
+            <option value="schnitt">Harter Schnitt</option>
+          </select>
+          <label class="schieber" title="Wie energisch der Abend laufen soll">
+            <span class="schieber-name">Energie</span>
+            <input type="range" id="energieRegler" min="0" max="100" value="50" />
+            <span id="energieWert" class="schieber-wert">50 %</span>
+          </label>
+          <span class="fussnote" id="energieQuelle"></span>
+          <label class="schalter" title="Lautheit der Tracks angleichen">
+            <input type="checkbox" id="angleichAn" checked />
+            Angleich
+          </label>
+        </div>
+
+        <div class="gruppe">
+          <span class="gruppen-titel">Bild</span>
+          <select id="modusWahl" title="Visualisierung: automatisch oder fest">
+            <option value="">Bild: automatisch</option>
+          </select>
+          <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas …</button>
+          <!--
+            Der Schatten-DJ: eine Silhouette hinter einem Pult im unteren Teil
+            des Bildes. Er nickt auf den Schlag, zieht beim Aufbau den Arm
+            hoch, reisst beim Drop beide hoch, nimmt im Breakdown den
+            Kopfhörer ans Ohr und legt beim Übergang die Hand an den Regler.
+          -->
+          <label class="schalter" title="Silhouette eines DJs am Pult, die sich zur laufenden Musik bewegt (Taste D)">
+            <input type="checkbox" id="schattenWahl" checked />
+            Schatten-DJ
+          </label>
+          <!--
+            Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet
+            die Bühne selbst heraus; was er nicht wissen kann, steht hier: wie
+            viele Bilder Windows noch einschiebt, und wie weit die Boxen von
+            der Leinwand weg stehen. Schall braucht 3 ms je Meter.
+          -->
+          <label class="schieber" title="Bild gegen Ton verschieben. Plus heißt: Bild früher. Schall braucht 3 ms je Meter Abstand zu den Boxen.">
+            <span class="schieber-name">Versatz</span>
+            <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
+            <span id="versatzWert" class="schieber-wert">±0 ms</span>
+          </label>
+        </div>
+
+        <div class="gruppe leise">
+          <span class="gruppen-titel">Leistung</span>
+          <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
+          </select>
+          <!--
+            Das Bildziel steht neben der Güte, weil beide dasselbe Geld
+            ausgeben: Wer weniger Bilder je Sekunde verlangt, bekommt
+            schärfere.
+          -->
+          <select id="bildzielWahl" title="Wieviele Bilder je Sekunde angestrebt werden. Weniger Bilder heißt mehr Schärfe je Bild.">
+            <option value="30">30 Bilder/s</option>
+            <option value="60" selected>60 Bilder/s</option>
+            <option value="0">voller Bildtakt</option>
+          </select>
+          <!--
+            Das Schachbrett: halb so viele gerechnete Bildpunkte je Bild, die
+            andere Hälfte aus den vier Nachbarn ergänzt.
+          -->
+          <label class="schalter" title="Halb so viele gerechnete Punkte je Bild – die Farbe bleibt trotzdem in jedem Bild neu">
+            <input type="checkbox" id="schachbrettWahl" />
+            Schachbrett
+          </label>
+          <label class="schalter" title="Reihenentwicklung: überspringt bei tiefen Zooms einen Teil der Rechnung. Zum Vergleichen abschaltbar.">
+            <input type="checkbox" id="reiheAn" checked />
+            Reihe
+          </label>
+          <span class="trenner"></span>
+          <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
+          <!-- Das Ziel wird erst im Browser gesetzt: Die Bühne läuft unter
+               /buehne und als gebaute Einzeldatei unter /dj. Siehe
+               messstandVerlinken() in buehne.js. -->
+          <a id="messstandLink" class="knopfartig" title="Was schafft dieses Gerät?">Messstand …</a>
+          <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik …</button>
+          <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
+        </div>
+
+        <div class="gruppe fuss-gruppe">
+          <span class="naechster-grund" id="naechsterGrund"></span>
+          <span class="naechster" id="naechster" hidden></span>
+        </div>
         <ol class="verlauf" id="verlauf"></ol>
       </div>
 
@@ -4051,6 +4153,10 @@ let brettTextur = null;
 let brettBreite = 0;
 let brettHoehe = 0;
 let brettMoeglich = false;
+// RGBA32F oder RGBA16F - was die Karte als Ziel wirklich annimmt.
+let brettFormat = 0;
+// Ob der erste Durchgang nachweislich etwas geschrieben hat.
+let brettGeprueft = false;
 let brettVersatz = 0;
 // Der Mittelwert der Farbtabelle - siehe gpuFarben().
 let mittelR = 0.5;
@@ -4227,6 +4333,41 @@ function brettBereit() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    /*
+     * Kann die Karte in dieses Format ueberhaupt *hineinzeichnen*?
+     *
+     * Das war der Fehler, und er ist auf dem iPad aufgeschlagen: Das ganze
+     * Bild wurde eine flache Farbflaeche, vom Mandala war nichts mehr zu
+     * sehen. Genau so sieht es aus, wenn der halbe Puffer leer bleibt - der
+     * Aufloesedurchgang liest dann ueberall Nullen, haelt jeden Punkt fuer
+     * einen Innenpunkt und faerbt ihn mit der ersten Farbe der Palette.
+     *
+     * Der Grund: EXT_color_buffer_float *vorhanden* heisst nicht RGBA32F
+     * *bezeichenbar*. Die Erweiterung meldet sich auf Geraeten, auf denen der
+     * Rahmenpuffer mit einem 32-Bit-Gleitkommaziel unvollstaendig bleibt -
+     * und ein unvollstaendiger Rahmenpuffer zeichnet still gar nichts. Ich
+     * habe die Erweiterung abgefragt und den Rahmenpuffer nicht.
+     *
+     * Also wird gefragt, und zwar mit einer Ausweichstufe: RGBA16F traegt
+     * unsere Zahlen auch. Die Ausstiegszeit geht bis rund zwoelftausend und
+     * passt damit bequem in ein halbes Gleitkomma; die Schrittweite dort ist
+     * acht, was nach der Wurzelkennlinie einen Farbschritt von drei
+     * Zehntausendstel eines Bandes ergibt - unsichtbar.
+     */
+    let format = null;
+    for (const versuch of [gl.RGBA32F, gl.RGBA16F]) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, versuch, 8, 8, 0, gl.RGBA, gl.FLOAT, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, brettRahmen);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, brettTextur, 0);
+      const stand = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      if (stand === gl.FRAMEBUFFER_COMPLETE) { format = versuch; break; }
+    }
+    if (format === null) {
+      throw new Error('kein Gleitkomma-Rahmenpuffer - Schachbrett nicht moeglich');
+    }
+    brettFormat = format;
     // Zuletzt, damit ein Abbruch mittendrin nicht als "fertig" gilt.
     programmLoesen = geloest;
     gl.useProgram(programm);
@@ -4238,6 +4379,8 @@ function brettBereit() {
     brettMoeglich = false;
     programmHalb = null;
     programmLoesen = null;
+    brettGeprueft = false;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.useProgram(programm);
     return false;
   }
@@ -4919,7 +5062,7 @@ function gpuZeichnen(lage) {
   if (brettBreite !== hb || brettHoehe !== h) {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, brettTextur);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, hb, h, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, brettFormat, hb, h, 0, gl.RGBA, gl.FLOAT, null);
     brettBreite = hb;
     brettHoehe = h;
   }
@@ -4935,6 +5078,48 @@ function gpuZeichnen(lage) {
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, brettTextur, 0);
   gl.viewport(0, 0, hb, h);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  /*
+   * Einmal nachsehen, ob wirklich etwas herausgekommen ist.
+   *
+   * Ein vollstaendiger Rahmenpuffer ist noch kein Beweis - es gibt Treiber,
+   * die ihn melden und trotzdem nichts schreiben. Der Preis fuer die
+   * Gewissheit ist *ein* Rueckgriff auf die Karte, einmal beim Einschalten;
+   * jedes Bild waere hier verboten (siehe pruefungen/wabern.mjs: ein
+   * Rueckgriff je sechstes Bild hat die Fahrt sichtbar zerrissen).
+   *
+   * Als leer gilt ein Feld, in dem sechzehn Punkte in allen vier Kanaelen
+   * exakt null sind. Das kann ein echtes Bild nicht liefern: Die groesste
+   * Annaeherung an den Ursprung ist auch bei Innenpunkten groesser als null,
+   * und entkommene Punkte tragen ihre Ausstiegszeit.
+   */
+  if (!brettGeprueft) {
+    brettGeprueft = true;
+    const proben = new Float32Array(4 * 16);
+    const px = Math.max(0, Math.floor(hb / 2) - 2);
+    const py = Math.max(0, Math.floor(h / 2) - 2);
+    gl.readPixels(px, py, 4, 4, gl.RGBA, gl.FLOAT, proben);
+    if (proben.every((x) => x === 0)) {
+      if (typeof console !== 'undefined') {
+        console.warn(
+          'Schachbrett: der halbe Puffer bleibt leer - diese Karte kann nicht ' +
+            'in ein Gleitkommaziel zeichnen. Es bleibt beim bisherigen Weg.',
+        );
+      }
+      brettMoeglich = false;
+      programmHalb = null;
+      programmLoesen = null;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.useProgram(programm);
+      gl.viewport(0, 0, b, h);
+      // Dieses eine Bild noch auf dem bisherigen Weg, damit nichts blinkt.
+      grundSetzen(orte);
+      reiheSetzen(orte);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      uhrStoppen();
+      return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs, brett: false, punkte: b * h };
+    }
+  }
 
   // Durchgang 2: daraus das ganze Bild.
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -10252,7 +10437,7 @@ function masse(breite, hoehe) {
    *                      wie eine Puppe
    *   Oberarm            1,0, Unterarm 0,95 Kopfhoehen
    */
-  const pultH = Math.max(34, hoehe * 0.13);
+  const pultH = Math.max(30, hoehe * 0.105);
   const pultOben = hoehe - pultH;
   const kopfH = pultH * 0.85;
   const mitte = breite * 0.5;
@@ -10262,12 +10447,15 @@ function masse(breite, hoehe) {
    *
    * Zuerst standen hier 0,55 Kopfhoehen, und der DJ sah aus, als sei er im
    * Pult versunken - nur Kopf und Schulteransatz ragten heraus. Bei einem
-   * echten Pult liegt die Kante etwa auf Hueft- bis Brusthoehe, der ganze
-   * Oberkoerper ist zu sehen. 1,35 Kopfhoehen sind der Brustkorb; damit
-   * nimmt die ganze Figur gut vierzig Prozent der Bildhoehe ein, und das ist
-   * die Grenze, ab der sie dem Fraktal den Platz nimmt.
+   * echten Pult liegt die Kante etwa auf Brusthoehe. Dann bleiben Kopf,
+   * Schultern und die Oberarme - der oberste Teil, mehr braucht es nicht.
+   *
+   * Bei 1,35 Kopfhoehen stand der halbe Brustkorb frei und die Figur nahm
+   * gut vierzig Prozent des Bildes ein; das war zu viel und liess sie
+   * zugleich breit und kraftlos wirken. Mit 0,80 nimmt sie noch knapp ein
+   * Viertel, und das Fraktal behaelt die Buehne.
    */
-  const schulterY = pultOben - kopfH * 1.35;
+  const schulterY = pultOben - kopfH * 0.80;
   const kopfY = schulterY - kopfH * 0.68;
 
   return {
@@ -10277,21 +10465,43 @@ function masse(breite, hoehe) {
     pultH,
     // Das Pult darf die Figur nicht erschlagen: gut die halbe Breite, und
     // hoechstens sieben Kopfhoehen.
-    pultB: Math.min(breite * 0.56, kopfH * 7),
+    // Breit genug, dass die Figur darin steht statt darauf zu sitzen - aber
+    // hoechstens gut die halbe Bildbreite, sonst wird aus dem Pult eine
+    // Bande quer durchs Bild.
+    pultB: Math.min(breite * 0.52, kopfH * 9.5),
     kopfH,
     kopfB: kopfH * 0.78,
     kopfY,
     schulterY,
-    schulterB: kopfH * 1.15,
+    schulterB: kopfH * 0.98,
     // Die Hueftbreite entscheidet ueber die Form des Oberkoerpers. Schmaler
     // als die Schultern - sonst wird die Figur ein Kegel.
-    hueftB: kopfH * 0.95,
-    oberarm: kopfH * 1.0,
-    unterarm: kopfH * 0.95,
-    armDick: kopfH * 0.30,
+    hueftB: kopfH * 0.92,
+    oberarm: kopfH * 0.92,
+    unterarm: kopfH * 0.86,
+    /*
+     * Die Armdicke. Bei 0,30 Kopfhoehen war der DJ breit und hatte trotzdem
+     * Streichhoelzer als Arme - eine Silhouette verzeiht das nicht, weil es
+     * ausser dem Umriss nichts gibt, woran das Auge Kraft ablesen koennte.
+     * Ein Oberarm ist etwa halb so dick wie ein Kopf breit.
+     */
+    armDick: kopfH * 0.40,
     // Die Teller ragen mit ihrer oberen Haelfte ueber die Pultkante.
-    tellerX: kopfH * 2.15,
-    tellerR: kopfH * 0.66,
+    tellerX: kopfH * 2.0,
+    /*
+     * Die Plattenteller - und hier stand der peinlichste Fehler.
+     *
+     * Als halbe Kreise links und rechts neben dem Koerper lasen sie sich
+     * nicht als Plattenteller, sondern als *Essensglocken*: zwei Hauben, ein
+     * Kellner dazwischen. Der erste Mensch, der das Bild gesehen hat, sagte
+     * genau das.
+     *
+     * Ein Plattenteller liegt flach auf der Platte. Von vorn sieht man davon
+     * nur eine sehr flache Ellipse, die kaum ueber die Kante ragt - und
+     * genau so gehoert es gezeichnet. Breit und niedrig statt rund und hoch.
+     */
+    tellerR: kopfH * 0.85,
+    tellerH: kopfH * 0.17,
     reglerB: kopfH * 1.35,
   };
 }
@@ -10484,13 +10694,23 @@ function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * zu verstimmen wird hier verstaerkt, denn nur diese Zahl entscheidet
    * darueber, wie weit der Kopf wirklich wandert.
    */
-  const nickPx = nickX * m.kopfH * 0.42;
+  /*
+   * Wie weit das Nicken den Koerper bewegt.
+   *
+   * Bei 0,42 war es rechnerisch da und praktisch nicht zu sehen - "die
+   * Bewegungen passten nicht zum Beat" hiess in Wirklichkeit "ich sehe keine
+   * Bewegung". Mit 0,85 wandert der Kopf auf einer Leinwand rund zwoelf
+   * Bildpunkte, und der Schlag ist von hinten im Raum zu erkennen.
+   */
+  const nickPx = nickX * m.kopfH * 0.85;
   letzterNickPx = nickPx;
   const seitePx = wiegen * m.kopfH * 0.11;
 
   const kopfX = m.mitte + seitePx * 1.4 + kopfDreh * m.kopfH * 0.12;
-  const kopfY = m.kopfY + nickPx + neigung * m.kopfH * 0.55;
-  const schulterY = m.schulterY + nickPx * 0.5 + neigung * m.kopfH * 0.32;
+  // Der Kopf geht am weitesten, die Schultern gehen mit - ein Nicken aus
+  // dem Hals allein sieht aus wie ein Wackelkopf im Auto.
+  const kopfY = m.kopfY + nickPx * 1.35 + neigung * m.kopfH * 0.55;
+  const schulterY = m.schulterY + nickPx * 0.85 + neigung * m.kopfH * 0.32;
   const schulterLx = m.mitte - m.schulterB + seitePx;
   const schulterRx = m.mitte + m.schulterB + seitePx;
 
@@ -10558,7 +10778,7 @@ function schattenZeichnen(stift, breite, hoehe, lage = {}) {
     stift.beginPath();
     stift.ellipse(
       m.mitte + seite * m.tellerX, m.pultOben,
-      m.tellerR, m.tellerR * 0.72, 0, Math.PI, 0,
+      m.tellerR, m.tellerH, 0, Math.PI, 0,
     );
     stift.fill();
   }
@@ -13037,7 +13257,7 @@ function schattenUmschalten(an) {
   const gemerkt = Number(localStorage.getItem('djVersatzHand') ?? 0);
   $('versatzRegler').value = String(gemerkt);
   const zeigen = (ms) => {
-    $('versatzWert').textContent = `Bild ${ms > 0 ? '+' : ''}${ms} ms`;
+    $('versatzWert').textContent = `${ms > 0 ? '+' : ''}${ms} ms`;
     if (welt.mixer) welt.mixer.versatzHand = ms / 1000;
   };
   zeigen(gemerkt);

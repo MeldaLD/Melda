@@ -110,97 +110,114 @@
         zerschneiden; beim Entwickeln ist sie mit einer Handbewegung wieder da.
       -->
       <div class="steuerung" id="steuerung">
-        <span class="naechster-grund" id="naechsterGrund"></span>
-        <span class="naechster" id="naechster" hidden></span>
-        <button id="wiedergabe" title="Anhalten und weiterlaufen lassen">▶</button>
-        <button id="jetztUeberblenden">Jetzt überblenden</button>
-        <select id="artWahl" title="Übergangsart erzwingen">
-          <option value="">automatisch</option>
-          <option value="blende">Lange Blende</option>
-          <option value="aufzug">Filteraufzug</option>
-          <option value="echo">Echo-Schnitt</option>
-          <option value="schnitt">Harter Schnitt</option>
-        </select>
-        <select id="modusWahl" title="Visualisierung: automatisch oder fest">
-          <option value="">Bild: automatisch</option>
-        </select>
-        <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
-        </select>
         <!--
-          Das Bildziel. Es steht neben der Güte, weil beide dasselbe Geld
-          ausgeben: Wer weniger Bilder je Sekunde verlangt, bekommt schärfere.
-          Auf einem 145-Hz-Monitor ist das der Unterschied zwischen der
-          niedrigsten und der mittleren Stufe.
+          Drei Gruppen, und die Einteilung ist keine Kosmetik.
+          
+          Vorher stand hier eine einzige umbrechende Reihe: Knoepfe, Auswahlen,
+          Haken und Schieber nebeneinander, in der Reihenfolge, in der sie
+          ueber die Monate dazugekommen sind. Wer etwas suchte, musste alles
+          lesen. Jetzt steht links, worum es geht, und rechts stehen nur die
+          Regler, die dazu gehoeren:
+
+            Musik     - was zu hoeren ist
+            Bild      - was zu sehen ist
+            Leistung  - wie teuer das eine wie das andere sein darf
+
+          Die dritte Gruppe fasst man am Abend nicht an; sie steht deshalb
+          unten und ist leiser gesetzt.
         -->
-        <select id="bildzielWahl" title="Wieviele Bilder je Sekunde angestrebt werden. Weniger Bilder heißt mehr Schärfe je Bild.">
-          <option value="30">30 Bilder/s</option>
-          <option value="60" selected>60 Bilder/s</option>
-          <option value="0">voller Bildtakt</option>
-        </select>
-        <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
-        <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik</button>
-        <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas</button>
-        <!-- Das Ziel wird erst im Browser gesetzt: Die Bühne läuft unter /buehne
-             und als gebaute Einzeldatei unter /dj, und der Messstand liegt
-             jeweils woanders. Siehe messstandVerlinken() in buehne.js. -->
-        <a id="messstandLink" class="knopfartig" title="Was schafft dieses Gerät?">Messstand</a>
-        <!--
-          Der PC-Modus ist eine Voreinstellung und kein Zaubertrick: Er stellt
-          Güte, Bildziel und Mandala-Auswahl auf das, was ein Rechner mit
-          eigener Grafikkarte tragen kann. Genau das lässt sich auch von Hand
-          einstellen - der Knopf spart nur die drei Griffe und sagt, was er
-          getan hat.
-        -->
-        <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
-        <!--
-          Das Schachbrett: halb so viele gerechnete Bildpunkte je Bild, die
-          andere Hälfte aus den vier Nachbarn ergänzt. Gespeichert wird dabei
-          die Ausstiegszeit und nicht die Farbe - Palette, Farbversatz und
-          Drop-Welle entstehen in jedem Bild neu und bleiben deshalb auf dem
-          Schlag. Aus als Vorgabe, bis auf dem Zielgerät gemessen ist, dass es
-          dort mehr bringt als es kostet.
-        -->
-        <label class="knopfzeile" title="Halb so viele gerechnete Punkte je Bild – die Farbe bleibt trotzdem in jedem Bild neu">
-          <input type="checkbox" id="schachbrettWahl" />
-          Schachbrett
-        </label>
-        <!--
-          Der Schatten-DJ: eine Silhouette hinter einem Pult im unteren Teil
-          des Bildes. Er nickt auf den Schlag, zieht beim Aufbau den Arm hoch,
-          reisst beim Drop beide hoch, nimmt im Breakdown den Kopfhörer ans
-          Ohr und legt beim Übergang die Hand an den Regler - alles aus
-          denselben Zahlen, aus denen auch das Bild entsteht.
-        -->
-        <label class="knopfzeile" title="Silhouette eines DJs am Pult, die sich zur laufenden Musik bewegt (Taste D)">
-          <input type="checkbox" id="schattenWahl" checked />
-          Schatten-DJ
-        </label>
-        <!--
-          Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet die
-          Bühne selbst heraus; was er nicht wissen kann, steht hier: wie viele
-          Bilder Windows noch einschiebt, und wie weit die Boxen von der
-          Leinwand weg stehen. Schall braucht 3 ms je Meter.
-        -->
-        <label class="schieber" title="Bild gegen Ton verschieben. Plus heißt: Bild früher. Schall braucht 3 ms je Meter Abstand zu den Boxen.">
-          <span id="versatzWert">Bild ±0 ms</span>
-          <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
-        </label>
-        <label class="schieber">
-          <span id="energieWert">50 %</span>
-          <input type="range" id="energieRegler" min="0" max="100" value="50" />
-        </label>
-        <span class="fussnote" id="energieQuelle"></span>
-        <label class="schalter">
-          <input type="checkbox" id="angleichAn" checked />
-          Angleich
-        </label>
-        <label
-          class="schalter"
-          title="Reihenentwicklung: überspringt bei tiefen Zooms einen Teil der Rechnung. Zum Vergleichen abschaltbar."
-        >
-          <input type="checkbox" id="reiheAn" checked />
-          Reihe
-        </label>
+        <div class="gruppe">
+          <span class="gruppen-titel">Musik</span>
+          <button id="wiedergabe" title="Anhalten und weiterlaufen lassen">▶</button>
+          <button id="jetztUeberblenden">Jetzt überblenden</button>
+          <select id="artWahl" title="Übergangsart erzwingen">
+            <option value="">Übergang: automatisch</option>
+            <option value="blende">Lange Blende</option>
+            <option value="aufzug">Filteraufzug</option>
+            <option value="echo">Echo-Schnitt</option>
+            <option value="schnitt">Harter Schnitt</option>
+          </select>
+          <label class="schieber" title="Wie energisch der Abend laufen soll">
+            <span class="schieber-name">Energie</span>
+            <input type="range" id="energieRegler" min="0" max="100" value="50" />
+            <span id="energieWert" class="schieber-wert">50 %</span>
+          </label>
+          <span class="fussnote" id="energieQuelle"></span>
+          <label class="schalter" title="Lautheit der Tracks angleichen">
+            <input type="checkbox" id="angleichAn" checked />
+            Angleich
+          </label>
+        </div>
+
+        <div class="gruppe">
+          <span class="gruppen-titel">Bild</span>
+          <select id="modusWahl" title="Visualisierung: automatisch oder fest">
+            <option value="">Bild: automatisch</option>
+          </select>
+          <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas …</button>
+          <!--
+            Der Schatten-DJ: eine Silhouette hinter einem Pult im unteren Teil
+            des Bildes. Er nickt auf den Schlag, zieht beim Aufbau den Arm
+            hoch, reisst beim Drop beide hoch, nimmt im Breakdown den
+            Kopfhörer ans Ohr und legt beim Übergang die Hand an den Regler.
+          -->
+          <label class="schalter" title="Silhouette eines DJs am Pult, die sich zur laufenden Musik bewegt (Taste D)">
+            <input type="checkbox" id="schattenWahl" checked />
+            Schatten-DJ
+          </label>
+          <!--
+            Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet
+            die Bühne selbst heraus; was er nicht wissen kann, steht hier: wie
+            viele Bilder Windows noch einschiebt, und wie weit die Boxen von
+            der Leinwand weg stehen. Schall braucht 3 ms je Meter.
+          -->
+          <label class="schieber" title="Bild gegen Ton verschieben. Plus heißt: Bild früher. Schall braucht 3 ms je Meter Abstand zu den Boxen.">
+            <span class="schieber-name">Versatz</span>
+            <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
+            <span id="versatzWert" class="schieber-wert">±0 ms</span>
+          </label>
+        </div>
+
+        <div class="gruppe leise">
+          <span class="gruppen-titel">Leistung</span>
+          <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
+          </select>
+          <!--
+            Das Bildziel steht neben der Güte, weil beide dasselbe Geld
+            ausgeben: Wer weniger Bilder je Sekunde verlangt, bekommt
+            schärfere.
+          -->
+          <select id="bildzielWahl" title="Wieviele Bilder je Sekunde angestrebt werden. Weniger Bilder heißt mehr Schärfe je Bild.">
+            <option value="30">30 Bilder/s</option>
+            <option value="60" selected>60 Bilder/s</option>
+            <option value="0">voller Bildtakt</option>
+          </select>
+          <!--
+            Das Schachbrett: halb so viele gerechnete Bildpunkte je Bild, die
+            andere Hälfte aus den vier Nachbarn ergänzt.
+          -->
+          <label class="schalter" title="Halb so viele gerechnete Punkte je Bild – die Farbe bleibt trotzdem in jedem Bild neu">
+            <input type="checkbox" id="schachbrettWahl" />
+            Schachbrett
+          </label>
+          <label class="schalter" title="Reihenentwicklung: überspringt bei tiefen Zooms einen Teil der Rechnung. Zum Vergleichen abschaltbar.">
+            <input type="checkbox" id="reiheAn" checked />
+            Reihe
+          </label>
+          <span class="trenner"></span>
+          <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
+          <!-- Das Ziel wird erst im Browser gesetzt: Die Bühne läuft unter
+               /buehne und als gebaute Einzeldatei unter /dj. Siehe
+               messstandVerlinken() in buehne.js. -->
+          <a id="messstandLink" class="knopfartig" title="Was schafft dieses Gerät?">Messstand …</a>
+          <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik …</button>
+          <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
+        </div>
+
+        <div class="gruppe fuss-gruppe">
+          <span class="naechster-grund" id="naechsterGrund"></span>
+          <span class="naechster" id="naechster" hidden></span>
+        </div>
         <ol class="verlauf" id="verlauf"></ol>
       </div>
 
