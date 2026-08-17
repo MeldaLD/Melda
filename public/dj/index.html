@@ -10787,8 +10787,8 @@ function handZiele(m, lage) {
    */
   const hoch = klemm((spannung - 0.35) / 0.55, 0, 1);
   if (hoch > 0) {
-    rx += (m.mitte + m.schulterB * 2.2 - rx) * hoch;
-    ry += (m.schulterY - m.kopfH * (1.3 + wucht * 0.4) - ry) * hoch;
+    rx += (m.mitte + m.schulterB * 1.5 - rx) * hoch;
+    ry += (m.schulterY - m.kopfH * (1.4 + wucht * 0.4) - ry) * hoch;
   }
 
   /*
@@ -10797,11 +10797,20 @@ function handZiele(m, lage) {
    * die Figur nicht minutenlang mit erhobenen Armen dasteht.
    */
   if (halt > 0) {
+    /*
+     * Die Haende gehen nach oben *und nach innen*, nicht nach oben und
+     * aussen. Der Grund steckt in der Kinematik: Die Hand haengt am
+     * Unterarm, und der zeigt dorthin, wo die Hand steht. Liegt das Ziel
+     * weit aussen, weist der ganze Unterarm nach aussen und die Finger
+     * zeigen vom Koerper weg - das sieht aus, als wolle jemand etwas
+     * abwehren. Steht das Ziel innerhalb des Ellenbogens, laeuft der
+     * Unterarm nach innen oben, und heraus kommt das V, das jeder kennt.
+     */
     const t = klemm(halt, 0, 1);
-    lx += (m.mitte - m.schulterB * 2.6 - lx) * t;
-    ly += (m.schulterY - m.kopfH * 1.7 - ly) * t;
-    rx += (m.mitte + m.schulterB * 2.6 - rx) * t;
-    ry += (m.schulterY - m.kopfH * 1.7 - ry) * t;
+    lx += (m.mitte - m.schulterB * 1.15 - lx) * t;
+    ly += (m.schulterY - m.kopfH * 1.8 - ly) * t;
+    rx += (m.mitte + m.schulterB * 1.15 - rx) * t;
+    ry += (m.schulterY - m.kopfH * 1.8 - ry) * t;
   }
 
   /*
