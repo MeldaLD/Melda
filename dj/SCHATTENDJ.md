@@ -1,106 +1,132 @@
-# Der Schatten-DJ: warum er nicht gut aussieht, und was hilft
+# Der Schatten-DJ
 
-Die Bewegung stimmt. Die Gestalt nicht. Dieses Papier sagt, woran das liegt
-und wie es richtig geht – recherchiert, nicht geraten.
+Unten im Bild steht die Silhouette eines DJs hinter seinem Pult. Sie bewegt
+sich zu der Musik, die gerade läuft – und zwar messbar zu *dieser* Musik.
 
-## Was heute drin ist
+Dieses Papier beschreibt, wie die Figur gebaut ist, warum die beiden
+Vorgängerfassungen falsch aussahen, und was daraus zu lernen war.
 
-Fünf einzeln gezeichnete Silhouetten – Pult, Kopf, Rumpf, Oberarm, Unterarm –
-werden wie eine Gliederpuppe zusammengesetzt und über ein Skelett bewegt. Die
-Bewegung ist gemessen richtig: Der Kopf nickt bei 100 wie bei 175 Schlägen je
-Minute kurz nach dem Schlag, der Arm geht mit der Spannung hoch, im Breakdown
-kommt der Kopfhörer ans Ohr, beim Übergang wandert die Hand mit dem echten
-Reglerstand.
+## Wie sie gebaut ist
 
-**Und trotzdem sieht es falsch aus.** Der Grund ist nicht die Animation,
-sondern die Bauart.
+**Eine** Zeichnung – schwarze Silhouette auf weiß, vom Scheitel bis zur Hüfte,
+Arme frei vom Körper. Daraus macht `werkzeuge/schattenumriss.mjs` beim Bauen
+vier geschlossene Streckenzüge (878 Punkte aus 3122 rohen): Körper, linker
+Arm, rechter Arm, Kopfhörerbügel. Die weiße Ärmelnaht schneidet die Arme vom
+Rumpf ab – die Trennung steckt also schon in der Zeichnung und muss nicht
+gerechnet werden.
 
-## Warum eine Gliederpuppe aus Einzelteilen nicht funktioniert
+Der Zeichner verformt diesen Umriss an einem Skelett, wie es
+2D-Skelettanimation überall tut (Spine, Live2D, DragonBones): Jeder Randpunkt
+gehört anteilig zu einem oder mehreren Knochen und wandert mit ihnen. Vier
+Knochen genügen – Rumpf, Kopf, je Seite Ober- und Unterarm.
 
-Vier Fehler, die alle dieselbe Wurzel haben – die Teile sind *unabhängig
-voneinander* entstanden:
+Der teure Teil eines solchen Verfahrens – Dreiecksnetz, Texturkoordinaten,
+Schattierer – fällt weg, weil eine Silhouette keine Innenzeichnung hat. Zu
+bewegen ist nur der Rand. **Gemessen 0,14 ms je Bild** in einem Chromium ohne
+Grafikkarte; die alte Fassung aus Bildern kostete 0,53 ms.
 
-1. **Zwei Schultern übereinander.** Der Rumpf bringt einen Ärmel mit, der
-   Oberarm einen eigenen Deltamuskel. Beide zeichnen dieselbe Körperstelle,
-   und beide liegen übereinander.
-2. **Harte Nähte an den Gelenken.** Wo Oberarm und Unterarm sich treffen,
-   stoßen zwei getrennte Formen aneinander. Ein Ellenbogen ist aber keine
-   Naht, sondern eine Beugung derselben Haut.
-3. **Nichts verformt sich.** Hebt ein Mensch den Arm, wandert die Schulter
-   mit und der Umriss ändert seine Form. Eine Gliederpuppe dreht nur Klötze.
-4. **Die Teile passen stilistisch nicht zusammen.** Strichstärke,
-   Rundungsgrad und Proportion sind je Teil anders, weil jedes Teil eine
-   eigene Zeichnung ist.
+## Was am Bild gemessen wird, statt geraten zu sein
 
-Zusammen ergibt das etwas, das *fast* wie ein Mensch aussieht und deshalb
-unheimlich wirkt. Die Vorlage, die als Ziel dient, hat keinen dieser Fehler –
-weil sie **eine einzige Zeichnung** ist.
+Das Werkzeug misst die Gelenke selbst, damit eine andere Zeichnung nicht
+sämtliche Zahlen im Code ungültig macht:
 
-## Was stattdessen richtig ist: ein Umriss, an Gelenken verformt
+| Marke | Verfahren | Wert |
+|---|---|---|
+| Hals | schmalste Stelle zwischen Kopf- und Schulterbreite, Mitte des Plateaus | 0,245 |
+| Handgelenk | schmalste Stelle zwischen Armmitte und Fingerspitze | 0,812 |
+| Schultergelenk | wo der Rumpf 80 % seiner vollen Breite erreicht, auf der Armachse | ±0,157 / 0,341 |
+| Ellenbogen | 42,3 % der Strecke Schulter–Fingerspitze (Anatomie) | ±0,209 / 0,612 |
+| Hand | Mitte zwischen Handgelenk und Fingerspitze | ±0,240 / 0,897 |
+| Plattenteller | erste Spaltengruppe über der Tischkante im Pultbild | 0,251 der Pultbreite |
 
-Die naheliegende Frage – „kann man nicht eine ganze Figur modellieren und an
-den Gelenken bewegen?" – ist genau der richtige Ansatz. Er heißt in der
-Spielebranche **2D-Skelettanimation mit gewichtetem Netz** (Spine, Live2D,
-DragonBones) und funktioniert so: Ein Netz aus Punkten liegt über der
-Zeichnung, jeder Punkt gehört anteilig zu einem oder mehreren Knochen, und
-beim Bewegen der Knochen verformt sich das Netz mit
-([Grundlagen](https://deepwiki.com/mrdoob/three.js/5.2-skeletal-animation-and-skinning),
-[Spine](https://en.esotericsoftware.com/),
-[browserbasierter Editor](https://www.keyframe.it.com/)).
+Alle Maße in Figurenhöhen: y = 0 ist der Scheitel, y = 1 die Unterkante.
 
-**Für unseren Fall ist das deutlich einfacher als für ein Spiel**, und das ist
-die eigentliche Erkenntnis der Recherche:
+**Gegenprobe.** Schultergelenk und Handgelenk werden auf zwei unabhängigen
+Wegen bestimmt – das eine aus der Rumpfbreite, das andere aus den
+Gliedmaßenverhältnissen. Das Werkzeug rechnet beide und meldet die Abweichung;
+sie liegt bei 1,3 % der Figurenhöhe.
 
-Ein Spiel muss eine *bemalte* Figur verformen – Textur, Falten, Schatten. Dafür
-braucht es ein trianguliertes Netz mit Texturkoordinaten und einen Schattierer.
-Wir haben eine **Silhouette**: eine Farbe, keine Innenzeichnung. Damit fällt
-alles Aufwendige weg. Zu verformen ist nur der **Umriss**.
+## Drei Fehler, und was sie gemeinsam haben
 
-Also:
+### 1. Die Gliederpuppe aus fünf Teilen
 
-1. **Eine** vollständige Zeichnung wird zu einem geschlossenen Streckenzug
-   verfolgt – schwarze Fläche auf weiß, Randverfolgung, dann vereinfacht auf
-   ein paar hundert Punkte. Das Standardverfahren dafür ist
-   [Potrace](https://potrace.sourceforge.net/potrace.pdf); für eine
-   Silhouette reicht eine einfache Randverfolgung plus Douglas-Peucker, ohne
-   Fremdbibliothek.
-2. Ein Skelett wird daruntergelegt: Hüfte, Brust, Hals, Kopf, je Seite
-   Schulter–Ellenbogen–Handgelenk. Zehn Knochen.
-3. Jeder Umrisspunkt bekommt Gewichte nach seinem Abstand zu den Knochen.
-   Punkte mitten am Oberarm gehören zu eins, Punkte an der Schulter anteilig
-   zu zweien – dort entsteht die Beugung.
-4. Je Bild: die Punkte transformieren, **einmal** füllen.
+Die erste Fassung setzte Pult, Kopf, Rumpf, Oberarm und Unterarm aus fünf
+einzeln gezeichneten Bildern zusammen. Ergebnis: zwei Schultern übereinander
+(Rumpf und Oberarm brachten beide eine mit), harte Nähte an den Gelenken,
+nichts verformte sich, vier verschiedene Strichstärken. Etwas, das *fast* wie
+ein Mensch aussieht und genau deshalb unheimlich wirkt.
 
-Was das löst:
+Die Wurzel: Die Teile waren unabhängig voneinander entstanden. Eine Zeichnung
+hat dieses Problem nicht.
 
-- **Keine Nähte.** Es ist ein einziger geschlossener Umriss.
-- **Die Schulter beugt sich**, weil die Gewichte dort mischen.
-- **Ein Stil**, weil es eine Zeichnung ist.
-- **„Moves einspielen"** heißt dann: Knochenwinkel als Schlüsselbilder
-  hinschreiben und dazwischen überblenden. Genau das, was gemeint war.
+### 2. Der Ärmel, der dem Arm folgen sollte
 
-Und es ist **billiger als heute**: rund 250 Punkttransformationen und eine
-Füllung statt zehn Bildkopien. Die jetzige Fassung kostet 0,53 ms ohne
-Grafikkarte; der Umriss dürfte darunter liegen.
+Das Schultergelenk sitzt im Rumpf, gut ein Fünftel der Figurenhöhe über der
+Ärmelnaht. Dreht der Arm darum und der Ärmel bleibt stehen, reißt ein weißer
+Keil auf. Der naheliegende Ausweg – die Randpunkte des Ärmels anteilig dem
+Oberarmknochen zuschlagen – **schmiert**: Ein Punkt mit Gewicht 0,5 dreht bei
+90 Grad Armdrehung nur 45 Grad mit. Bei erhobenen Armen stand der Rumpf als
+schmales Rechteck ohne Schultern da, und aus den Ärmeln wurden Zipfel.
 
-## Was dafür gebraucht wird
+Der richtige Weg geht andersherum: Der Rumpf bleibt starr, und der **Arm**
+bekommt das Stück, das ihm fehlt – einen Balken in Armbreite vom Gelenk bis
+zur Naht, oben rund abgeschlossen. Im Ruhestand liegt er vollständig hinter
+dem Rumpf und ist unsichtbar; beim Heben wird er zum Deltamuskel. Weil er
+denselben Knochen trägt wie der Arm, kann zwischen beiden nie eine Fuge
+entstehen.
 
-**Eine** Zeichnung, und dafür gelten drei Bedingungen, die aus dem Verfahren
-folgen:
+### 3. Das Pult gab der Figur ihr Maß
 
-- **Die Arme dürfen den Rumpf nicht berühren.** Berühren sie ihn, verschmilzt
-  der Umriss und die Randverfolgung kann Arm und Rumpf nicht mehr trennen –
-  dann lässt sich der Arm auch nicht mehr einzeln bewegen. Zwischen Arm und
-  Körper muss überall ein sichtbarer weißer Spalt bleiben.
-- **Von den Hüften aufwärts**, frontal, entspannt stehend, beide Arme leicht
-  vom Körper weg und leicht angewinkelt. Aus dieser Haltung heraus lässt sich
-  in jede andere drehen; aus einer verschränkten heraus nicht.
-- **Reines Schwarz auf reinem Weiß**, kein Schatten, keine Innenzeichnung,
-  keine Perspektive.
+Die Pultbreite hing am Bildschirm, die Figur richtete sich danach. Auf einer
+Leinwand wurde das Pult 562 Bildpunkte breit und die Figur 292 hoch – ein
+Möbel von der doppelten Schulterbreite, hinter dem ein Kind steht.
 
-Das Pult bleibt, wie es ist – es bewegt sich nicht und braucht kein Skelett.
+Schlimmer war die Nebenwirkung: Die Schulter stand damit nur 0,38
+Figurenhöhen über der Platte, bei einer Armlänge von 0,64. Der Arm musste sich
+für eine Reichweite von 128 Bildpunkten auf 194 zusammenfalten, der Ellenbogen
+klappte vor die Brust – die Figur sah aus, als verschränke sie die Arme.
 
-## Der Prompt dafür
+Jetzt führt die Rechnung von der Figur zum Pult. Ein DJ-Tisch ist gut
+zweieinhalb Schultern breit; die Pultkante schneidet die Figur bei 0,87 ab,
+weil ein Pult knapp einen Meter hoch ist und eine Hüfte auch. Der Griff zum
+Teller braucht damit 87 % der Armlänge: leicht gebeugt, so wie jemand steht,
+der auflegt.
+
+### Das Gemeinsame
+
+Alle drei sind auf jeder Zahl unsichtbar. Die Feder stimmte, die Rechenzeit
+stimmte, die Hände gingen brav hoch – und die Figur war trotzdem falsch.
+Gefunden wurden sie ausschließlich, indem Standbilder gerendert und
+**angesehen** wurden (`werkzeuge/schattenbilder.mjs`, sieben Haltungen, seit
+diesem Umbau jede zusätzlich als Ausschnitt in doppelter Größe – auf 200
+Bildpunkten Figurenhöhe ist nicht zu erkennen, ob ein Ellenbogen in die
+richtige Richtung knickt).
+
+Was sich daraus in eine Abnahme übersetzen ließ, steht jetzt drin: Die Figur
+muss auch mit erhobenen Armen **ein zusammenhängendes Stück** sein. Das hätte
+Fehler 2 gefunden.
+
+## Was sie tut
+
+Die Bewegungslogik ist unverändert und war nie das Problem:
+
+- **Nicken auf den Schlag** über eine gedämpfte Feder, deren Steifigkeit dem
+  gemessenen Tempo folgt. Eine feste Feder gerät bei 140 Schlägen je Minute in
+  Resonanz mit dem Takt und wabert.
+- **Arm hoch beim Aufbau**, je näher der Drop kommt.
+- **Beide Arme beim Drop**, mit rund zwei Sekunden Nachhall.
+- **Kopfhörer ans Ohr im Breakdown** – die Bühne bereitet dann wirklich den
+  nächsten Track vor.
+- **Hand am Regler beim Übergang**, mit dem echten Reglerstand. Wer genau
+  hinsieht, kann am Schatten ablesen, wie weit der Wechsel ist.
+- **Zeigefinger ins Publikum** auf Phrasengrenzen, manchmal.
+
+## Bedienung
+
+Vorgabe **an**, abschaltbar mit Taste D oder dem Haken unter „Bild". Wer sie
+einmal abgeschaltet hat, bekommt sie nicht wieder aufgedrängt.
+
+## Wenn eine neue Zeichnung her soll
 
 > Full body silhouette of a standing DJ from the hips up, seen straight from
 > the front. Wearing a plain t-shirt and large over-ear headphones. Relaxed
@@ -116,16 +142,23 @@ Negativ: `grey, gradient, shading, outline, drop shadow, glow, background,
 text, watermark, perspective, 3D, photorealistic, arms touching the body,
 crossed arms, hands in pockets, cropped limbs`
 
-**Woran die Zeichnung scheitert** – bitte vor dem Schicken prüfen:
+Drei Bedingungen, und sie folgen alle aus dem Verfahren:
 
-- Berührt ein Arm den Körper? Dann unbrauchbar, egal wie gut sie sonst ist.
-- Sind die Hände hinter dem Rücken oder in den Taschen? Dann fehlt das Ende
-  der Kette.
-- Ist ein Schlagschatten oder Boden drin? Dann verschmilzt die Figur damit.
+- **Die Arme dürfen den Rumpf nicht berühren.** Sonst verschmilzt der Umriss
+  und die Randverfolgung kann Arm und Rumpf nicht mehr trennen.
+- **Von den Hüften aufwärts, entspannt stehend.** Aus dieser Haltung heraus
+  lässt sich in jede andere drehen; aus einer verschränkten heraus nicht.
+- **Reines Schwarz auf reinem Weiß.** Kein Schatten, keine Innenzeichnung,
+  keine Perspektive.
 
-## Bis dahin
+Danach:
 
-Der Schatten-DJ ist **abgeschaltet** – Vorgabe aus, einschaltbar mit Taste D
-oder dem Haken unter „Bild". Die Bewegungslogik bleibt vollständig erhalten;
-sie hängt nicht an der Gestalt und wird von einem Umriss genauso getrieben wie
-von fünf Einzelteilen.
+```
+node werkzeuge/schattenumriss.mjs werkzeuge/schattenquellen/figur.jpeg
+node werkzeuge/schattenbilder.mjs        # und die Bilder ansehen
+node pruefungen/schattendj.mjs
+```
+
+Das Werkzeug meldet die Gegenprobe zwischen den beiden Wegen zum
+Schultergelenk. Weicht sie um mehr als vier Prozent ab, stimmt etwas an der
+Zeichnung nicht – meist eine Hand in der Tasche oder ein angeschnittener Arm.

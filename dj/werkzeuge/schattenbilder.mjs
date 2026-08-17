@@ -101,13 +101,34 @@ try {
             ...(grund.drop ? { drop: i === bilder - 12 } : {}),
           });
         }
-        return lein.toDataURL('image/png');
+        /*
+         * Zwei Bilder je Haltung: das ganze Bild und ein Ausschnitt um die
+         * Figur, doppelt so gross. Der Grund ist praktisch - die Figur ist
+         * gut zweihundert Bildpunkte hoch, und auf zweihundert Bildpunkten
+         * ist nicht zu erkennen, ob ein Ellenbogen in die richtige Richtung
+         * knickt. Genau daran sind schon zwei Fassungen gescheitert.
+         */
+        const st2 = m.schattenStand();
+        const mittelpunkt = st2.kopf ? st2.kopf.x : 640;
+        const nahB = 460;
+        const nahH = 380;
+        const nahX = Math.round(Math.max(0, Math.min(1280 - nahB, mittelpunkt - nahB / 2)));
+        const nahY = Math.round(Math.max(0, Math.min(720 - nahH, (st2.kopf ? st2.kopf.y : 500) - nahH * 0.32)));
+        const nah = document.createElement('canvas');
+        nah.width = nahB * 2;
+        nah.height = nahH * 2;
+        const nst = nah.getContext('2d');
+        nst.imageSmoothingEnabled = false;
+        nst.drawImage(lein, nahX, nahY, nahB, nahH, 0, 0, nahB * 2, nahH * 2);
+        return [lein.toDataURL('image/png'), nah.toDataURL('image/png')];
       },
       { grund, bilder },
     );
-    const roh = Buffer.from(daten.split(',')[1], 'base64');
-    await fs.writeFile(path.join(ZIEL, `${name}.png`), roh);
-    console.log(`  ${name}.png – ${Math.round(roh.length / 1024)} kB`);
+    for (const [zusatz, url] of [['', daten[0]], ['-nah', daten[1]]]) {
+      const roh = Buffer.from(url.split(',')[1], 'base64');
+      await fs.writeFile(path.join(ZIEL, `${name}${zusatz}.png`), roh);
+      console.log(`  ${name}${zusatz}.png – ${Math.round(roh.length / 1024)} kB`);
+    }
   }
 } finally {
   await browser.close();

@@ -293,6 +293,89 @@ try {
   pruefe('mit steigender Spannung geht die Hand hoeher', hoeher,
     aufbau.map((y) => Math.round(y)).join(' → '));
 
+  /*
+   * Die Figur muss *eine* Figur bleiben - auch mit erhobenen Armen.
+   *
+   * Diese Pruefung gibt es, weil genau hier zwei Fassungen gescheitert sind,
+   * und zwar unsichtbar fuer jede andere Zahl: Die Haende gingen brav hoch,
+   * die Feder stimmte, die Rechenzeit stimmte - und der Arm schwebte
+   * abgerissen neben der Schulter. Erst der Blick auf ein Standbild zeigte
+   * es.
+   *
+   * Messbar ist es als Zusammenhang: Von einem Punkt im Kopf aus werden alle
+   * schwarzen Nachbarn eingefaerbt. Was danach noch schwarz und nicht
+   * eingefaerbt ist, haengt nicht mit dem Koerper zusammen - ein losgeloester
+   * Arm. Erlaubt sind nur Kruemel; die Aussparung im Kopfhoerer und die
+   * weichen Kanten der Leinwand liefern immer ein paar.
+   */
+  console.log('\nAuch mit erhobenen Armen bleibt es eine Figur:');
+  const zusammenhang = await seite.evaluate(() => {
+    const { m, stift } = window.__probe;
+    const b = 900;
+    const h = 600;
+    const messen = (grund) => {
+      m.schattenZuruecksetzen();
+      m.schattenSetzen(true);
+      let stand = null;
+      for (let i = 0; i < 240; i++) {
+        stift.clearRect(0, 0, b, h);
+        m.schattenZeichnen(stift, b, h, {
+          sekunden: 1 / 60,
+          takt: { beat: i / 30, imBeat: 0, nummer: Math.floor(i / 30), aufEins: true, aufPhrase: false },
+          wucht: 1, palette: ['#123', '#456', '#789', '#8ad7ff'],
+          ...grund,
+          ...(grund.drop ? { drop: i === 200 } : {}),
+        });
+        stand = m.schattenStand();
+      }
+      const d = stift.getImageData(0, 0, b, h).data;
+      /*
+       * Die Schwelle liegt tief, und das ist Absicht.
+       *
+       * Bei 200 meldete die Pruefung zuverlaessig zwei "lose" Stuecke von je
+       * 1500 Bildpunkten - und es waren nicht die Arme, sondern die
+       * Plattenteller. Sie werden als Bildstreifen gezeichnet, der Block
+       * darunter als Rechteck, und an der Naht liegt eine Reihe geglaetteter
+       * Bildpunkte mit halber Deckung. Bei 40 ist die Naht geschlossen. Ein
+       * wirklich abgerissener Arm steht dagegen in vollstaendig leerem Grund;
+       * den findet die Pruefung bei jeder Schwelle.
+       */
+      const voll = new Uint8Array(b * h);
+      let schwarz = 0;
+      for (let p = 0; p < b * h; p++) {
+        if (d[p * 4 + 3] > 40) { voll[p] = 1; schwarz++; }
+      }
+      // Startpunkt: der Kopf. Er gehoert immer zum Koerper.
+      const sx = Math.round(stand.kopf.x);
+      const sy = Math.round(stand.kopf.y);
+      if (!voll[sy * b + sx]) return { schwarz, lose: schwarz };
+      const stapel = [sy * b + sx];
+      voll[sy * b + sx] = 2;
+      let erreicht = 1;
+      while (stapel.length) {
+        const q = stapel.pop();
+        const qx = q % b;
+        for (const n of [q - 1, q + 1, q - b, q + b]) {
+          if (n < 0 || n >= b * h || voll[n] !== 1) continue;
+          if (Math.abs((n % b) - qx) > 1) continue;
+          voll[n] = 2;
+          erreicht++;
+          stapel.push(n);
+        }
+      }
+      return { schwarz, lose: schwarz - erreicht };
+    };
+    return {
+      drop: messen({ spannung: 0.9, drop: true }),
+      aufbau: messen({ spannung: 1 }),
+    };
+  });
+  for (const [name, wert] of Object.entries(zusammenhang)) {
+    const anteil = wert.lose / Math.max(1, wert.schwarz);
+    pruefe(`${name}: kein losgeloestes Stueck`, anteil < 0.01,
+      `${wert.lose} von ${wert.schwarz} Bildpunkten haengen nicht am Koerper`);
+  }
+
   console.log('\nUnd es kostet fast nichts:');
   const kosten = await seite.evaluate(() => {
     const m = window.__probe.m;

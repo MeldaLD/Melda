@@ -52,3 +52,7 @@ next-env.d.ts
 # Bilder aus den Blick-Werkzeugen (dj:modibilder, dj:mandalabilder).
 # Sie werden angesehen und weggeworfen, nicht versioniert.
 dj-bilder/
+
+# Standbilder vom Schatten-DJ: erzeugt zum Ansehen, nicht zum Aufheben.
+# node dj/werkzeuge/schattenbilder.mjs legt sie neu an.
+/dj/werkzeuge/schattenbilder/

@@ -1,6 +1,13 @@
-// Aus fuenf gezeichneten Silhouetten die Teile fuer den Schatten-DJ machen.
+// Aus der gezeichneten Silhouette des Pultes das Bild fuer den Schatten-DJ
+// machen.
 //
 //   node werkzeuge/schattenteile.mjs [quellordner]
+//
+// Hier stand einmal eine Gliederpuppe aus fuenf Teilen - Pult, Kopf, Rumpf,
+// Oberarm, Unterarm. Die Figur kommt jetzt aus *einer* Zeichnung und wird als
+// Umriss an einem Skelett verformt (werkzeuge/schattenumriss.mjs); von den
+// fuenf Bildern bleibt nur das Pult, weil es sich nicht bewegt und deshalb
+// kein Skelett braucht. Das spart nebenbei 60 kB in der Einzeldatei.
 //
 // Die Quellbilder sind schwarze Formen auf weissem Grund. Gebraucht werden
 // schwarze Formen auf *nichts* - und zwar so klein wie moeglich, denn sie
@@ -36,20 +43,9 @@ const CHROM = process.env.CHROMIUM_PFAD;
 const QUELLE = path.resolve(process.argv[2] ?? 'werkzeuge/schattenquellen');
 const ZIEL = path.resolve('public/gemeinsam/schattenteile.js');
 
-/*
- * Die Teile, ihre Quelldatei und die groesste Kante nach dem Verkleinern.
- *
- * Die Zahlen sind nicht gleich, weil die Teile nicht gleich gross auf dem
- * Bildschirm landen: Das Pult ist so breit wie ein halbes Bild, ein Oberarm
- * so lang wie ein Kopf hoch ist.
- */
-const TEILE = [
-  { name: 'pult', datei: 'pult.jpeg', kante: 720 },
-  { name: 'kopf', datei: 'kopf.jpeg', kante: 320 },
-  { name: 'rumpf', datei: 'rumpf.jpeg', kante: 420 },
-  { name: 'oberarm', datei: 'oberarm.png', kante: 260 },
-  { name: 'unterarm', datei: 'unterarm.png', kante: 300 },
-];
+// Nur noch ein Teil - aber die Schleife bleibt, weil ein zweites Moebel
+// (eine Box, ein Kabel) hier ohne Umbau danebenpasst.
+const TEILE = [{ name: 'pult', datei: 'pult.jpeg', kante: 720 }];
 
 const browser = await chromium.launch({
   ...(CHROM ? { executablePath: CHROM } : {}),
@@ -158,52 +154,37 @@ try {
         }
 
         /*
-         * Wo beim Rumpf der Aermel aufhoert - also wo ein Arm weitergehen
-         * muesste.
+         * Wo die Plattenteller stehen - dorthin gehoeren die Haende.
          *
-         * Das hatte ich zuerst geschaetzt ("zweiundvierzig Prozent der
-         * Breite"), und man sah es sofort: Die Arme hingen mitten an der
-         * Brust statt an der Schulter. Eine geschaetzte Zahl gilt ausserdem
-         * nur fuer *dieses* Bild - wer eine andere Figur zeichnet, muesste
-         * sie neu raten.
+         * Vorher stand im Zeichner "ein Viertel der Pultbreite nach aussen",
+         * geraten. Die Folge war ein zu kurzer Griff: Der Arm musste sich fuer
+         * eine Reichweite von 128 Bildpunkten auf 194 zusammenfalten, der
+         * Ellenbogen klappte vor die Brust, und die Figur sah aus, als
+         * verschraenke sie die Arme.
          *
-         * Gemessen ist es eindeutig. Die breiteste Zeile des Bildes ist die
-         * Schulterlinie; von dort abwaerts laeuft der Aermel und wird
-         * schmaler. Wo die Breite unter zweiundneunzig Prozent der groessten
-         * faellt, ist der Aermel zu Ende - dort sitzt das Gelenk, an der
-         * aeusseren Kante.
+         * Gemessen ist es eindeutig. Ueber der Tischkante steht nur Gestell:
+         * links ein Teller, rechts ein Teller, dazwischen der Mischer. Der
+         * Der linke Teller ist die erste zusammenhaengende Spaltengruppe von
+         * links; seine Mitte ist gesucht. Der Schwerpunkt der ganzen linken
+         * Haelfte waere falsch - der Mischer in der Mitte zieht ihn nach
+         * innen, gemessen 0,236 statt 0,305.
          */
-        const zeilen = [];
-        for (let y = 0; y < b.height; y++) {
-          let l = -1, r = -1;
-          for (let x = 0; x < b.width; x++) {
-            if (fb[(y * b.width + x) * 4 + 3] > 128) { if (l < 0) l = x; r = x; }
-          }
-          zeilen.push({ l, r, w: r - l });
+        const streifen = Math.max(1, Math.floor(deckel * b.height));
+        const tinte = [];
+        for (let x = 0; x < b.width; x++) {
+          let n = 0;
+          for (let y = 0; y < streifen; y++) if (fb[(y * b.width + x) * 4 + 3] > 128) n++;
+          tinte.push(n);
         }
-        const breiteste = zeilen.reduce((a, z, i) => (z.w > zeilen[a].w ? i : a), 0);
-        /*
-         * Und hier war der zweite Anlauf noetig.
-         *
-         * "Nach unten laufen, bis die Breite faellt" klingt richtig und ist
-         * es nicht: Der Rumpf ist an der Huefte fast so breit wie an den
-         * Schultern, also lief die Suche bis in die Mitte des Bildes und
-         * setzte das Gelenk dorthin.
-         *
-         * Das Aermelende ist keine Frage der Breite, sondern eine *Kante*:
-         * An genau einer Stelle springt der aeussere Rand nach innen. Gesucht
-         * ist deshalb die groesste Aenderung von einer Zeile zur naechsten,
-         * und nur im oberen Drittel - weiter unten gibt es keinen Aermel mehr.
-         */
-        let ende = breiteste;
-        let groessterSprung = 0;
-        for (let y = breiteste; y < Math.min(b.height - 1, b.height * 0.45); y++) {
-          const sprung = zeilen[y].r - zeilen[y + 1].r;
-          if (sprung > groessterSprung) { groessterSprung = sprung; ende = y; }
+        let links = -1;
+        let rechts = -1;
+        for (let x = 0; x < b.width / 2; x++) {
+          if (tinte[x] > 0) { if (links < 0) links = x; rechts = x; }
+          else if (links >= 0) break;
         }
-        const arm = { x: zeilen[ende].r / b.width, y: ende / b.height };
+        const teller = links < 0 ? 0.25 : 0.5 - (links + rechts) / 2 / b.width;
 
-        return { daten: b.toDataURL('image/png'), breite: b.width, hoehe: b.height, deckel, arm };
+        return { daten: b.toDataURL('image/png'), breite: b.width, hoehe: b.height, deckel, teller };
       },
       { quelle, kante: teil.kante },
     );
@@ -225,10 +206,14 @@ const kopf = `// Die Teile des Schatten-DJs - erzeugt, nicht von Hand geschriebe
 //
 //   node werkzeuge/schattenteile.mjs
 //
-// Fuenf gezeichnete Silhouetten, weiss herausgerechnet, zugeschnitten und
-// verkleinert. Sie stehen hier als Zeichenketten, damit die Buehne in beiden
-// Fassungen laeuft - aus Modulen unter /buehne und als Einzeldatei unter /dj -
-// ohne dass ein Bildpfad in einer der beiden ins Leere zeigt.
+// Das Pult, weiss herausgerechnet, zugeschnitten und verkleinert. Es steht
+// hier als Zeichenkette, damit die Buehne in beiden Fassungen laeuft - aus
+// Modulen unter /buehne und als Einzeldatei unter /dj - ohne dass ein
+// Bildpfad in einer der beiden ins Leere zeigt.
+//
+// 'deckel' ist die Tischkante, 'teller' die Mitte des linken Plattentellers,
+// beide als Anteil - dorthin schneidet der Zeichner die Figur ab und dorthin
+// legt er die Haende.
 //
 // Gesamt ${Math.round(gesamt / 1024)} kB. Wer die Quellbilder aendert, laesst
 // das Werkzeug noch einmal laufen; von Hand hier zu editieren ist zwecklos.
@@ -236,7 +221,7 @@ const kopf = `// Die Teile des Schatten-DJs - erzeugt, nicht von Hand geschriebe
 `;
 
 const leib = fertig
-  .map((t) => `export const ${t.name.toUpperCase()} = {\n  breite: ${t.breite},\n  hoehe: ${t.hoehe},\n  deckel: ${t.deckel.toFixed(4)},\n  armX: ${t.arm.x.toFixed(4)},\n  armY: ${t.arm.y.toFixed(4)},\n  daten: '${t.daten}',\n};`)
+  .map((t) => `export const ${t.name.toUpperCase()} = {\n  breite: ${t.breite},\n  hoehe: ${t.hoehe},\n  deckel: ${t.deckel.toFixed(4)},\n  teller: ${t.teller.toFixed(4)},\n  daten: '${t.daten}',\n};`)
   .join('\n\n');
 
 await fs.writeFile(ZIEL, `${kopf}${leib}\n`);

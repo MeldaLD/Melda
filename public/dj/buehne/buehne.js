@@ -987,20 +987,24 @@ function schattenUmschalten(an) {
 }
 {
   /*
-   * Vorgabe ist jetzt *aus*.
+   * Vorgabe ist wieder *an*.
    *
-   * Die Figur ist aus fuenf einzeln gezeichneten Teilen zusammengesetzt, und
-   * das sieht man ihr an: zwei Schultern uebereinander, harte Naehte an den
-   * Gelenken, nichts verformt sich. Der erste Mensch, der sie gesehen hat,
-   * fand sie unheimlich - und eine Figur, die Leuten Angst macht, gehoert
-   * nicht ungefragt auf eine Geburtstagsleinwand.
+   * Sie war eine Weile aus, und der Grund war ehrlich: Die Figur bestand aus
+   * fuenf einzeln gezeichneten Teilen, und das sah man ihr an - zwei
+   * Schultern uebereinander, harte Naehte an den Gelenken, nichts verformte
+   * sich. Der erste Mensch, der sie gesehen hat, fand sie unheimlich, und
+   * eine Figur, die Leuten Angst macht, gehoert nicht ungefragt auf eine
+   * Geburtstagsleinwand.
    *
-   * Sie bleibt eingebaut und einschaltbar (Taste D), weil die Bewegung
-   * stimmt: Nicken auf den Schlag, Arm hoch beim Aufbau, Kopfhoerer im
-   * Breakdown, Hand am Regler. Was fehlt, ist die Gestalt, und die kommt aus
-   * einer *einzigen* Zeichnung statt aus fuenf - siehe SCHATTENDJ.md.
+   * Jetzt kommt sie aus *einer* Zeichnung und wird als Umriss an einem
+   * Skelett verformt (siehe SCHATTENDJ.md). Damit ist der Grund weg - und die
+   * Bewegung stimmte ohnehin schon: Nicken auf den Schlag, Arm hoch beim
+   * Aufbau, Kopfhoerer im Breakdown, Hand am Regler.
+   *
+   * Wer sie einmal abgeschaltet hat, bekommt sie nicht wieder aufgedraengt;
+   * nur das Fehlen des Eintrags heisst "an".
    */
-  const gemerkt = localStorage.getItem('djSchatten') === 'ja';
+  const gemerkt = localStorage.getItem('djSchatten') !== 'nein';
   $('schattenWahl').checked = gemerkt;
   schattenSetzen(gemerkt);
   $('schattenWahl').addEventListener('change', (e) => schattenUmschalten(e.target.checked));
