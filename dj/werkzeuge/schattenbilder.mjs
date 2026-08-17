@@ -43,6 +43,9 @@ try {
     const daten = await seite.evaluate(
       async ({ grund, bilder }) => {
         const m = await import('/gemeinsam/schattendj.js');
+        // Ohne das bleibt das Bild leer: Die Teile kommen ueber onload, und die
+        // Schleife unten laeuft synchron durch.
+        await m.schattenLaden();
         const lein = document.createElement('canvas');
         lein.width = 1280;
         lein.height = 720;

@@ -37,6 +37,101 @@
 // und es haelt auch dann, wenn ein Bild ausfaellt oder das Tempo wechselt,
 // weil die Feder in Sekunden rechnet und nicht in Bildern.
 
+import { PULT, KOPF, RUMPF, OBERARM, UNTERARM } from './schattenteile.js';
+
+/* --- Die gezeichneten Teile ------------------------------------------------
+ *
+ * Die Figur bestand zuerst aus Ellipsen und Linien, und man sah es ihr an:
+ * "breit, aber ohne Muskeln", und die Plattenteller lasen sich als
+ * Essensglocken. Jetzt sind es fuenf gezeichnete Silhouetten - Pult, Kopf,
+ * Rumpf, Oberarm, Unterarm -, die hier wie eine Gliederpuppe zusammengesetzt
+ * und bewegt werden.
+ *
+ * Warum in Teilen und nicht als *ein* Bild: Ein Bild waere ein Standbild.
+ * Alles, was diese Figur ausmacht - Nicken auf den Schlag, Arm hoch beim
+ * Aufbau, Kopfhoerer im Breakdown, Hand am Regler -, entsteht daraus, dass
+ * sich die Teile gegeneinander drehen.
+ *
+ * Geladen wird einmal, aus Zeichenketten im Modul daneben. Bis das erste
+ * Bild da ist, wird nichts gezeichnet: Ein halb geladener DJ ist schlimmer
+ * als gar keiner.
+ */
+const TEILE = { pult: PULT, kopf: KOPF, rumpf: RUMPF, oberarm: OBERARM, unterarm: UNTERARM };
+
+/*
+ * Vorskalierte Abzuege - der Unterschied zwischen 0,83 und einem Bruchteil
+ * davon.
+ *
+ * Zuerst wurde in jedem Bild aus der vollen Quelle heruntergerechnet: das
+ * Pult von 720 auf 589 Bildpunkte Breite, der Rumpf von 347 auf 176, und das
+ * alles zweimal wegen des Saums. Ein Verkleinern mit Glaettung ist aber kein
+ * Kopieren, sondern eine Faltung ueber jeden Zielpunkt - sechzigmal in der
+ * Sekunde fuer Bilder, die sich nicht aendern.
+ *
+ * Die Groessen aendern sich nur, wenn sich das Fenster aendert. Also wird je
+ * Teil und Groesse einmal ein Abzug angelegt und danach nur noch geblittet.
+ * Der Schluessel enthaelt die gerundete Zielbreite; ein Bildpunkt Unterschied
+ * loest keine Neuanlage aus.
+ */
+const abzuege = new Map();
+
+function abzug(name, breite, hoehe, hell) {
+  const schluessel = `${name}|${Math.round(breite)}|${Math.round(hoehe)}|${hell ? 'h' : 'd'}`;
+  const da = abzuege.get(schluessel);
+  if (da) return da;
+  const quelle = hell ? hellBilder[name] : bilder[name];
+  if (!quelle) return null;
+  const l = document.createElement('canvas');
+  l.width = Math.max(1, Math.round(breite));
+  l.height = Math.max(1, Math.round(hoehe));
+  const st = l.getContext('2d');
+  st.imageSmoothingQuality = 'high';
+  st.drawImage(quelle, 0, 0, l.width, l.height);
+  /*
+   * Der Speicher darf nicht wachsen. Beim Ziehen am Fensterrand entsteht in
+   * jeder Zwischengroesse ein Abzug; ohne Deckel liegen nach einer Minute
+   * hundert davon herum. Aeltere fliegen raus - gebraucht werden immer nur
+   * die zehn der aktuellen Groesse.
+   */
+  if (abzuege.size > 24) {
+    for (const alt of [...abzuege.keys()].slice(0, 12)) abzuege.delete(alt);
+  }
+  abzuege.set(schluessel, l);
+  return l;
+}
+const bilder = {};
+// Weisse Abzuege derselben Teile - fuer das Streiflicht. Einmal angelegt,
+// nicht je Bild: source-in auf einer neuen Leinwand ist billig, aber nicht
+// sechzigmal in der Sekunde.
+const hellBilder = {};
+let geladen = false;
+let laedt = false;
+
+function teileLaden() {
+  if (laedt) return;
+  laedt = true;
+  let offen = Object.keys(TEILE).length;
+  for (const [name, teil] of Object.entries(TEILE)) {
+    const bild = new Image();
+    bild.onload = () => {
+      bilder[name] = bild;
+      // Der weisse Abzug: dieselbe Form, nur weiss statt schwarz.
+      const l = document.createElement('canvas');
+      l.width = teil.breite;
+      l.height = teil.hoehe;
+      const st = l.getContext('2d');
+      st.drawImage(bild, 0, 0);
+      st.globalCompositeOperation = 'source-in';
+      st.fillStyle = '#fff';
+      st.fillRect(0, 0, l.width, l.height);
+      hellBilder[name] = l;
+      if (--offen === 0) geladen = true;
+    };
+    bild.onerror = () => { if (--offen === 0) geladen = true; };
+    bild.src = teil.daten;
+  }
+}
+
 /* --- Zustand ---------------------------------------------------------------
  *
  * Alles, was sich weich bewegen soll, hat hier einen Ist-Wert. Die Ziele
@@ -84,10 +179,21 @@ let dropHalt = 0;
 let zeigenHalt = 0;
 let letztePhrase = -1;
 
-// Gemerkte Farbverlaeufe. Schluessel ist die Bildgroesse plus die Farbe;
-// aendert sich nichts, wird nichts neu gebaut.
-let verlaufSchluessel = '';
-let randVerlauf = null;
+
+/**
+ * Die Teile laden und melden, wann sie da sind.
+ *
+ * Ausgefuehrt, weil jeder Aufrufer, der nicht in einer Bildschleife sitzt,
+ * darauf warten muss: Die Bilder kommen ueber ein onload, und wer synchron
+ * durchrechnet, gibt dem Browser nie die Gelegenheit, es auszuloesen.
+ */
+export function schattenLaden() {
+  teileLaden();
+  return new Promise((fertig) => {
+    const sehen = () => (geladen ? fertig(true) : setTimeout(sehen, 20));
+    sehen();
+  });
+}
 
 /** An- oder abschalten. */
 export function schattenSetzen(wert) {
@@ -116,6 +222,9 @@ export function schattenZuruecksetzen() {
   zeigenHalt = 0;
   letztePhrase = -1;
   dropHalt = 0;
+  schlagDauer = 0.5;
+  letzteSchlagZeit = 0;
+  federStimmen();
 }
 
 /* --- Die Feder hinter dem Nicken -------------------------------------------
@@ -125,9 +234,47 @@ export function schattenZuruecksetzen() {
  * deutlich darunter: Der Kopf schwingt einmal nach, und genau das liest das
  * Auge als Koerper.
  */
-const FEDER_K = 190;
-const FEDER_D = 15;
-const EIGENFREQUENZ = Math.sqrt(FEDER_K);
+/* --- Die Feder hinter dem Nicken -------------------------------------------
+ *
+ * Sie war zuerst *fest* gestimmt, und das war der Grund fuer "Beat und
+ * Bewegung passen nicht zusammen".
+ *
+ * Bei einer Federkonstanten von 190 schwingt sie mit rund 13,8 je Sekunde,
+ * hat also eine Periode von 0,46 Sekunden. Ein Stueck mit 140 Schlaegen je
+ * Minute hat eine Schlagdauer von 0,43 Sekunden - fast genau dasselbe. Damit
+ * trifft jeder neue Stoss die Feder mitten in ihrer eigenen Schwingung,
+ * einmal mit ihr und einmal gegen sie, und heraus kommt ein Wabern, das mit
+ * dem Schlag nichts mehr zu tun hat. Bei einem langsameren Stueck haette es
+ * gepasst, bei einem schnelleren wird es Brei.
+ *
+ * Jetzt wird die Schlagdauer gemessen und die Feder danach gestimmt: Sie soll
+ * ihre Bewegung in gut der Haelfte eines Schlages abgeschlossen haben. Damit
+ * nickt die Figur bei 120 wie bei 175 Schlaegen sauber auf den Punkt.
+ *
+ * Die Daempfung wandert mit: Was zaehlt, ist ihr *Verhaeltnis* zur
+ * Eigenfrequenz. Bei 0,54 schwingt der Kopf einmal nach - das liest das Auge
+ * als Koerper und nicht als Mechanik.
+ */
+const DAEMPFUNGSGRAD = 0.54;
+// Die Schlagdauer in Sekunden, gemessen und traege geglaettet.
+let schlagDauer = 0.5;
+let letzteSchlagZeit = 0;
+// Daraus die Federwerte.
+let federK = 190;
+let federD = 15;
+let eigenFrequenz = Math.sqrt(190);
+
+function federStimmen() {
+  /*
+   * Die Bewegung soll nach gut der Haelfte eines Schlages durch sein. Eine
+   * volle Schwingung dauert 2*PI/omega; gesetzt wird omega so, dass diese
+   * Dauer 0,62 Schlaege betraegt.
+   */
+  const ziel = Math.max(0.15, Math.min(1.2, schlagDauer)) * 0.62;
+  eigenFrequenz = (2 * Math.PI) / ziel;
+  federK = eigenFrequenz * eigenFrequenz;
+  federD = 2 * DAEMPFUNGSGRAD * eigenFrequenz;
+}
 
 /* --- Werkzeug -------------------------------------------------------------- */
 
@@ -185,88 +332,81 @@ function ellbogen(sx, sy, zx, zy, l1, l2, beugung) {
  */
 function masse(breite, hoehe) {
   /*
-   * Gerechnet wird vom *Kopf* aus, nicht vom Pult.
+   * Alle Masse haengen an der Kopfhoehe, und die Kopfhoehe an der Bildhoehe.
    *
-   * Der erste Anlauf ging vom Pult aus, und das Ergebnis sah aus wie ein
-   * Lutscher hinter einem Tisch: Der Kopf war zu klein, der Hals zu lang, die
-   * Schultern zu schmal. Eine Silhouette hat keine Gesichtszuege und keine
-   * Falten - sie wird allein an den Verhaeltnissen erkannt, und das
-   * wichtigste davon ist Kopf zu Schultern. Wer die falsch waehlt, bekommt
-   * kein stilisiertes Bild, sondern ein falsches.
-   *
-   * Die Verhaeltnisse hier sind die eines Menschen von vorn:
-   *   Kopfbreite         0,78 Kopfhoehen
-   *   Schulterbreite     1,9 Kopfhoehen (also gut zweieinhalb Kopfbreiten)
-   *   Hals               0,18 Kopfhoehen - kurz; ein langer Hals wirkt sofort
-   *                      wie eine Puppe
-   *   Oberarm            1,0, Unterarm 0,95 Kopfhoehen
+   * Die Verhaeltnisse innerhalb eines Teils bringt das Bild selbst mit - eine
+   * Schulter ist so breit, wie sie gezeichnet ist. Hier steht nur noch, wie
+   * gross die Teile *zueinander* sind und wo sie sitzen.
    */
-  const pultH = Math.max(30, hoehe * 0.105);
-  const pultOben = hoehe - pultH;
-  const kopfH = pultH * 0.85;
+  const kopfH = Math.max(28, hoehe * 0.095);
   const mitte = breite * 0.5;
 
+  // Das Pult: gut die halbe Bildbreite. Seine Hoehe kommt aus dem Bild.
+  const pultB = Math.min(breite * 0.46, kopfH * 8.2);
+  const pultH = pultB * (PULT.hoehe / PULT.breite);
+  // Die Oberkante des Bildes liegt ueber der Platte - dazwischen stehen die
+  // Plattenteller. Der Koerper wird an der *Platte* abgeschnitten.
+  const pultBildOben = hoehe - pultH * 1.02;
+  const pultOben = pultBildOben + pultH * PULT.deckel;
+
+  // Der Rumpf: seine Breite ist die Schulterbreite und ergibt sich aus dem
+  // Kopf - gut zwei Kopfhoehen, das ist die Anatomie.
   /*
-   * Wie hoch die Figur ueber dem Pult steht.
-   *
-   * Zuerst standen hier 0,55 Kopfhoehen, und der DJ sah aus, als sei er im
-   * Pult versunken - nur Kopf und Schulteransatz ragten heraus. Bei einem
-   * echten Pult liegt die Kante etwa auf Brusthoehe. Dann bleiben Kopf,
-   * Schultern und die Oberarme - der oberste Teil, mehr braucht es nicht.
-   *
-   * Bei 1,35 Kopfhoehen stand der halbe Brustkorb frei und die Figur nahm
-   * gut vierzig Prozent des Bildes ein; das war zu viel und liess sie
-   * zugleich breit und kraftlos wirken. Mit 0,80 nimmt sie noch knapp ein
-   * Viertel, und das Fraktal behaelt die Buehne.
+   * Die Schulterbreite. Bei 2,15 Kopfhoehen war der Kopf fast so breit wie
+   * die Schultern - die Figur sah aus wie ein Kind. Ein erwachsener
+   * Oberkoerper ist gut zweieinhalb Kopfhoehen breit.
    */
-  const schulterY = pultOben - kopfH * 0.80;
-  const kopfY = schulterY - kopfH * 0.68;
+  const rumpfB = kopfH * 2.6;
+  const rumpfH = rumpfB * (RUMPF.hoehe / RUMPF.breite);
+  /*
+   * Wo der Rumpf sitzt: so, dass die Platte ihn etwa auf Brusthoehe
+   * abschneidet. Sichtbar bleiben Schultern, Hals und die Oberarmansaetze -
+   * der oberste Teil, mehr braucht es nicht.
+   */
+  const rumpfOben = pultOben - rumpfH * 0.74;
+
+  /*
+   * Die Schultergelenke sitzen am Ende des Aermels - und wo das ist, sagt
+   * das Bild, nicht ich.
+   *
+   * Geraten hatte ich 0,42 der Breite und 0,30 der Hoehe. Gemessen sind es
+   * 1,00 und 0,46: Der Aermel laeuft bis ganz nach aussen und endet erst
+   * knapp unter der Bildmitte. Mit meinen Zahlen hingen die Arme mitten an
+   * der Brust und deutlich zu hoch - man sah es sofort, und es war auch das
+   * erste, was auffiel.
+   */
+  const schulterB = rumpfB * (RUMPF.armX - 0.5);
+  const schulterY = rumpfOben + rumpfH * RUMPF.armY;
 
   return {
-    e: kopfH,
-    mitte,
-    pultOben,
-    pultH,
-    // Das Pult darf die Figur nicht erschlagen: gut die halbe Breite, und
-    // hoechstens sieben Kopfhoehen.
-    // Breit genug, dass die Figur darin steht statt darauf zu sitzen - aber
-    // hoechstens gut die halbe Bildbreite, sonst wird aus dem Pult eine
-    // Bande quer durchs Bild.
-    pultB: Math.min(breite * 0.52, kopfH * 9.5),
     kopfH,
-    kopfB: kopfH * 0.78,
-    kopfY,
+    mitte,
+    pultB,
+    pultH,
+    pultBildOben,
+    pultOben,
+    rumpfB,
+    rumpfH,
+    rumpfOben,
+    schulterB,
     schulterY,
-    schulterB: kopfH * 0.98,
-    // Die Hueftbreite entscheidet ueber die Form des Oberkoerpers. Schmaler
-    // als die Schultern - sonst wird die Figur ein Kegel.
-    hueftB: kopfH * 0.92,
-    oberarm: kopfH * 0.92,
-    unterarm: kopfH * 0.86,
+    // Der Kopf: das Bild enthaelt den Kopfhoerer, der ueber den Schaedel
+    // hinausragt. Etwas groesser als die reine Kopfhoehe, damit der Schaedel
+    // selbst stimmt.
+    kopfBildH: kopfH * 1.18,
+    kopfBildB: kopfH * 1.18 * (KOPF.breite / KOPF.hoehe),
+    kopfB: kopfH * 0.78,
+    // Der Halsansatz - dort sitzt der Kopf auf.
+    kopfY: rumpfOben + rumpfH * 0.02 - kopfH * 0.52,
     /*
-     * Die Armdicke. Bei 0,30 Kopfhoehen war der DJ breit und hatte trotzdem
-     * Streichhoelzer als Arme - eine Silhouette verzeiht das nicht, weil es
-     * ausser dem Umriss nichts gibt, woran das Auge Kraft ablesen koennte.
-     * Ein Oberarm ist etwa halb so dick wie ein Kopf breit.
+     * Die Armlaengen. Zuerst zu kurz: Die Haende liegen auf den Tellern, und
+     * die stehen weit aussen - der Arm kam nicht hin, die Kinematik klemmte
+     * am Anschlag, und uebrig blieben zwei Stummel an der Schulter. Ein Arm
+     * reicht beim Menschen bis knapp unter die Huefte; in Kopfhoehen
+     * gerechnet sind Ober- und Unterarm zusammen gut zweieinhalb.
      */
-    armDick: kopfH * 0.40,
-    // Die Teller ragen mit ihrer oberen Haelfte ueber die Pultkante.
-    tellerX: kopfH * 2.0,
-    /*
-     * Die Plattenteller - und hier stand der peinlichste Fehler.
-     *
-     * Als halbe Kreise links und rechts neben dem Koerper lasen sie sich
-     * nicht als Plattenteller, sondern als *Essensglocken*: zwei Hauben, ein
-     * Kellner dazwischen. Der erste Mensch, der das Bild gesehen hat, sagte
-     * genau das.
-     *
-     * Ein Plattenteller liegt flach auf der Platte. Von vorn sieht man davon
-     * nur eine sehr flache Ellipse, die kaum ueber die Kante ragt - und
-     * genau so gehoert es gezeichnet. Breit und niedrig statt rund und hoch.
-     */
-    tellerR: kopfH * 0.85,
-    tellerH: kopfH * 0.17,
-    reglerB: kopfH * 1.35,
+    oberarm: kopfH * 1.05,
+    unterarm: kopfH * 0.95,
   };
 }
 
@@ -290,10 +430,16 @@ function handZiele(m, lage) {
    * sieht, hat die Silhouette nichts. Beide Haende aussen spreizen die Arme
    * und geben der Figur ihre Kontur.
    */
-  let lx = m.mitte - m.tellerX;
-  let ly = m.pultOben - m.kopfH * 0.42;
-  let rx = m.mitte + m.tellerX;
-  let ry = m.pultOben - m.kopfH * 0.42;
+  let lx = m.mitte - m.pultB * 0.245;
+  /*
+   * Die Ruhehaende liegen auf den Tellern - und die Teller stehen *ueber*
+   * der Pultkante. Ein bisschen darunter angesetzt, dann verschwindet die
+   * Hand hinter dem Teller und der Unterarm laeuft sichtbar darauf zu. Genau
+   * so sieht es aus, wenn jemand wirklich die Hand auf einer Platte hat.
+   */
+  let ly = m.pultOben + m.kopfH * 0.10;
+  let rx = m.mitte + m.pultB * 0.245;
+  let ry = m.pultOben + m.kopfH * 0.10;
 
   /*
    * Uebergang: die rechte Hand wandert mit dem Regler.
@@ -303,9 +449,9 @@ function handZiele(m, lage) {
    * Wer genau hinsieht, kann am Schatten ablesen, wie weit der Wechsel ist.
    */
   if (anteilB > 0) {
-    const weg = m.reglerB * (anteilB - 0.5);
+    const weg = m.pultB * 0.20 * (anteilB - 0.5);
     rx = m.mitte + weg;
-    ry = m.pultOben - m.kopfH * 0.14;
+    ry = m.pultOben + m.kopfH * 0.02;
   }
 
   /*
@@ -368,6 +514,7 @@ function handZiele(m, lage) {
  */
 export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
   if (!an || !stift || breite < 120 || hoehe < 120) return;
+  if (!geladen) { teileLaden(); return; }
 
   const sekunden = klemm(lage.sekunden ?? 1 / 60, 0, 0.2);
   const takt = lage.takt ?? null;
@@ -385,6 +532,22 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * kann man nicht ueberspringen, ohne dass es auffaellt.
    */
   if (takt && takt.nummer !== schattenLetzterBeat) {
+    /*
+     * Die Schlagdauer aus dem Abstand zweier Schlaege - nicht aus der BPM-
+     * Angabe des Tracks. In einem Stundenmix wechselt das Tempo unterwegs,
+     * und die Tempokarte weiss davon; eine feste Zahl aus dem Dateinamen
+     * nicht. Gemessen wird ausserdem genau das, was auch die Beatnummer
+     * treibt - damit koennen die beiden nicht auseinanderlaufen.
+     */
+    const jetzt = (letzteSchlagZeit || 0) + sekunden;
+    if (schattenLetzterBeat >= 0 && takt.nummer === schattenLetzterBeat + 1) {
+      const gemessen = jetzt;
+      if (gemessen > 0.12 && gemessen < 2) {
+        schlagDauer = schlagDauer * 0.7 + gemessen * 0.3;
+        federStimmen();
+      }
+    }
+    letzteSchlagZeit = 0;
     if (schattenLetzterBeat >= 0) {
       const staerke = takt.aufPhrase ? 1 : takt.aufEins ? 0.72 : 0.42;
       /*
@@ -399,7 +562,7 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
        * Der Faktor fehlte, und das Nicken war fast unsichtbar.
        */
       const wunsch = staerke * (0.30 + wucht * 0.45 + spannung * 0.25) * (1 - abbau * 0.6);
-      nickV += wunsch * EIGENFREQUENZ;
+      nickV += wunsch * eigenFrequenz;
     }
     schattenLetzterBeat = takt.nummer;
 
@@ -415,11 +578,12 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * darunter - dann schwingt der Kopf einmal nach, und das sieht nach
    * Koerper aus statt nach Mechanik.
    */
-  nickV += (-FEDER_K * nickX - FEDER_D * nickV) * sekunden;
+  nickV += (-federK * nickX - federD * nickV) * sekunden;
   nickX += nickV * sekunden;
   // Ohne Deckel schaukelt sich die Feder bei sehr schnellen Beats auf.
   nickX = klemm(nickX, -0.55, 0.55);
 
+  letzteSchlagZeit += sekunden;
   if (zeigenHalt > 0) zeigenHalt = Math.max(0, zeigenHalt - sekunden * 0.55);
   if (lage.drop) dropHalt = 1;
   else if (dropHalt > 0) dropHalt = Math.max(0, dropHalt - sekunden * 0.5);
@@ -474,31 +638,8 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
   // Der Kopf geht am weitesten, die Schultern gehen mit - ein Nicken aus
   // dem Hals allein sieht aus wie ein Wackelkopf im Auto.
   const kopfY = m.kopfY + nickPx * 1.35 + neigung * m.kopfH * 0.55;
-  const schulterY = m.schulterY + nickPx * 0.85 + neigung * m.kopfH * 0.32;
-  const schulterLx = m.mitte - m.schulterB + seitePx;
-  const schulterRx = m.mitte + m.schulterB + seitePx;
-
-  /*
-   * Die Farbe.
-   *
-   * Ein Schatten ist nicht schwarz, sondern *fast* schwarz - ein Rest des
-   * Bildes dahinter scheint durch. Voellig schwarz sieht aus wie ein
-   * ausgeschnittenes Stueck Papier; mit einem Hauch Durchlaessigkeit sieht es
-   * aus wie jemand vor einer Leinwand.
-   */
-  const palette = lage.palette ?? null;
-  const randfarbe = palette?.[Math.min(palette.length - 1, 3)] ?? '#8ad7ff';
-  const schluessel = `${Math.round(breite)}x${Math.round(hoehe)}|${randfarbe}`;
-  if (schluessel !== verlaufSchluessel) {
-    verlaufSchluessel = schluessel;
-    randVerlauf = stift.createLinearGradient(0, m.kopfY - m.kopfH, 0, hoehe);
-    randVerlauf.addColorStop(0, randfarbe);
-    randVerlauf.addColorStop(1, 'rgba(0,0,0,0)');
-  }
 
   stift.save();
-  stift.lineJoin = 'round';
-  stift.lineCap = 'round';
 
   /*
    * Voll deckend, und das ist eine Korrektur.
@@ -513,170 +654,162 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * Ein Schatten vor einer Projektion ist ohnehin praktisch schwarz. Fuer die
    * Trennung vom Hintergrund sorgt das Streiflicht, nicht die Durchsicht.
    */
-  const koerper = 'rgb(4,5,10)';
-  letzterKopf = { x: kopfX, y: kopfY, hoehe: m.kopfH };
-  stift.fillStyle = koerper;
-  stift.strokeStyle = koerper;
-
-  const pl = m.mitte - m.pultB / 2;
-  const pr = m.mitte + m.pultB / 2;
-
   /*
-   * Die Reihenfolge ist die halbe Miete, und sie ist zweimal falsch gewesen.
+   * Gezeichnet wird von hinten nach vorn: Rumpf, Arme, Kopf, Pult.
    *
-   * Sie muss der Tiefe im Raum folgen: Die Teller stehen *auf* dem Pult, die
-   * Haende liegen *auf* den Tellern, und die Pultfront steht vor allem. Wer
-   * die Teller nach den Armen zeichnet, verschluckt die Haende - genau das
-   * war zu sehen. Also von hinten nach vorn:
-   *
-   *   1. Teller und Mischer
-   *   2. Koerper, Arme, Kopf
-   *   3. die Pultfront, die unten alles abschneidet
-   *
-   * Damit muessen Beine gar nicht erst gezeichnet werden, und der Uebergang
-   * stimmt bei jeder Bildgroesse von selbst.
+   * Das Pult kommt zuletzt und schneidet die Figur unten ab - Beine muessen
+   * dadurch gar nicht erst gezeichnet werden, und der Uebergang stimmt bei
+   * jeder Bildgroesse von selbst. Die Haende liegen ueber der Platte und
+   * bleiben deshalb sichtbar.
    */
 
-  // --- 1. Teller und Mischer -----------------------------------------------
-  for (const seite of [-1, 1]) {
-    stift.beginPath();
-    stift.ellipse(
-      m.mitte + seite * m.tellerX, m.pultOben,
-      m.tellerR, m.tellerH, 0, Math.PI, 0,
-    );
-    stift.fill();
-  }
-  stift.beginPath();
-  stift.rect(m.mitte - m.reglerB / 2, m.pultOben - m.kopfH * 0.30, m.reglerB, m.kopfH * 0.30);
-  stift.fill();
+  /*
+   * Ein Teil setzen: Drehpunkt oben in der Mitte, Ausrichtung nach unten.
+   *
+   * Alle Gliedmassen sind senkrecht nach unten gezeichnet. Um eines entlang
+   * einer Richtung zu legen, wird um `richtung - PI/2` gedreht - der
+   * Viertelkreis ist der Unterschied zwischen "zeigt nach unten" und "zeigt
+   * nach rechts", also zwischen der Zeichnung und dem Winkel, den die
+   * Kinematik liefert.
+   */
+  const teilSetzen = (name, px, py, laenge, richtung, spiegeln, hell) => {
+    const t = TEILE[name];
+    const f = laenge / t.hoehe;
+    const bild = abzug(name, t.breite * f, laenge, hell);
+    if (!bild) return;
+    stift.save();
+    stift.translate(px, py);
+    stift.rotate(richtung - Math.PI / 2);
+    if (spiegeln) stift.scale(-1, 1);
+    stift.drawImage(bild, -bild.width / 2, 0);
+    stift.restore();
+  };
 
-  // --- 2. Der Oberkoerper ---------------------------------------------------
-  //
-  // Eine Schulter faellt. Zuerst stand hier ein Trapez mit flachem Deckel, und
-  // das las sich als Kasten - eher Laptopdeckel als Mensch. Die schraege
-  // Linie vom Hals zur Schulter ist die eine Form, an der das Auge einen
-  // Oberkoerper erkennt; ohne sie hilft keine Proportion.
-  // Der Hals: schmal. Bei 0,42 Kopfbreiten je Seite war er fast so breit wie
-  // der Kopf, und Kopf und Rumpf verschmolzen zu einem Klotz.
-  const halsB = m.kopfB * 0.26;
-  const halsY = schulterY - m.kopfH * 0.42;
-  stift.beginPath();
-  stift.moveTo(m.mitte - m.hueftB + seitePx * 0.5, hoehe);
-  stift.lineTo(schulterLx, schulterY + m.kopfH * 0.10);
-  stift.quadraticCurveTo(
-    schulterLx + m.kopfH * 0.06, schulterY - m.kopfH * 0.30,
-    m.mitte + seitePx - halsB, halsY,
-  );
-  stift.lineTo(m.mitte + seitePx + halsB * 1.6, halsY);
-  stift.quadraticCurveTo(
-    schulterRx - m.kopfH * 0.06, schulterY - m.kopfH * 0.30,
-    schulterRx, schulterY + m.kopfH * 0.10,
-  );
-  stift.lineTo(m.mitte + m.hueftB + seitePx * 0.5, hoehe);
-  stift.closePath();
-  stift.fill();
+  /*
+   * Das Streiflicht.
+   *
+   * Frueher waren das von Hand nachgezogene Boegen entlang der gezeichneten
+   * Kanten - mit gezeichneten Teilen ginge das nicht mehr, denn die Kanten
+   * stehen jetzt im Bild und nicht im Code. Stattdessen wird jedes Teil
+   * zweimal gesetzt: erst ein weisser Abzug, ein paar Bildpunkte nach oben
+   * verschoben, dann das schwarze Teil darueber. Was vom weissen uebersteht,
+   * ist genau die Oberkante - egal welche Form sie hat.
+   */
+  // Wo der Kopf steht - die Abnahme misst daran, ob die Hand ans Ohr kommt.
+  letzterKopf = { x: kopfX, y: kopfY, hoehe: m.kopfH };
 
-  // --- Arme -----------------------------------------------------------------
+  const licht = klemm(0.16 + wucht * 0.5 + dropHalt * 0.35, 0, 0.85);
+  const saum = Math.max(1.5, m.kopfH * 0.055);
+
+  // --- Rumpf ----------------------------------------------------------------
+  const rumpfX = m.mitte + seitePx;
+  const rumpfY = m.rumpfOben + nickPx * 0.85 + neigung * m.kopfH * 0.32;
+  const rumpfSetzen = (versatzY, hell) => {
+    const bild = abzug('rumpf', m.rumpfB, m.rumpfH, hell);
+    if (!bild) return;
+    stift.drawImage(bild, rumpfX - bild.width / 2, rumpfY + versatzY);
+  };
+  stift.globalAlpha = licht;
+  rumpfSetzen(-saum, true);
+  stift.globalAlpha = 1;
+  rumpfSetzen(0, false);
+
+  // --- Arme ------------------------------------------------------------------
   //
-  // Nach dem Oberkoerper, damit sie davor liegen. Ein Arm, der hinter der
-  // Schulter verschwindet, sieht abgerissen aus.
-  stift.lineWidth = m.armDick;
-  const armAnsatzY = schulterY - m.kopfH * 0.05;
-  for (const [sx, hand, beugung] of [
+  // Die Umkehrkinematik liefert den Ellenbogen; daraus werden zwei
+  // Richtungen, und jede traegt ein Bild.
+  const schulterLx = rumpfX - m.schulterB;
+  const schulterRx = rumpfX + m.schulterB;
+  const schulterY = rumpfY + m.rumpfH * RUMPF.armY;
+  const arme = [];
+  for (const [sx, hand, beugung, spiegeln] of [
     /*
      * Das Vorzeichen der Beugung: Der Ellenbogen soll *haengen*. Mit dem
      * umgekehrten Vorzeichen stand er ueber der Schulter, und der Arm sah aus
-     * wie gebrochen - der haeufigste Fehler bei Zweigelenk-Kinematik, und von
-     * aussen sofort sichtbar.
+     * wie gebrochen - der haeufigste Fehler bei Zweigelenk-Kinematik.
      */
-    [schulterLx + m.kopfH * 0.05, handL, -1],
-    [schulterRx - m.kopfH * 0.05, handR, 1],
+    [schulterLx, handL, -1, true],
+    [schulterRx, handR, 1, false],
   ]) {
-    const g = ellbogen(sx, armAnsatzY, hand.x, hand.y, m.oberarm, m.unterarm, beugung);
-    stift.beginPath();
-    stift.moveTo(sx, armAnsatzY);
-    stift.lineTo(g.ex, g.ey);
-    stift.lineTo(g.hx, g.hy);
-    stift.stroke();
-    // Die Hand: ohne sie enden die Arme wie abgesaegt.
-    stift.beginPath();
-    stift.arc(g.hx, g.hy, m.armDick * 0.56, 0, Math.PI * 2);
-    stift.fill();
+    const g = ellbogen(sx, schulterY, hand.x, hand.y, m.oberarm, m.unterarm, beugung);
+    arme.push({
+      sx, sy: schulterY, spiegeln,
+      obenRichtung: Math.atan2(g.ey - schulterY, g.ex - sx),
+      untenRichtung: Math.atan2(g.hy - g.ey, g.hx - g.ex),
+      ex: g.ex, ey: g.ey,
+    });
   }
-
-  // --- Hals und Kopf ---------------------------------------------------------
-  stift.lineWidth = halsB * 2;
-  stift.beginPath();
-  stift.moveTo(kopfX, kopfY + m.kopfH * 0.28);
-  stift.lineTo(m.mitte + seitePx, halsY + m.kopfH * 0.08);
-  stift.stroke();
-  stift.beginPath();
-  stift.ellipse(kopfX, kopfY, m.kopfB / 2, m.kopfH / 2, kopfDreh * 0.22, 0, Math.PI * 2);
-  stift.fill();
-
-  /*
-   * Der Kopfhoerer - das Zeichen, an dem ein DJ als DJ erkannt wird. Ohne ihn
-   * ist die Silhouette nur jemand hinter einem Tisch.
-   */
-  const buegel = m.kopfB * 0.64;
-  stift.lineWidth = m.kopfH * 0.12;
-  stift.beginPath();
-  stift.arc(kopfX, kopfY, buegel, Math.PI * 1.04, Math.PI * 1.96);
-  stift.stroke();
-  for (const seite of [-1, 1]) {
-    stift.beginPath();
-    stift.ellipse(
-      kopfX + seite * buegel, kopfY - m.kopfH * 0.02,
-      m.kopfH * 0.14, m.kopfH * 0.23, 0, 0, Math.PI * 2,
-    );
-    stift.fill();
+  for (const hell of [true, false]) {
+    stift.globalAlpha = hell ? licht : 1;
+    const v = hell ? -saum : 0;
+    for (const arm of arme) {
+      teilSetzen('oberarm', arm.sx, arm.sy + v, m.oberarm, arm.obenRichtung, arm.spiegeln, hell);
+      teilSetzen('unterarm', arm.ex, arm.ey + v, m.unterarm, arm.untenRichtung, arm.spiegeln, hell);
+    }
   }
+  stift.globalAlpha = 1;
 
-  // --- 3. Die Pultfront ------------------------------------------------------
-  //
-  // Ein schlichter Block. Alles Verspielte daran waere im Gegenlicht ohnehin
-  // nicht zu sehen.
-  stift.beginPath();
-  stift.rect(pl, m.pultOben, m.pultB, hoehe - m.pultOben);
-  stift.fill();
+  // --- Kopf -------------------------------------------------------------------
+  const kopfSetzen = (versatzY, hell) => {
+    const bild = abzug('kopf', m.kopfBildB, m.kopfBildH, hell);
+    if (!bild) return;
+    stift.save();
+    stift.translate(kopfX, kopfY + versatzY);
+    stift.rotate(kopfDreh * 0.18);
+    stift.drawImage(bild, -bild.width / 2, -bild.height / 2);
+    stift.restore();
+  };
+  stift.globalAlpha = licht;
+  kopfSetzen(-saum, true);
+  stift.globalAlpha = 1;
+  kopfSetzen(0, false);
 
+  // --- Pult --------------------------------------------------------------------
   /*
-   * Das Streiflicht - der eine Strich, der aus einer Silhouette eine Person
-   * macht. Eine helle Kante dort, wo das Licht der Leinwand auf Kopf,
-   * Schulter und Pultkante faellt. Es wird heller, wenn die Musik lauter ist,
-   * denn dann leuchtet die Projektion dahinter ja auch staerker.
+   * Das Pult in zwei Teilen - und das halbiert die Kosten der ganzen Figur.
+   *
+   * Unterhalb der Kante ist es ein schwarzer Block, und ein Block ist ein
+   * Rechteck. Ihn als Bild zu blitten heisst, siebzigtausend Bildpunkte durch
+   * das Alpha-Mischwerk zu schicken, obwohl jeder einzelne davon dasselbe
+   * undurchsichtige Schwarz ist. Ein fillRect schreibt dieselbe Flaeche ohne
+   * zu mischen.
+   *
+   * Als Bild bleibt nur der Streifen oben, in dem die Plattenteller ueber die
+   * Kante ragen - ein Fuenftel der Hoehe.
    */
-  if ((lage.guetestufe ?? 'hoch') !== 'niedrig') {
-    stift.globalCompositeOperation = 'lighter';
-    stift.strokeStyle = randVerlauf;
-    stift.globalAlpha = 0.30 + wucht * 0.45 + dropHalt * 0.25;
-    stift.lineWidth = Math.max(1.5, m.kopfH * 0.055);
-    // Kopf.
-    stift.beginPath();
-    stift.ellipse(kopfX, kopfY, m.kopfB / 2, m.kopfH / 2, kopfDreh * 0.22, Math.PI * 1.05, Math.PI * 1.95);
-    stift.stroke();
-    // Die Schulterlinie - dieselbe Kurve wie beim Koerper, damit das Licht
-    // wirklich auf der Kante sitzt und nicht daneben.
-    stift.beginPath();
-    stift.moveTo(schulterLx, schulterY + m.kopfH * 0.10);
-    stift.quadraticCurveTo(
-      schulterLx + m.kopfH * 0.06, schulterY - m.kopfH * 0.30,
-      m.mitte + seitePx - m.kopfB * 0.42, schulterY - m.kopfH * 0.42,
+  const pultBild = (versatzY, hell) => {
+    const bild = abzug('pult', m.pultB, m.pultH, hell);
+    if (!bild) return;
+    const strich = Math.ceil(bild.height * (PULT.deckel + 0.02));
+    stift.drawImage(
+      bild, 0, 0, bild.width, strich,
+      m.mitte - bild.width / 2, m.pultBildOben + versatzY, bild.width, strich,
     );
-    stift.moveTo(schulterRx, schulterY + m.kopfH * 0.10);
-    stift.quadraticCurveTo(
-      schulterRx - m.kopfH * 0.06, schulterY - m.kopfH * 0.30,
-      m.mitte + seitePx + m.kopfB * 0.42, schulterY - m.kopfH * 0.42,
-    );
-    stift.stroke();
-    // Pultkante - sie gibt dem Block eine Oberflaeche.
-    stift.beginPath();
-    stift.moveTo(pl, m.pultOben);
-    stift.lineTo(pr, m.pultOben);
-    stift.stroke();
+  };
+  const pultBlock = () => {
+    const oben = m.pultBildOben + m.pultH * (PULT.deckel + 0.015);
+    stift.fillStyle = 'rgb(4,5,10)';
+    stift.fillRect(m.mitte - m.pultB / 2, oben, m.pultB, hoehe - oben);
+  };
+  const pultSetzen = (versatzY, hell) => {
+    pultBild(versatzY, hell);
+    if (!hell) pultBlock();
+  };
+  /*
+   * Das Pult bekommt seinen Saum nur, wenn Zeit dafuer ist.
+   *
+   * Es ist mit Abstand die groesste Flaeche der ganzen Figur - gut die halbe
+   * Bildbreite -, und ein zweiter Durchgang darueber kostet mehr als alle
+   * anderen Teile zusammen. Gemessen war der Schatten damit bei 0,86 ms je
+   * Bild; das ist bei sechzig Bildern ein Zwanzigstel des ganzen Budgets fuer
+   * eine Kante von drei Bildpunkten.
+   */
+  if ((lage.guetestufe ?? 'hoch') === 'hoch') {
+    stift.globalAlpha = licht * 0.7;
+    pultSetzen(-saum * 0.8, true);
     stift.globalAlpha = 1;
-    stift.globalCompositeOperation = 'source-over';
   }
+  pultSetzen(0, false);
 
   stift.restore();
 }
@@ -687,6 +820,7 @@ export function schattenStand() {
     an,
     nickX,
     nickV,
+    geladen,
     nickPx: letzterNickPx,
     kopf: letzterKopf ? { ...letzterKopf } : null,
     zeigenHalt,
