@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server/index.js",
     "einlesen": "node einlesen/einlesen.mjs",
-    "pruefen": "node pruefungen/auswahl.mjs && node pruefungen/takt.mjs",
+    "pruefen": "node pruefungen/auswahl.mjs && node pruefungen/takt.mjs && node pruefungen/technikurteil.mjs && node pruefungen/teuermandalas.mjs",
     "klangpruefen": "node pruefungen/klang.mjs",
     "mischpruefen": "node pruefungen/uebergaenge.mjs",
     "adressen": "node server/adressen.js"

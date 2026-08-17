@@ -723,6 +723,19 @@ header {
   border-color: var(--gut);
 }
 
+/* Der Vermerk des Messstands. Zurueckhaltend gehalten: Er ist ein Hinweis auf
+   eine frühere Messung, keine Warnung vor dem, was gerade passiert - und in
+   aller Regel steht hier ohnehin nichts. */
+.mandala-liste .vermerk:not(:empty) {
+  padding: 0.05rem 0.35rem;
+  border: 1px solid var(--akzent);
+  border-radius: 0.4rem;
+  color: var(--akzent);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .mandala-liste .kosten {
   margin-left: auto;
   color: var(--leise);

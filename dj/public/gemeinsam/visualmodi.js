@@ -983,8 +983,22 @@ export function bremseNachfuehren(bremse, abstandMs, taktMs) {
 }
 
 let mandelAbstandMittel = 16.7;
-// Die gemessene Bildschirmperiode - siehe Begruendung beim Regler.
+/*
+ * Zwei Perioden, und sie auseinanderzuhalten ist keine Pedanterie.
+ *
+ * mandelTaktMs ist die Periode, auf die der Regler *hinarbeitet* - der
+ * gemessene Takt, nach oben gezogen vom Bildziel. Das ist die richtige Zahl
+ * fuer jede Rechnung im Regler.
+ *
+ * mandelSchirmTaktMs ist, was der Bildschirm wirklich liefert. Die beiden
+ * sind auf einem 145-Hz-Monitor mit Ziel 60 nicht dasselbe: 16,7 gegen 6,9.
+ * Die Technikanzeige hat lange die erste Zahl gezeigt und "ein Bildschirm,
+ * der 60 hergibt" dazu geschrieben - auf dem Partyrechner also 60 statt 145
+ * behauptet, aus reiner Namensverwechslung. Wer daraus schliesst, sein
+ * Monitor laufe langsamer als er tut, sucht am falschen Ende.
+ */
 let mandelTaktMs = 16.7;
+let mandelSchirmTaktMs = 16.7;
 
 /* --- Das Bildziel ---------------------------------------------------------
  *
@@ -2415,6 +2429,7 @@ function mandelbrotZeichnen(stift, lage) {
         bremse: mandelBremse,
         abstandMittel: mandelAbstandMittel,
         taktMs: mandelTaktMs,
+        schirmTaktMs: mandelSchirmTaktMs,
         // Nicht abstandMs: das wird erst weiter unten berechnet, und ein Zugriff
         // davor wirft in jedem Bild.
         abstandMs: sekunden * 1000,
@@ -2536,6 +2551,16 @@ function mandelbrotZeichnen(stift, lage) {
       if (sortiert.length >= 16) {
         const fuenftel = sortiert[Math.floor(sortiert.length * 0.2)];
         const gemessen = Math.min(16.8, Math.max(4, fuenftel));
+        /*
+         * Ohne den Deckel von 16,8: Der ist eine Notbremse fuer den Regler
+         * ("dreissig sind nicht das Ziel") und hat in einer Auskunftszahl
+         * nichts zu suchen. Was hier steht, ist das untere Fuenftel der
+         * Bildabstaende - auf einem Geraet, das den Bildschirm nicht
+         * ausfaehrt, also eher die eigene Rate als die des Bildschirms. Es
+         * ist die beste Zahl, die der Browser hergibt; eine echte Auskunft
+         * ueber die Bildwiederholrate gibt es im Web nicht.
+         */
+        mandelSchirmTaktMs = Math.max(4, fuenftel);
         /*
          * Und jetzt das Bildziel darueber. Es hebt den Takt an, es senkt ihn
          * nie: Wer sechzig will, bekommt auf einem 145-Hz-Bildschirm 16,7 ms
@@ -2919,6 +2944,7 @@ function mandelbrotZeichnen(stift, lage) {
       durchsatz: mandelDurchsatz,
       abstandMs: sekunden * 1000,
       taktMs: mandelTaktMs,
+      schirmTaktMs: mandelSchirmTaktMs,
       mandala: mandelMandala,
       sterne: mandelSterne,
       fang: mandelFang,
