@@ -100,6 +100,18 @@ const HOECHSTE_VERSTAERKUNG = 3.2;
  */
 const STILLE_UNTER = 8;
 
+/*
+ * Ein Schalter fuer die Abnahme.
+ *
+ * Sie vergleicht das geschaerfte Spektrum mit dem rohen und weist damit nach,
+ * dass die Aufbereitung ueberhaupt etwas bringt - ohne ihn muesste sie den
+ * ganzen Stapel zweimal bauen. Im Betrieb ruehrt ihn nichts an.
+ */
+let umgangen = false;
+export function spektrumUmgehen(wert) {
+  umgangen = !!wert;
+}
+
 let kanten = null;
 let bandFuerBin = null;
 let huelle = null;
@@ -147,6 +159,10 @@ export function spektrumZuruecksetzen() {
  * @returns {Uint8Array} ziel
  */
 export function spektrumSchaerfen(roh, ziel, sekunden) {
+  if (umgangen) {
+    ziel.set(roh);
+    return ziel;
+  }
   vorbereiten(roh.length);
   const nutzbar = kanten[BAENDER];
   const abfall = Math.exp(-ABKLINGEN * Math.max(0, sekunden));

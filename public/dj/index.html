@@ -7093,6 +7093,18 @@ const HOECHSTE_VERSTAERKUNG = 3.2;
  */
 const STILLE_UNTER = 8;
 
+/*
+ * Ein Schalter fuer die Abnahme.
+ *
+ * Sie vergleicht das geschaerfte Spektrum mit dem rohen und weist damit nach,
+ * dass die Aufbereitung ueberhaupt etwas bringt - ohne ihn muesste sie den
+ * ganzen Stapel zweimal bauen. Im Betrieb ruehrt ihn nichts an.
+ */
+let umgangen = false;
+function spektrumUmgehen(wert) {
+  umgangen = !!wert;
+}
+
 let kanten = null;
 let bandFuerBin = null;
 let huelle = null;
@@ -7140,6 +7152,10 @@ function spektrumZuruecksetzen() {
  * @returns {Uint8Array} ziel
  */
 function spektrumSchaerfen(roh, ziel, sekunden) {
+  if (umgangen) {
+    ziel.set(roh);
+    return ziel;
+  }
   vorbereiten(roh.length);
   const nutzbar = kanten[BAENDER];
   const abfall = Math.exp(-ABKLINGEN * Math.max(0, sekunden));
@@ -12205,6 +12221,10 @@ class Visualisierung {
     if (!modus.eigeneEbene) this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
     const bildBegonnen = performance.now();
     this.letzterModusName = modus.name;
+    // Die Taktlage nach aussen sichtbar lassen. Die Abnahme misst daran, ob
+    // das Bild *auf* dem Schlag hell wird - und das Taktraster ist die
+    // einzige Zeitachse im ganzen Haus, die auf Millisekunden stimmt.
+    this.letzterTakt = takt;
     modus.zeichne(stift, {
       breite,
       hoehe,

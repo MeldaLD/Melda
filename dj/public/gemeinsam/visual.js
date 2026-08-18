@@ -439,6 +439,10 @@ export class Visualisierung {
     if (!modus.eigeneEbene) this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
     const bildBegonnen = performance.now();
     this.letzterModusName = modus.name;
+    // Die Taktlage nach aussen sichtbar lassen. Die Abnahme misst daran, ob
+    // das Bild *auf* dem Schlag hell wird - und das Taktraster ist die
+    // einzige Zeitachse im ganzen Haus, die auf Millisekunden stimmt.
+    this.letzterTakt = takt;
     modus.zeichne(stift, {
       breite,
       hoehe,
