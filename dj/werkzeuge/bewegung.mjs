@@ -577,11 +577,12 @@ export function auspacken(gepackt) {
  * @returns {object} Schleife samt Messwerten fuer die Abnahme
  */
 export function einlesen(text, {
-  bpm = 124, schlaege = SCHLEIFE_SCHLAEGE, abSchlag = 4, festerSchlag = null, glaettung = 0.04,
+  bpm = 124, schlaege = SCHLEIFE_SCHLAEGE, abSchlag = 4, festerSchlag = null,
+  glaettung = 0.04, spiegeln = null,
 } = {}) {
   const skelett = bvhLesen(text);
   const zu = gelenkeZuordnen(skelett);
-  const spur = glaetten(umrechnen(skelett, zu), skelett.bildDauer, glaettung);
+  const spur = glaetten(umrechnen(skelett, zu, { spiegeln }), skelett.bildDauer, glaettung);
 
   const stellen = skelett.bilder.map((b) => vorwaerts(skelett, b));
   const tipper = tipperFinden(

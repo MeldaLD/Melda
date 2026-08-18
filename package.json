@@ -44,6 +44,7 @@
     "dj:bvhpruefen": "node dj/pruefungen/bvh.mjs",
     "dj:bewegungpruefen": "node dj/pruefungen/bewegung.mjs",
     "dj:prueftaenzer": "node dj/werkzeuge/prueftaenzer.mjs",
+    "dj:aufnahme": "node dj/werkzeuge/aufnahmeeinlesen.mjs",
     "dj:wirkungpruefen": "node dj/pruefungen/bildwirkung.mjs"
   },
   "dependencies": {
