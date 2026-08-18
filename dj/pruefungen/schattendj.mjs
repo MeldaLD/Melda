@@ -7,19 +7,21 @@
 // Der Unterschied ist von aussen nicht zu sehen - beides sieht nach Bewegung
 // aus -, aber er ist messbar, und deshalb steht er hier:
 //
-//   1. Der Kopf nickt auf den Schlag. Geprueft wird nicht "er bewegt sich",
-//      sondern dass die Bewegung *nach* dem Schlag am staerksten ist. Eine
-//      Figur, die nach einem Zufallsgenerator wackelt, faellt genau hier
-//      durch.
-//   2. Ohne Takt steht sie still. Sonst wackelt sie auch bei Stille weiter,
-//      und das sieht gespenstisch aus.
-//   3. Der Drop hebt die Haende, und zwar messbar hoeher als im Ruhezustand.
-//   4. Im Breakdown geht eine Hand ans Ohr - der Kopfhoerer. Das ist keine
+//   1. Sie groovt auf dem *Takt* und klopft nicht auf jeden Schlag. Das ist
+//      die Umkehrung der frueheren Pruefung, und sie steht hier, weil die
+//      alte das Falsche verlangt hat: Die Figur hat sie bestanden und sah
+//      trotzdem aus wie ein Metronom mit Armen.
+//   2. Der Groove haengt am Tempo und nicht an der Uhr - eine Verlagerung
+//      dauert acht Schlaege, bei jedem Tempo.
+//   3. Ohne Takt kommt sie zur Ruhe. Sonst schaukelt sie auch bei Stille
+//      weiter, und das sieht gespenstisch aus.
+//   4. Der Drop hebt die Haende, und zwar messbar hoeher als im Ruhezustand.
+//   5. Im Breakdown geht eine Hand ans Ohr - der Kopfhoerer. Das ist keine
 //      Behauptung: Die Buehne bereitet in dieser Zeit wirklich den naechsten
 //      Track vor.
-//   5. Beim Uebergang wandert die Hand mit dem Regler. Am Schatten laesst sich
+//   6. Beim Uebergang wandert die Hand mit dem Regler. Am Schatten laesst sich
 //      also ablesen, wie weit der Wechsel ist.
-//   6. Es kostet fast nichts.
+//   7. Es kostet fast nichts.
 //
 // Gerechnet wird gegen das Modul selbst, mit einer erfundenen Zeitachse. Das
 // ist hier die schaerfere Pruefung: Auf einer laufenden Buehne haengt jede
@@ -110,61 +112,85 @@ try {
     };
   });
 
-  console.log('\nDer Kopf nickt auf den Schlag, nicht irgendwann:');
-  const nicken = await seite.evaluate(() => {
-    const proben = window.__probe.lauf(300);
-    /*
-     * Fuer jedes Bild: wie weit ist es (in Bruchteilen eines Schlags) seit
-     * dem letzten Schlag? Dazu die Staerke der Auslenkung. Gemittelt ueber
-     * acht Faecher ergibt das die Form des Nickens innerhalb eines Schlags.
-     */
-    const faecher = new Array(8).fill(0);
-    const zahl = new Array(8).fill(0);
-    for (const p of proben.slice(60)) {
-      const f = Math.min(7, Math.floor((p.beat - Math.floor(p.beat)) * 8));
-      faecher[f] += Math.abs(p.nickX);
-      zahl[f]++;
-    }
-    const mittel = faecher.map((s, i) => (zahl[i] ? s / zahl[i] : 0));
+  /* --- Groovt er, ohne zu klopfen? ---------------------------------------
+   *
+   * Diese Pruefung hat ihr Vorzeichen gewechselt, und das ist der wichtigste
+   * Teil an ihr.
+   *
+   * Vorher stand hier: "Der Kopf nickt auf den Schlag" - gemessen als Spitze
+   * der Auslenkung kurz nach jedem Schlag. Die Figur hat das bestanden, und
+   * sie sah trotzdem falsch aus. Die Rueckmeldung von der Leinwand war
+   * eindeutig: "dieses dauerhafte Klopfen passend zum Beat, zumindest bei
+   * elektronischer Musik geht das nicht".
+   *
+   * Eine bestandene Pruefung, die das Falsche verlangt, ist schlimmer als
+   * gar keine - sie haelt die Verbesserung auf. Also verlangt sie jetzt das
+   * Gegenteil, und zwar an derselben Zahl.
+   *
+   * Gemessen wird die Hoehe des Kopfes ueber der Zeit, zerlegt nach
+   * Schwingungen je Schlag:
+   *
+   *   1,000 je Schlag   - das Klopfen. Muss verschwinden.
+   *   0,250 je Schlag   - einmal je Takt. Das ist der Groove.
+   *   0,125 je Schlag   - alle zwei Takte, die Gewichtsverlagerung selbst.
+   *
+   * Zum Vergleich dieselbe Messung an der alten Fassung, 128 Schlaege je
+   * Minute: je Schlag 3,62 Bildpunkte, je Takt 0,53. Genau andersherum.
+   */
+  console.log('\nEr groovt auf dem Takt und klopft nicht auf jeden Schlag:');
+  const groove = await seite.evaluate(() => {
+    const proben = window.__probe.lauf(1200, { wucht: 0.85 });
+    // Die ersten fuenf Sekunden weg: Verlagerung und Feder muessen anlaufen.
+    const r = proben.slice(300);
+    const mittel = r.reduce((a, p) => a + p.nickPx, 0) / r.length;
+    // Betrag der Fourierkomponente bei f Schwingungen je Schlag.
+    const komp = (f) => {
+      let re = 0;
+      let im = 0;
+      for (const p of r) {
+        const w = 2 * Math.PI * f * p.beat;
+        re += (p.nickPx - mittel) * Math.cos(w);
+        im += (p.nickPx - mittel) * Math.sin(w);
+      }
+      return (2 * Math.hypot(re, im)) / r.length;
+    };
+    const ys = r.map((p) => p.nickPx);
     return {
-      mittel,
-      hoechst: Math.max(...proben.map((p) => Math.abs(p.nickX))),
-      // Was am Ende zaehlt: wie weit der Kopf wirklich wandert.
-      hoechstPx: Math.max(...proben.map((p) => Math.abs(p.nickPx))),
+      hub: Math.max(...ys) - Math.min(...ys),
+      jeSchlag: komp(1),
+      halbeSchlaege: komp(0.5),
+      jeTakt: komp(0.25),
+      zweiTakte: komp(0.125),
     };
   });
-  const stelle = nicken.mittel.indexOf(Math.max(...nicken.mittel));
+  pruefe('der Koerper bewegt sich sichtbar', groove.hub > 8,
+    `${groove.hub.toFixed(1)} Bildpunkte bei 600 Hoehe`);
+  pruefe('und zwar einmal je Takt', groove.jeTakt > 3,
+    `${groove.jeTakt.toFixed(2)} Bildpunkte Amplitude`);
   /*
-   * Gemessen wird in Bildpunkten und nicht in der Federauslenkung. Von der
-   * beabsichtigten Auslenkung kommt bei diesem Daempfungsgrad nur gut die
-   * Haelfte an - das ist die Bauart der Feder und kein Fehler. Was zaehlt,
-   * ist der Weg auf dem Bildschirm: Bei 600 Bildpunkten Hoehe sind drei
-   * Bildpunkte sichtbar, auf einer Leinwand mit 1080 werden gut fuenf daraus.
+   * Die eigentliche Pruefung. Zwanzig zu eins ist kein knapp gesetzter
+   * Grenzwert: Gemessen liegt das Verhaeltnis bei ueber vierzig, und die alte
+   * Fassung lag bei 0,15 - also auf der anderen Seite um den Faktor 130.
+   * Dazwischen ist so viel Platz, dass die Zahl eine Aussage trifft und nicht
+   * nur den Ist-Zustand festschreibt.
    */
-  pruefe('der Kopf wandert sichtbar', nicken.hoechstPx > 3,
-    `${nicken.hoechstPx.toFixed(1)} Bildpunkte bei 600 Hoehe`);
-  /*
-   * Der Ausschlag muss kurz *nach* dem Schlag liegen, nicht davor und nicht
-   * gleichmaessig verteilt. Genau daran haengt, ob es wie ein Nicken aussieht
-   * oder wie ein Wackeln.
-   */
-  pruefe('und am staerksten kurz nach dem Schlag', stelle <= 2,
-    `Spitze im ${stelle + 1}. von 8 Faechern`);
-  const flach = Math.min(...nicken.mittel) / Math.max(...nicken.mittel);
-  pruefe('die Bewegung ist nicht gleichmaessig verteilt', flach < 0.7,
-    `flachste Stelle bei ${(flach * 100).toFixed(0)} % der hoechsten`);
+  pruefe('nichts davon haengt am einzelnen Schlag',
+    groove.jeTakt > groove.jeSchlag * 20,
+    `je Takt ${groove.jeTakt.toFixed(2)} gegen je Schlag ${groove.jeSchlag.toFixed(2)} Bildpunkte`);
+  pruefe('auch nicht auf dem Achtel dazwischen',
+    groove.jeTakt > groove.halbeSchlaege * 20,
+    `je halbem Schlag ${groove.halbeSchlaege.toFixed(2)} Bildpunkte`);
 
-  console.log('\nDie Feder folgt dem Tempo - sonst passt sie nur zu einem:');
+  console.log('\nDer Groove haengt am Tempo, nicht an der Uhr:');
   /*
-   * Der Fehler, um den es geht: Die Feder war fest auf rund 13,8 je Sekunde
-   * gestimmt, also auf eine Periode von 0,46 Sekunden. Ein Stueck mit 140
-   * Schlaegen je Minute hat eine Schlagdauer von 0,43 - fast genau dasselbe.
-   * Jeder neue Stoss traf die Feder damit mitten in ihrer eigenen Schwingung,
-   * und heraus kam ein Wabern ohne Bezug zum Schlag.
+   * Der Fehler, um den es hier geht, ist der alte: Eine Bewegung, die nach
+   * Sekunden laeuft statt nach Schlaegen, passt genau zu einem Tempo. Die
+   * Verlagerung zaehlt deshalb in Schlaegen - acht je Durchgang, also zwei
+   * Takte -, und das laesst sich pruefen: Ihre Dauer *in Sekunden* muss sich
+   * umgekehrt zum Tempo verhalten.
    *
-   * Geprueft wird deshalb bei drei Tempi, ob die Spitze der Bewegung immer
-   * *kurz nach* dem Schlag liegt. Eine feste Feder faellt hier bei mindestens
-   * einem Tempo durch.
+   * Bei 100 Schlaegen je Minute sind acht Schlaege 4,80 Sekunden, bei 175
+   * nur 2,74. Eine Bewegung nach der Uhr haette ueberall dieselbe Dauer.
    */
   const tempi = await seite.evaluate(async () => {
     const aus = [];
@@ -174,7 +200,7 @@ try {
       m.schattenZuruecksetzen();
       const dt = 1 / 60;
       const proben = [];
-      for (let i = 0; i < 420; i++) {
+      for (let i = 0; i < 900; i++) {
         const beat = (i * dt * bpm) / 60;
         m.schattenZeichnen(window.__probe.stift, 900, 600, {
           sekunden: dt,
@@ -182,38 +208,87 @@ try {
             beat, imBeat: beat - Math.floor(beat), nummer: Math.floor(beat),
             aufEins: Math.floor(beat) % 4 === 0, aufPhrase: Math.floor(beat) % 32 === 0,
           },
-          spannung: 0, abbau: 0, wucht: 0.6, drop: false, anteilB: 0,
+          spannung: 0, abbau: 0, wucht: 0.85, drop: false, anteilB: 0,
           palette: ['#123', '#456', '#789', '#8ad7ff'], guetestufe: 'hoch',
         });
-        proben.push({ beat, ...m.schattenStand() });
+        proben.push({ zeit: i * dt, beat, ...m.schattenStand() });
       }
-      // Nur die zweite Haelfte: die Feder muss sich erst einschwingen.
-      const faecher = new Array(8).fill(0);
-      const zahl = new Array(8).fill(0);
-      for (const p of proben.slice(210)) {
-        const f = Math.min(7, Math.floor((p.beat - Math.floor(p.beat)) * 8));
-        faecher[f] += Math.abs(p.nickPx);
-        zahl[f]++;
+      const r = proben.slice(300);
+      /*
+       * Die Dauer eines Durchgangs aus der Verlagerung selbst: Abstand
+       * zwischen zwei Nulldurchgaengen in derselben Richtung. Gemessen wird
+       * am Ergebnis und nicht an der Phase, damit auch eine falsch
+       * angewandte Phase auffiele.
+       */
+      const kreuz = [];
+      for (let i = 1; i < r.length; i++) {
+        if (r[i - 1].wiegen <= 0 && r[i].wiegen > 0) kreuz.push(r[i].zeit);
       }
-      const mittel = faecher.map((s, i) => (zahl[i] ? s / zahl[i] : 0));
-      aus.push({ bpm, spitze: mittel.indexOf(Math.max(...mittel)), hoechst: Math.max(...mittel) });
+      const dauern = [];
+      for (let i = 1; i < kreuz.length; i++) dauern.push(kreuz[i] - kreuz[i - 1]);
+      dauern.sort((a, b) => a - b);
+      aus.push({ bpm, dauer: dauern.length ? dauern[Math.floor(dauern.length / 2)] : 0 });
     }
     return aus;
   });
   for (const t of tempi) {
+    const soll = (8 * 60) / t.bpm;
     pruefe(
-      `bei ${t.bpm} Schlaegen je Minute sitzt die Spitze kurz nach dem Schlag`,
-      t.spitze <= 2 && t.hoechst > 2,
-      `${t.spitze + 1}. von 8 Faechern, ${t.hoechst.toFixed(1)} Bildpunkte`,
+      `bei ${t.bpm} Schlaegen je Minute dauert eine Verlagerung acht Schlaege`,
+      Math.abs(t.dauer - soll) < soll * 0.06,
+      `${t.dauer.toFixed(2)} s gemessen, ${soll.toFixed(2)} s gerechnet`,
     );
   }
 
-  console.log('\nOhne Takt steht die Figur still:');
-  const still = await seite.evaluate(() => {
-    const proben = window.__probe.lauf(180, { takt: null, wucht: 0 });
-    return Math.max(...proben.map((p) => Math.abs(p.nickX)));
+  console.log('\nDer Akzent kommt auf der Phrasengrenze, nicht dauernd:');
+  /*
+   * Das Klopfen ist weg, aber die Figur soll deshalb nicht gleichmuetig
+   * werden. Was frueher jeden Schlag traf, trifft jetzt nur noch die
+   * Phrasengrenze - alle 32 Schlaege einmal, bei 128 also alle fuenfzehn
+   * Sekunden. Genau dadurch faellt es auf.
+   *
+   * Geprueft wird beides: dass es an der Grenze wirklich einen zusaetzlichen
+   * Ausschlag gibt, und dass er dazwischen wieder ganz verschwunden ist.
+   */
+  const akzent = await seite.evaluate(() => {
+    const proben = window.__probe.lauf(1200, { wucht: 0.85 });
+    let anGrenze = 0;
+    let dazwischen = 0;
+    for (const p of proben.slice(300)) {
+      const seitGrenze = p.beat % 32;
+      // Die Feder ist nach gut einem halben Schlag durch.
+      if (seitGrenze < 1) anGrenze = Math.max(anGrenze, Math.abs(p.nickX));
+      else if (seitGrenze > 4) dazwischen = Math.max(dazwischen, Math.abs(p.nickX));
+    }
+    return { anGrenze, dazwischen };
   });
-  pruefe('kein Nicken ohne Musik', still < 0.01, `${still.toFixed(4)}`);
+  pruefe('an der Phrasengrenze sackt er zusaetzlich ein', akzent.anGrenze > 0.12,
+    `Federauslenkung ${akzent.anGrenze.toFixed(3)}`);
+  pruefe('und dazwischen ruehrt sich die Feder nicht', akzent.dazwischen < 0.02,
+    `Federauslenkung ${akzent.dazwischen.toFixed(3)}`);
+
+  console.log('\nOhne Takt steht die Figur still:');
+  /*
+   * Gemessen wird nach dem Abschalten und nicht aus dem Stand: Aus dem Stand
+   * ist alles null, und die Pruefung waere geschenkt. Der Fehler, den sie
+   * finden soll, ist der andere - eine Verlagerung, die einmal angelaufen
+   * ist und dann in der Stille weiterschaukelt.
+   */
+  const still = await seite.evaluate(() => {
+    const proben = window.__probe.lauf(420, { wucht: 0.85 }, (lage, i) => {
+      if (i >= 180) { lage.takt = null; lage.wucht = 0; }
+    });
+    const nach = proben.slice(300);
+    return {
+      feder: Math.max(...nach.map((p) => Math.abs(p.nickX))),
+      senken: Math.max(...nach.map((p) => Math.abs(p.senken))),
+      wiegen: Math.max(...nach.map((p) => Math.abs(p.wiegen))),
+    };
+  });
+  pruefe('die Feder steht still', still.feder < 0.01, still.feder.toFixed(4));
+  pruefe('die Verlagerung kommt zur Ruhe',
+    still.senken < 0.02 && still.wiegen < 0.02,
+    `Senken ${still.senken.toFixed(4)}, Wiegen ${still.wiegen.toFixed(4)}`);
 
   console.log('\nDer Drop hebt die Haende:');
   const drop = await seite.evaluate(() => {

@@ -106,13 +106,84 @@ Was sich daraus in eine Abnahme übersetzen ließ, steht jetzt drin: Die Figur
 muss auch mit erhobenen Armen **ein zusammenhängendes Stück** sein. Das hätte
 Fehler 2 gefunden.
 
-## Was sie tut
+## Der Groove liegt auf dem Takt, nicht auf dem Schlag
 
-Die Bewegungslogik ist unverändert und war nie das Problem:
+Lange Zeit federte der Körper auf **jeden** Schlag – ein Stoß in eine
+gedämpfte Feder, gestaffelt nach Eins, Phrase und Rest. Die Abnahme hat das
+verlangt und die Figur hat es bestanden. Vor der Leinwand war es trotzdem
+falsch:
 
-- **Nicken auf den Schlag** über eine gedämpfte Feder, deren Steifigkeit dem
-  gemessenen Tempo folgt. Eine feste Feder gerät bei 140 Schlägen je Minute in
-  Resonanz mit dem Takt und wabert.
+> „Dieses dauerhafte, ich nenne es mal Klopfen, passend zum Beat. Zumindest
+> bei elektronischer Musik geht das nicht."
+
+Der Grund liegt im Material. Ein Technostück hat vier gleich schwere Schläge
+je Takt. Wer auf jeden davon reagiert, gibt genau das wieder, was ohnehin
+schon zu hören ist – heraus kommt ein Metronom mit Armen. Bei einem Stück mit
+Backbeat wäre es anders: Dort tragen zwei der vier Schläge das Gewicht, und
+ein Nicken darauf hat eine Richtung.
+
+Was ein Mensch an einem Pult stattdessen tut, ist an sich selbst
+nachzuvollziehen: Er verlagert das Gewicht von einem Bein aufs andere, **einen
+Takt je Seite**. Während der Verlagerung sackt die Hüfte ab, im Stand über
+einem Bein steht er wieder hoch. Das Auf und Ab ist also gar nicht
+angetrieben – es fällt beim Verlagern von selbst an, einmal je Takt statt
+viermal. Und weil die Hände auf den Tellern liegen bleiben, während die
+Schulter mitwandert, beugen sich die Ellenbogen von allein mit.
+
+Gemessen, indem die Kopfhöhe nach Schwingungen **je Schlag** zerlegt wird:
+
+| Komponente | alt | jetzt |
+|---|---|---|
+| 1,000 je Schlag – das Klopfen | 3,62 px | **0,13 px** |
+| 0,250 je Schlag – einmal je Takt | 0,53 px | **5,12 px** |
+
+Die beiden Zahlen haben die Plätze getauscht, und zwar um mehr als das
+Zwanzigfache in beide Richtungen.
+
+Für die Feder bleibt das, wofür sie gebaut ist: die Ausnahme. Phrasengrenze
+und Drop, also alle acht bis sechzehn Sekunden einmal. Genau dadurch fällt sie
+wieder auf.
+
+**Eine Abnahme, die das Falsche verlangt, ist schlimmer als gar keine** – sie
+hält die Verbesserung auf. Die Prüfung „der Kopf nickt auf den Schlag" ist
+deshalb nicht gelöscht, sondern **umgedreht**: Sie misst dieselbe Zahl und
+verlangt jetzt, dass der Anteil je Schlag verschwindet. Dazu kommt eine
+zweite: Eine Verlagerung muss bei jedem Tempo acht Schläge dauern – bei 100
+Schlägen je Minute 4,80 s, bei 175 nur 2,75 s. Eine Bewegung nach der Uhr
+fiele hier durch.
+
+## Ein Schatten leuchtet nicht
+
+Über den Umriss lief ein zweiter, weißer Durchgang, ein paar Bildpunkte nach
+oben versetzt: ein Streiflicht auf allen Oberkanten. Es ist raus, und nicht
+aus Geschmack – es verletzte die Physik der Szene. Was da steht, ist ein
+Körper **vor** einer leuchtenden Fläche. Ein Körper ist undurchsichtig; er
+kann nichts nach vorn abstrahlen. Der Saum machte aus dem Schatten eine
+beleuchtete Puppe.
+
+Bleibt die Frage, ob der Umriss sich ohne ihn überhaupt noch abhebt. Gemessen
+am Grund hinter der Figur, bei abgeschaltetem Schatten, über 120 Bilder je
+Modus:
+
+| Modus | Median sRGB | unteres Zehntel | unter 6 |
+|---|---|---|---|
+| Mandelbrot | 47 | 18 | 0,0 % |
+| Mandala | 54 | 22 | 0,1 % |
+| Tunnel | 82 | 53 | 0,0 % |
+
+Praktisch nirgends ist der Grund so dunkel, dass ein schwarzer Umriss darin
+verschwände. Der Saum war also nicht einmal nötig, um die Figur zu finden.
+
+Dieselbe Messung ergab noch etwas: Rund drei Prozent des Grundes liegen
+**dunkler** als das fast-schwarze `rgb(4,5,10)`, mit dem die Figur bisher
+gefüllt war. Dort hob sie sich als *hellerer* Fleck ab – genau verkehrt herum
+für einen Schatten. Sie ist jetzt reines Schwarz.
+
+Es kostet auch nichts, sondern spart: ein Fülldurchgang über die ganze Figur
+und ein zweites Blitten des Pults fallen weg. **0,057 ms je Bild** statt 0,147.
+
+## Was sie sonst tut
+
 - **Arm hoch beim Aufbau**, je näher der Drop kommt.
 - **Beide Arme beim Drop**, mit rund zwei Sekunden Nachhall.
 - **Kopfhörer ans Ohr im Breakdown** – die Bühne bereitet dann wirklich den

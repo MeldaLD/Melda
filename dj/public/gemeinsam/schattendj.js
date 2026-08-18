@@ -123,7 +123,20 @@ let handR = null;
 // Traege Groessen: Oberkoerperneigung, seitliches Wiegen, Kopfdrehung.
 let neigung = 0;
 let wiegen = 0;
+/*
+ * Wo in der Gewichtsverlagerung er gerade steht, in ganzen Durchgaengen.
+ *
+ * Fortgeschrieben aus dem *Zuwachs* der Beatnummer und nicht aus ihr selbst.
+ * Der Unterschied zaehlt am Uebergang zwischen zwei Tracks: Dort springt die
+ * Beatnummer auf die des naechsten Abschnitts, und eine direkt daraus
+ * gerechnete Phase risse die Figur mitten im Schritt auf die andere Seite.
+ * Ein Zuwachs laesst sich verwerfen, ein Sprung nicht.
+ */
 let wiegePhase = 0;
+let letzterBeatWert = null;
+// Wie tief er gerade eingesackt ist, aus der Verlagerung abgeleitet: -0,5
+// steht hoch ueber einem Bein, +0,5 ganz unten im Uebergang.
+let senken = 0;
 let kopfDreh = 0;
 // Wie weit der Kopf zuletzt gewandert ist, in Bildpunkten - fuer die Abnahme.
 let letzterNickPx = 0;
@@ -163,11 +176,20 @@ let armWinkel = null;
 let pumpPhase = 0;
 
 /*
+ * Die Farbe des Schattens: reines Schwarz.
+ *
+ * Ein Koerper vor einer leuchtenden Flaeche laesst nichts durch, also ist er
+ * die dunkelste Stelle im Bild. Jeder Wert darueber macht aus der Aussparung
+ * eine aufgelegte Flaeche - und wo das Mandala gerade dunkel ist, hebt sich
+ * die Figur dann als *hellerer* Fleck ab statt als Schatten.
+ */
+const SCHATTEN = '#000';
+
+/*
  * Das Pult ist das einzige, was noch ein Bild ist - es bewegt sich nicht und
  * braucht kein Skelett.
  */
 let pultBild = null;
-let pultHell = null;
 let pultLaeuft = false;
 
 function pultLaden() {
@@ -176,15 +198,6 @@ function pultLaden() {
   const bild = new Image();
   bild.onload = () => {
     pultBild = bild;
-    const l = document.createElement('canvas');
-    l.width = PULT.breite;
-    l.height = PULT.hoehe;
-    const st = l.getContext('2d');
-    st.drawImage(bild, 0, 0);
-    st.globalCompositeOperation = 'source-in';
-    st.fillStyle = '#fff';
-    st.fillRect(0, 0, l.width, l.height);
-    pultHell = l;
   };
   bild.src = PULT.daten;
 }
@@ -226,6 +239,8 @@ export function schattenZuruecksetzen() {
   neigung = 0;
   wiegen = 0;
   wiegePhase = 0;
+  letzterBeatWert = null;
+  senken = 0;
   kopfDreh = 0;
   letzterNickPx = 0;
   letzterKopf = null;
@@ -390,19 +405,71 @@ const GELENK_HOECHSTTEMPO = (800 * Math.PI) / 180;
  * Alles in Kopfhoehen beziehungsweise Bogenmass, damit es auf jedem Bildschirm
  * gleich aussieht.
  */
-/*
- * Wie tief der Koerper auf den Schlag einsackt.
+/* --- Warum der Koerper nicht mehr auf jeden Schlag federt -------------------
  *
- * Nachgerechnet: Die Feder erreicht bei viel Wucht eine Auslenkung von rund
- * 0,25, die Kopfhoehe betraegt 64 Bildpunkte auf einem 640 Punkte hohen Bild.
- * 0,8 ergibt daraus knapp 13 Bildpunkte - umgerechnet auf einen Menschen gut
- * vier Zentimeter Kniebeuge, also das, was jemand tut, der mitgeht. Bei 0,42
- * waren es sechs Bildpunkte, und die sah man nicht.
+ * Hier stand ein Stoss in die Feder bei *jedem* Schlag. Auf dem Papier war
+ * das richtig - die Figur nickte messbar zur Musik, und die Abnahme hat es
+ * bestaetigt. Vor der Leinwand war es falsch, und die Rueckmeldung dazu war
+ * eindeutig: "dieses dauerhafte Klopfen passend zum Beat, zumindest bei
+ * elektronischer Musik geht das nicht".
+ *
+ * Der Grund liegt im Material. Ein Technostueck hat vier gleich schwere
+ * Schlaege je Takt, und wer auf jeden davon reagiert, gibt genau das wieder,
+ * was ohnehin schon zu hoeren ist. Das Ergebnis ist ein Metronom mit Armen -
+ * jeder Schlag gleich stark, kein Bogen darueber, nichts, was auf etwas
+ * zulaeuft. Bei einem Stueck mit Backbeat waere das anders: Dort tragen zwei
+ * der vier Schlaege das Gewicht, und ein Nicken darauf hat eine Richtung.
+ *
+ * Was ein Mensch an einem Pult stattdessen tut, ist gemessen an sich selbst
+ * leicht nachzuvollziehen: Er verlagert das Gewicht von einem Bein aufs
+ * andere, und zwar nicht im Schlagtempo, sondern ueber einen ganzen Takt je
+ * Seite. Waehrend der Verlagerung sackt die Huefte ab, im Stand ueber einem
+ * Bein steht er wieder hoch. Das Auf und Ab ist also *nicht* angetrieben,
+ * sondern faellt beim Verlagern von selbst an - einmal je Takt, nicht
+ * viermal. Und weil die Haende auf den Tellern liegen bleiben, waehrend die
+ * Schulter mitwandert, beugen sich die Ellenbogen von allein mit.
+ *
+ * Uebrig bleibt fuer die Feder das, wofuer sie gebaut ist: die Ausnahme.
+ * Phrasengrenze und Drop - alle acht bis sechzehn Sekunden einmal. Genau
+ * dadurch faellt sie wieder auf.
  */
-const FEDERN = 0.8;
-// Wie weit der Kopf ueber das Federn des Koerpers hinaus nachgibt.
+
+// Ueber wie viele Schlaege eine ganze Gewichtsverlagerung laeuft: links,
+// rechts, zurueck. Acht Schlaege sind zwei Takte, also ein Takt je Seite.
+const WIEGE_SCHLAEGE = 8;
+/*
+ * Wie tief der Koerper beim Verlagern absackt, in Kopfhoehen.
+ *
+ * Nachgemessen am Kopf, bei 640 Bildpunkten Bildhoehe: 0,13 ergeben rund elf
+ * Bildpunkte von ganz oben nach ganz unten. Die Figur ist dort 230 Punkte
+ * hoch, ein Mensch also gut 128 Punkte je Meter - elf Punkte sind demnach
+ * knapp neun Zentimeter Kniebeuge. Fuer eine Schattenprojektion ist das die
+ * richtige Uebertreibung: gross genug, um ueber zehn Meter Saal zu tragen,
+ * klein genug, um nicht zu huepfen.
+ *
+ * Der erste Ansatz stand auf 0,55, und das war ein Rechenfehler von mir -
+ * gemessen kamen 46 Bildpunkte heraus, das Vierfache. Die Zahl steht jetzt,
+ * weil sie gemessen ist, nicht weil sie geschaetzt war.
+ */
+const SENKEN = 0.13;
+/*
+ * Wie tief der Akzent zusaetzlich einsackt - der Rest der alten Feder.
+ *
+ * Er kommt nur noch auf Phrasengrenzen und Drops. Halb so gross wie frueher
+ * das Federn je Schlag, und trotzdem auffaelliger, weil daneben nichts mehr
+ * dauernd klopft.
+ */
+const FEDERN = 0.42;
+// Wie weit der Kopf ueber die Bewegung des Koerpers hinaus nachgibt.
 const KOPF_NICKEN = 0.35;
-// Seitliche Gewichtsverlagerung.
+/*
+ * Seitliche Gewichtsverlagerung.
+ *
+ * Die Zahl ist dieselbe wie vorher, der Weg im Bild ist trotzdem groesser
+ * geworden: Die Verlagerung erreicht jetzt ihren vollen Ausschlag, wo sie
+ * frueher bei 78 Prozent haengen blieb. Gemessen 17 statt 13 Bildpunkte von
+ * links nach rechts. Sie traegt den Groove jetzt mit, also darf sie das.
+ */
 const WIEGEN = 0.13;
 /*
  * Wie weit der Rumpf dabei um die Huefte rollt, im Bogenmass.
@@ -708,15 +775,21 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
       }
     }
     letzteSchlagZeit = 0;
-    if (schattenLetzterBeat >= 0) {
-      const staerke = takt.aufPhrase ? 1 : takt.aufEins ? 0.78 : 0.5;
-      /*
-       * Der Stoss geht in die *Geschwindigkeit*, die gewuenschte Groesse ist
-       * aber eine *Auslenkung* - und zwischen beiden steht die Eigenfrequenz
-       * der Feder. Ohne diesen Faktor kam von 0,4 gerade 0,02 an, und das
-       * Nicken war fast unsichtbar.
-       */
-      const wunsch = staerke * (0.34 + wucht * 0.5 + spannung * 0.26) * (1 - abbau * 0.6);
+    /*
+     * Der Akzent - und nur er.
+     *
+     * Frueher stand hier ein Stoss bei jedem Schlag, gestaffelt nach Eins,
+     * Phrase und Rest. Genau das war das Klopfen: vier gleichartige Stoesse
+     * je Takt, die zusammen keinen Bogen ergeben. Jetzt loest allein die
+     * Phrasengrenze aus, also alle acht Takte einmal, und der Drop weiter
+     * unten. Was dazwischen passiert, macht die Verlagerung.
+     *
+     * Der Stoss geht in die *Geschwindigkeit*, die gewuenschte Groesse ist
+     * aber eine *Auslenkung* - und zwischen beiden steht die Eigenfrequenz
+     * der Feder. Ohne diesen Faktor kam von 0,4 gerade 0,02 an.
+     */
+    if (schattenLetzterBeat >= 0 && takt.aufPhrase) {
+      const wunsch = (0.5 + wucht * 0.55 + spannung * 0.3) * (1 - abbau * 0.6);
       nickV += wunsch * eigenFrequenz;
     }
     schattenLetzterBeat = takt.nummer;
@@ -736,8 +809,18 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
 
   letzteSchlagZeit += sekunden;
   if (zeigenHalt > 0) zeigenHalt = Math.max(0, zeigenHalt - sekunden * 0.8);
-  if (lage.drop) dropHalt = 1;
-  else if (dropHalt > 0) dropHalt = Math.max(0, dropHalt - sekunden * 0.65);
+  /*
+   * Der Drop stoesst die Feder jetzt selbst an.
+   *
+   * Vorher hat er das nicht gebraucht: Der naechste Schlag kam ohnehin
+   * spaetestens nach einer halben Sekunde und trug den Ruck mit. Ohne die
+   * Schlagstoesse waere der Drop sonst die einzige Stelle, an der die Musik
+   * aufreisst und der Koerper nichts tut.
+   */
+  if (lage.drop) {
+    if (dropHalt < 0.5) nickV += 1.15 * eigenFrequenz;
+    dropHalt = 1;
+  } else if (dropHalt > 0) dropHalt = Math.max(0, dropHalt - sekunden * 0.65);
 
   const m = masse(breite, hoehe);
 
@@ -803,11 +886,44 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
   // der DJ beugt sich ueber das Pult, wenn es darauf zulaeuft.
   const neigungZiel = spannung * 0.16 - abbau * 0.06 + dropHalt * 0.1;
   neigung = folgen(neigung, neigungZiel, 3.2, sekunden);
-  // Seitliches Wiegen, im halben Tempo des Schlags. Ueber eine eigene Phase
-  // und nicht ueber imBeat, damit es beim Tempowechsel nicht springt.
-  wiegePhase += sekunden * (0.7 + wucht * 0.9);
-  const wiegeZiel = Math.sin(wiegePhase * Math.PI) * (0.4 + wucht * 0.6) * (1 - abbau * 0.5);
+  /* --- Die Gewichtsverlagerung, und das Absacken darin --------------------
+   *
+   * Sie ist jetzt der ganze Groove. Ein voller Durchgang - links, rechts,
+   * zurueck - dauert acht Schlaege, also zwei Takte, und die Phase dafuer
+   * waechst mit dem *Zuwachs* der Beatnummer. Damit haengt sie am Tempo des
+   * Stuecks, ohne beim Trackwechsel zu springen: Ein Sprung im Zuwachs wird
+   * verworfen, und die Verlagerung laeuft dort einfach weiter, wo sie war.
+   */
+  const beatJetzt = takt ? takt.beat ?? takt.nummer + (takt.imBeat ?? 0) : null;
+  if (beatJetzt !== null) {
+    const zuwachs = letzterBeatWert === null ? 0 : beatJetzt - letzterBeatWert;
+    // Bis zu einem halben Schlag je Bild ist glaubwuerdig; alles darueber ist
+    // ein Abschnittswechsel oder ein Sprung in der Wiedergabe.
+    if (zuwachs > 0 && zuwachs < 0.5) wiegePhase += zuwachs / WIEGE_SCHLAEGE;
+    letzterBeatWert = beatJetzt;
+  } else {
+    letzterBeatWert = null;
+  }
+  wiegePhase -= Math.floor(wiegePhase);
+  /*
+   * Wie gross die Verlagerung ausfaellt. Bei Stille ist sie null - eine
+   * Figur, die im Nichts weiterschaukelt, sieht gespenstisch aus.
+   */
+  const groesse = klemm(wucht * 1.6 - 0.08, 0, 1) * (1 - abbau * 0.5);
+  const winkel = 2 * Math.PI * wiegePhase;
+  const wiegeZiel = Math.sin(winkel) * (0.35 + groesse * 0.65) * groesse;
   wiegen = folgen(wiegen, wiegeZiel, 7, sekunden);
+  /*
+   * Und das Absacken: Es ist keine eigene Bewegung, sondern die Folge der
+   * Verlagerung. Wer das Gewicht von einem Bein aufs andere bringt, ist
+   * unterwegs am tiefsten und ueber dem Bein am hoechsten - also genau dann
+   * unten, wenn die seitliche Auslenkung durch null geht. Das ist cos(2x),
+   * doppelt so schnell wie die Verlagerung: einmal je Takt.
+   *
+   * Deshalb kann es gar nicht klopfen. Es gibt keinen Anstoss, den man
+   * zaehlen koennte, nur einen Bogen ueber vier Schlaege.
+   */
+  senken = folgen(senken, Math.cos(2 * winkel) * 0.5 * groesse, 9, sekunden);
   // Der Kopf dreht sich zur Hand, die gerade etwas tut.
   kopfDreh = folgen(kopfDreh, (anteilB > 0 ? 0.4 : 0) - abbau * 0.55, 2.6, sekunden);
 
@@ -863,10 +979,11 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * das Auge als Masse liest. Bewegen sich beide gleichzeitig, sieht die Figur
    * aus wie aus einem Stueck Holz.
    */
-  kopfNick += (nickX - kopfNick) * klemm(sekunden * 17, 0, 1);
+  const hoehenLage = senken * SENKEN + nickX * FEDERN;
+  kopfNick += (hoehenLage - kopfNick) * klemm(sekunden * 17, 0, 1);
 
-  const federPx = nickX * m.kopfH * FEDERN;
-  letzterNickPx = kopfNick * m.kopfH * (FEDERN + KOPF_NICKEN);
+  const federPx = hoehenLage * m.kopfH;
+  letzterNickPx = (hoehenLage + kopfNick * KOPF_NICKEN) * m.kopfH;
   const seitePx = wiegen * m.kopfH * WIEGEN;
 
   /* --- Die Figur stellen -------------------------------------------------- */
@@ -902,7 +1019,7 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
   const hals = [0, 0];
   amKoerper(bx, by + RIG.halsY * figH, hals);
   const kopfW = kopfDreh * 0.2 + wiegen * KOPF_AUSGLEICH;
-  const kvy = kopfNick * m.kopfH * KOPF_NICKEN + neigung * m.kopfH * 0.25;
+  const kvy = kopfNick * KOPF_NICKEN * m.kopfH + neigung * m.kopfH * 0.25;
   const kvx = kopfDreh * m.kopfH * 0.14;
   const kcos = Math.cos(kopfW);
   const ksin = Math.sin(kopfW);
@@ -1076,8 +1193,39 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
 
   stift.save();
 
-  const licht = klemm(0.16 + wucht * 0.5 + dropHalt * 0.35, 0, 0.85);
-  const saum = Math.max(1.5, m.kopfH * 0.06);
+  /* --- Kein Streiflicht ---------------------------------------------------
+   *
+   * Hier lag ein zweiter, weisser Durchgang ein paar Bildpunkte hoeher, der
+   * die Oberkanten der Figur aufleuchten liess. Er ist raus, und zwar nicht
+   * aus Geschmack, sondern weil er die Physik verletzt hat: Was hier steht,
+   * ist ein Koerper *vor* einer leuchtenden Flaeche. Ein Koerper ist
+   * undurchsichtig; er kann nichts nach vorn abstrahlen, was hinter ihm
+   * liegt. Der Saum hat die Figur zu einer beleuchteten Puppe gemacht statt
+   * zu einem Schatten.
+   *
+   * Uebrig bleibt genau das Richtige: ein Loch im Licht.
+   *
+   * Nachgemessen, ob der Umriss sich ohne Saum ueberhaupt noch abhebt - der
+   * Grund hinter der Figur, mit abgeschaltetem Schatten, ueber 120 Bilder je
+   * Modus:
+   *
+   *   Mandelbrot  Median sRGB 47, unteres Zehntel 18, unter 6 liegen 0,0 %
+   *   Mandala     Median sRGB 54, unteres Zehntel 22, unter 6 liegen 0,1 %
+   *   Tunnel      Median sRGB 82, unteres Zehntel 53, unter 6 liegen 0,0 %
+   *
+   * Praktisch nirgends ist der Grund so dunkel, dass ein schwarzer Umriss
+   * darin verschwaende. Der Saum war also nicht einmal noetig, um die Figur
+   * zu finden.
+   *
+   * Und noch etwas ergab dieselbe Messung: Rund drei Prozent des Grundes
+   * liegen unter sRGB 12, also unter dem fast-schwarzen rgb(4,5,10), mit dem
+   * die Figur bisher gefuellt war. Dort hob sie sich als *hellerer* Fleck ab
+   * - genau verkehrt herum fuer einen Schatten. Reines Schwarz kann das
+   * nicht passieren.
+   *
+   * Es kostet auch nichts, sondern spart: ein Fuelldurchgang ueber die ganze
+   * Figur und ein zweites Blitten des Pults fallen weg.
+   */
 
   /* --- Alles in einem Pfad ------------------------------------------------
    *
@@ -1101,14 +1249,14 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    */
 
   // Ein starres Teil: um seinen Bindepunkt gedreht und ans Gelenk gelegt.
-  const teil = (punkte, dx0, dy0, zx0, zy0, c, s, versatzY) => {
+  const teil = (punkte, dx0, dy0, zx0, zy0, c, s) => {
     for (let i = 0; i < punkte.length; i++) {
       const px = bx + punkte[i][0] * figH - dx0;
       const py = by + punkte[i][1] * figH - dy0;
       const x = zx0 + px * c - py * s;
       const y = zy0 + px * s + py * c;
-      if (i) stift.lineTo(x, y + versatzY);
-      else stift.moveTo(x, y + versatzY);
+      if (i) stift.lineTo(x, y);
+      else stift.moveTo(x, y);
     }
     stift.closePath();
   };
@@ -1125,13 +1273,13 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
   };
 
   // Kopf und Kopfhoererbuegel drehen um den Hals.
-  const kopfTeile = (versatzY) => {
+  const kopfTeile = () => {
     const k = [0, 0];
     for (const stueck of [RIG.kopf, ...RIG.kopfTeile]) {
       for (let i = 0; i < stueck.length; i++) {
         amKopf(bx + stueck[i][0] * figH, by + stueck[i][1] * figH, k);
-        if (i) stift.lineTo(k[0], k[1] + versatzY);
-        else stift.moveTo(k[0], k[1] + versatzY);
+        if (i) stift.lineTo(k[0], k[1]);
+        else stift.moveTo(k[0], k[1]);
       }
       stift.closePath();
     }
@@ -1166,43 +1314,26 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * passt. Andersherum wuerde die Nichtnull-Regel aus jedem Gelenk ein Loch
    * machen.
    */
-  const gelenk = (x, y, r, versatzY) => {
-    stift.moveTo(x + r, y + versatzY);
-    stift.arc(x, y + versatzY, r, 0, Math.PI * 2, true);
+  const gelenk = (x, y, r) => {
+    stift.moveTo(x + r, y);
+    stift.arc(x, y, r, 0, Math.PI * 2, true);
     stift.closePath();
   };
 
-  /*
-   * Ein ganzer Durchgang durch die Figur.
-   *
-   * Zweimal aufgerufen: erst weiss und ein paar Bildpunkte nach oben versetzt
-   * (das Streiflicht), dann schwarz. Was vom Weissen oben uebersteht, ist
-   * genau die Oberkante - egal welche Form sie gerade hat. Von Hand
-   * nachgezogene Boegen koennten das nicht, weil die Kanten aus der Zeichnung
-   * kommen und nicht aus dem Code.
-
-   */
-  const durchgang = (versatzY) => {
-    stift.beginPath();
-    for (let i = 0; i < RIG.arme.length; i++) {
-      const a = RIG.arme[i];
-      const L = armLage[i];
-      teil(a.oberarm, L.bsx, L.bsy, L.sx, L.sy, L.c1, L.s1, versatzY);
-      gelenk(L.ex, L.ey, a.ellbogenR * figH, versatzY);
-      teil(a.unterarm, L.bex, L.bey, L.ex, L.ey, L.c2, L.s2, versatzY);
-    }
-    kopfTeile(versatzY);
-    stillTeil(RIG.rumpf, rvx, rvy + versatzY);
-    for (const st of RIG.still) stillTeil(st, rvx, rvy + versatzY);
-    stift.fill();
-  };
-
-  stift.fillStyle = '#fff';
-  stift.globalAlpha = licht;
-  durchgang(-saum);
-  stift.globalAlpha = 1;
-  stift.fillStyle = 'rgb(4,5,10)';
-  durchgang(0);
+  // Die ganze Figur in einem Zug.
+  stift.beginPath();
+  for (let i = 0; i < RIG.arme.length; i++) {
+    const a = RIG.arme[i];
+    const L = armLage[i];
+    teil(a.oberarm, L.bsx, L.bsy, L.sx, L.sy, L.c1, L.s1);
+    gelenk(L.ex, L.ey, a.ellbogenR * figH);
+    teil(a.unterarm, L.bex, L.bey, L.ex, L.ey, L.c2, L.s2);
+  }
+  kopfTeile();
+  stillTeil(RIG.rumpf, rvx, rvy);
+  for (const st of RIG.still) stillTeil(st, rvx, rvy);
+  stift.fillStyle = SCHATTEN;
+  stift.fill();
 
   /*
    * Das Pult in zwei Teilen - und das halbiert seine Kosten.
@@ -1216,31 +1347,16 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * Als Bild bleibt nur der Streifen oben, in dem die Plattenteller ueber die
    * Kante ragen.
    */
-  const pultSetzen = (versatzY, hell) => {
-    const bild = hell ? pultHell : pultBild;
-    if (bild) {
-      const anteil = PULT.deckel + 0.02;
-      stift.drawImage(
-        bild, 0, 0, PULT.breite, Math.ceil(PULT.hoehe * anteil),
-        m.mitte - m.pultB / 2, m.pultBildOben + versatzY, m.pultB, m.pultH * anteil,
-      );
-    }
-    if (hell) return;
-    const oben = m.pultBildOben + m.pultH * (PULT.deckel + 0.015);
-    stift.fillStyle = 'rgb(4,5,10)';
-    stift.fillRect(m.mitte - m.pultB / 2, oben, m.pultB, hoehe - oben);
-  };
-  /*
-   * Das Pult bekommt seinen Saum nur, wenn Zeit dafuer ist. Es ist die
-   * groesste Flaeche der ganzen Figur, und ein zweiter Durchgang darueber
-   * kostet mehr als alle anderen Teile zusammen.
-   */
-  if ((lage.guetestufe ?? 'hoch') === 'hoch') {
-    stift.globalAlpha = licht * 0.7;
-    pultSetzen(-saum * 0.8, true);
-    stift.globalAlpha = 1;
+  if (pultBild) {
+    const anteil = PULT.deckel + 0.02;
+    stift.drawImage(
+      pultBild, 0, 0, PULT.breite, Math.ceil(PULT.hoehe * anteil),
+      m.mitte - m.pultB / 2, m.pultBildOben, m.pultB, m.pultH * anteil,
+    );
   }
-  pultSetzen(0, false);
+  const pultKante = m.pultBildOben + m.pultH * (PULT.deckel + 0.015);
+  stift.fillStyle = SCHATTEN;
+  stift.fillRect(m.mitte - m.pultB / 2, pultKante, m.pultB, hoehe - pultKante);
 
   stift.restore();
 }
@@ -1265,5 +1381,7 @@ export function schattenStand() {
     gelenke: letzteGelenke.map((g) => (g ? { ...g } : null)),
     neigung,
     wiegen,
+    senken,
+    wiegePhase,
   };
 }

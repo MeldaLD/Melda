@@ -375,12 +375,19 @@ header {
   bottom: 1.2rem;
   transform: translateX(-50%);
   z-index: 3;
+  /*
+   * Zeilen statt einer umbrechenden Reihe.
+   *
+   * Vorher stand hier flex-wrap: Alles floss in eine Reihe und brach um, wo
+   * gerade Platz war - die Umbruchstelle wanderte mit der Fenstergroesse, und
+   * damit stand nie zweimal dasselbe nebeneinander. Als Spalte aus Gruppen
+   * liegt jede Sache immer an derselben Stelle.
+   */
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  max-width: min(60rem, 94vw);
-  padding: 0.6rem 0.9rem;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-width: min(62rem, 94vw);
+  padding: 0.5rem 0.9rem 0.6rem;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 0.9rem;
   background: rgba(8, 8, 14, 0.82);
@@ -394,6 +401,66 @@ header {
 .steuerung.sichtbar {
   opacity: 1;
   pointer-events: auto;
+}
+
+/* --- Die Gruppen ---------------------------------------------------------
+ *
+ * Eine Zeile je Thema, links das Etikett. Die feste Breite des Etiketts ist
+ * das, was die Zeilen untereinander ausrichtet - ohne sie faengt jede Zeile
+ * woanders an, und die Einteilung waere nur behauptet statt sichtbar.
+ */
+.gruppe {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0;
+}
+
+.gruppe + .gruppe {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.gruppen-titel {
+  flex: 0 0 4.2rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--leise);
+  opacity: 0.75;
+}
+
+/* Was am Abend niemand anfasst, tritt zurueck - aber nur in der Farbe, nicht
+   in der Groesse: Wer es doch braucht, sucht meist im Halbdunkel. */
+.gruppe.leise button,
+.gruppe.leise select,
+.gruppe.leise .knopfartig {
+  opacity: 0.78;
+}
+
+.gruppe.leise:hover button,
+.gruppe.leise:hover select,
+.gruppe.leise:hover .knopfartig {
+  opacity: 1;
+}
+
+/* Ein kleiner Abstandhalter innerhalb einer Gruppe: trennt die Regler, die
+   etwas einstellen, von den Knoepfen, die etwas oeffnen. */
+.trenner {
+  width: 1px;
+  height: 1.3rem;
+  margin: 0 0.25rem;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.fuss-gruppe {
+  padding-top: 0.3rem;
+  min-height: 0;
+}
+
+.fuss-gruppe:empty,
+.gruppe:has(> .naechster-grund:empty) .naechster[hidden] {
+  display: none;
 }
 
 .steuerung button,
@@ -422,16 +489,34 @@ header {
   display: inline-block;
 }
 
+/* --- Schieber -------------------------------------------------------------
+ *
+ * Name links, Wert rechts, Regler dazwischen. Der Wert stand frueher *vor*
+ * dem Regler und wanderte beim Ziehen mit seiner Stellenzahl - die ganze
+ * Zeile zuckte dann bei jeder Bewegung. Rechts mit fester Mindestbreite
+ * steht er still.
+ */
 .schieber {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   font-size: 0.85rem;
   color: var(--leise);
 }
 
+.schieber-name {
+  font-size: 0.78rem;
+  opacity: 0.8;
+}
+
+.schieber-wert {
+  min-width: 3.6rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+}
+
 .schieber input[type='range'] {
-  width: 9rem;
+  width: 7.5rem;
   accent-color: var(--akzent);
 }
 
@@ -860,97 +945,114 @@ header {
         zerschneiden; beim Entwickeln ist sie mit einer Handbewegung wieder da.
       -->
       <div class="steuerung" id="steuerung">
-        <span class="naechster-grund" id="naechsterGrund"></span>
-        <span class="naechster" id="naechster" hidden></span>
-        <button id="wiedergabe" title="Anhalten und weiterlaufen lassen">▶</button>
-        <button id="jetztUeberblenden">Jetzt überblenden</button>
-        <select id="artWahl" title="Übergangsart erzwingen">
-          <option value="">automatisch</option>
-          <option value="blende">Lange Blende</option>
-          <option value="aufzug">Filteraufzug</option>
-          <option value="echo">Echo-Schnitt</option>
-          <option value="schnitt">Harter Schnitt</option>
-        </select>
-        <select id="modusWahl" title="Visualisierung: automatisch oder fest">
-          <option value="">Bild: automatisch</option>
-        </select>
-        <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
-        </select>
         <!--
-          Das Bildziel. Es steht neben der Güte, weil beide dasselbe Geld
-          ausgeben: Wer weniger Bilder je Sekunde verlangt, bekommt schärfere.
-          Auf einem 145-Hz-Monitor ist das der Unterschied zwischen der
-          niedrigsten und der mittleren Stufe.
+          Drei Gruppen, und die Einteilung ist keine Kosmetik.
+          
+          Vorher stand hier eine einzige umbrechende Reihe: Knoepfe, Auswahlen,
+          Haken und Schieber nebeneinander, in der Reihenfolge, in der sie
+          ueber die Monate dazugekommen sind. Wer etwas suchte, musste alles
+          lesen. Jetzt steht links, worum es geht, und rechts stehen nur die
+          Regler, die dazu gehoeren:
+
+            Musik     - was zu hoeren ist
+            Bild      - was zu sehen ist
+            Leistung  - wie teuer das eine wie das andere sein darf
+
+          Die dritte Gruppe fasst man am Abend nicht an; sie steht deshalb
+          unten und ist leiser gesetzt.
         -->
-        <select id="bildzielWahl" title="Wieviele Bilder je Sekunde angestrebt werden. Weniger Bilder heißt mehr Schärfe je Bild.">
-          <option value="30">30 Bilder/s</option>
-          <option value="60" selected>60 Bilder/s</option>
-          <option value="0">voller Bildtakt</option>
-        </select>
-        <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
-        <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik</button>
-        <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas</button>
-        <!-- Das Ziel wird erst im Browser gesetzt: Die Bühne läuft unter /buehne
-             und als gebaute Einzeldatei unter /dj, und der Messstand liegt
-             jeweils woanders. Siehe messstandVerlinken() in buehne.js. -->
-        <a id="messstandLink" class="knopfartig" title="Was schafft dieses Gerät?">Messstand</a>
-        <!--
-          Der PC-Modus ist eine Voreinstellung und kein Zaubertrick: Er stellt
-          Güte, Bildziel und Mandala-Auswahl auf das, was ein Rechner mit
-          eigener Grafikkarte tragen kann. Genau das lässt sich auch von Hand
-          einstellen - der Knopf spart nur die drei Griffe und sagt, was er
-          getan hat.
-        -->
-        <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
-        <!--
-          Das Schachbrett: halb so viele gerechnete Bildpunkte je Bild, die
-          andere Hälfte aus den vier Nachbarn ergänzt. Gespeichert wird dabei
-          die Ausstiegszeit und nicht die Farbe - Palette, Farbversatz und
-          Drop-Welle entstehen in jedem Bild neu und bleiben deshalb auf dem
-          Schlag. Aus als Vorgabe, bis auf dem Zielgerät gemessen ist, dass es
-          dort mehr bringt als es kostet.
-        -->
-        <label class="knopfzeile" title="Halb so viele gerechnete Punkte je Bild – die Farbe bleibt trotzdem in jedem Bild neu">
-          <input type="checkbox" id="schachbrettWahl" />
-          Schachbrett
-        </label>
-        <!--
-          Der Schatten-DJ: eine Silhouette hinter einem Pult im unteren Teil
-          des Bildes. Er nickt auf den Schlag, zieht beim Aufbau den Arm hoch,
-          reisst beim Drop beide hoch, nimmt im Breakdown den Kopfhörer ans
-          Ohr und legt beim Übergang die Hand an den Regler - alles aus
-          denselben Zahlen, aus denen auch das Bild entsteht.
-        -->
-        <label class="knopfzeile" title="Silhouette eines DJs am Pult, die sich zur laufenden Musik bewegt (Taste D)">
-          <input type="checkbox" id="schattenWahl" checked />
-          Schatten-DJ
-        </label>
-        <!--
-          Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet die
-          Bühne selbst heraus; was er nicht wissen kann, steht hier: wie viele
-          Bilder Windows noch einschiebt, und wie weit die Boxen von der
-          Leinwand weg stehen. Schall braucht 3 ms je Meter.
-        -->
-        <label class="schieber" title="Bild gegen Ton verschieben. Plus heißt: Bild früher. Schall braucht 3 ms je Meter Abstand zu den Boxen.">
-          <span id="versatzWert">Bild ±0 ms</span>
-          <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
-        </label>
-        <label class="schieber">
-          <span id="energieWert">50 %</span>
-          <input type="range" id="energieRegler" min="0" max="100" value="50" />
-        </label>
-        <span class="fussnote" id="energieQuelle"></span>
-        <label class="schalter">
-          <input type="checkbox" id="angleichAn" checked />
-          Angleich
-        </label>
-        <label
-          class="schalter"
-          title="Reihenentwicklung: überspringt bei tiefen Zooms einen Teil der Rechnung. Zum Vergleichen abschaltbar."
-        >
-          <input type="checkbox" id="reiheAn" checked />
-          Reihe
-        </label>
+        <div class="gruppe">
+          <span class="gruppen-titel">Musik</span>
+          <button id="wiedergabe" title="Anhalten und weiterlaufen lassen">▶</button>
+          <button id="jetztUeberblenden">Jetzt überblenden</button>
+          <select id="artWahl" title="Übergangsart erzwingen">
+            <option value="">Übergang: automatisch</option>
+            <option value="blende">Lange Blende</option>
+            <option value="aufzug">Filteraufzug</option>
+            <option value="echo">Echo-Schnitt</option>
+            <option value="schnitt">Harter Schnitt</option>
+          </select>
+          <label class="schieber" title="Wie energisch der Abend laufen soll">
+            <span class="schieber-name">Energie</span>
+            <input type="range" id="energieRegler" min="0" max="100" value="50" />
+            <span id="energieWert" class="schieber-wert">50 %</span>
+          </label>
+          <span class="fussnote" id="energieQuelle"></span>
+          <label class="schalter" title="Lautheit der Tracks angleichen">
+            <input type="checkbox" id="angleichAn" checked />
+            Angleich
+          </label>
+        </div>
+
+        <div class="gruppe">
+          <span class="gruppen-titel">Bild</span>
+          <select id="modusWahl" title="Visualisierung: automatisch oder fest">
+            <option value="">Bild: automatisch</option>
+          </select>
+          <button id="mandalaKnopf" title="Welche Mandalas laufen dürfen (Taste M)">Mandalas …</button>
+          <!--
+            Der Schatten-DJ: eine Silhouette hinter einem Pult im unteren Teil
+            des Bildes. Er nickt auf den Schlag, zieht beim Aufbau den Arm
+            hoch, reisst beim Drop beide hoch, nimmt im Breakdown den
+            Kopfhörer ans Ohr und legt beim Übergang die Hand an den Regler.
+          -->
+          <label class="schalter" title="Silhouette eines DJs am Pult, die sich zur laufenden Musik bewegt (Taste D)">
+            <input type="checkbox" id="schattenWahl" />
+            Schatten-DJ
+          </label>
+          <!--
+            Bild gegen Ton nachstellen. Was der Browser messen kann, rechnet
+            die Bühne selbst heraus; was er nicht wissen kann, steht hier: wie
+            viele Bilder Windows noch einschiebt, und wie weit die Boxen von
+            der Leinwand weg stehen. Schall braucht 3 ms je Meter.
+          -->
+          <label class="schieber" title="Bild gegen Ton verschieben. Plus heißt: Bild früher. Schall braucht 3 ms je Meter Abstand zu den Boxen.">
+            <span class="schieber-name">Versatz</span>
+            <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
+            <span id="versatzWert" class="schieber-wert">±0 ms</span>
+          </label>
+        </div>
+
+        <div class="gruppe leise">
+          <span class="gruppen-titel">Leistung</span>
+          <select id="gueteWahl" title="Bildqualität – niedriger heißt flüssiger auf schwachen Geräten">
+          </select>
+          <!--
+            Das Bildziel steht neben der Güte, weil beide dasselbe Geld
+            ausgeben: Wer weniger Bilder je Sekunde verlangt, bekommt
+            schärfere.
+          -->
+          <select id="bildzielWahl" title="Wieviele Bilder je Sekunde angestrebt werden. Weniger Bilder heißt mehr Schärfe je Bild.">
+            <option value="30">30 Bilder/s</option>
+            <option value="60" selected>60 Bilder/s</option>
+            <option value="0">voller Bildtakt</option>
+          </select>
+          <!--
+            Das Schachbrett: halb so viele gerechnete Bildpunkte je Bild, die
+            andere Hälfte aus den vier Nachbarn ergänzt.
+          -->
+          <label class="schalter" title="Halb so viele gerechnete Punkte je Bild – die Farbe bleibt trotzdem in jedem Bild neu">
+            <input type="checkbox" id="schachbrettWahl" />
+            Schachbrett
+          </label>
+          <label class="schalter" title="Reihenentwicklung: überspringt bei tiefen Zooms einen Teil der Rechnung. Zum Vergleichen abschaltbar.">
+            <input type="checkbox" id="reiheAn" checked />
+            Reihe
+          </label>
+          <span class="trenner"></span>
+          <button id="pcModus" title="Volle Güte, 60 Bilder/s, alle Mandalas – für einen Rechner mit eigener Grafikkarte">PC-Modus</button>
+          <!-- Das Ziel wird erst im Browser gesetzt: Die Bühne läuft unter
+               /buehne und als gebaute Einzeldatei unter /dj. Siehe
+               messstandVerlinken() in buehne.js. -->
+          <a id="messstandLink" class="knopfartig" title="Was schafft dieses Gerät?">Messstand …</a>
+          <button id="technikKnopf" title="Wer rechnet hier eigentlich? (Taste T)">Technik …</button>
+          <span class="fussnote" id="bildTempo" title="Rechenzeit je Bild – unter 16 ms sind 60 Bilder je Sekunde"></span>
+        </div>
+
+        <div class="gruppe fuss-gruppe">
+          <span class="naechster-grund" id="naechsterGrund"></span>
+          <span class="naechster" id="naechster" hidden></span>
+        </div>
         <ol class="verlauf" id="verlauf"></ol>
       </div>
 
@@ -2101,7 +2203,21 @@ class Mixer {
     this.ausgang.gain.value = 1;
 
     this.messung.fftSize = 2048;
-    this.messung.smoothingTimeConstant = 0.75;
+    /*
+     * Wenig Glaettung, und das ist eine Korrektur.
+     *
+     * Sie stand auf 0,75. Das ist ein Tiefpass mit 58 ms Zeitkonstante: Von
+     * einem Anschlag sind nach einem Bild erst 25 % da, nach 150 ms 90 %. Bei
+     * 128 Schlaegen je Minute ist das ein Drittel Schlag - waehrend das
+     * Taktraster der Buehne auf Millisekunden genau sitzt. Bild und Ton
+     * liefen also gegeneinander, und niemand konnte sagen warum.
+     *
+     * Mit 0,3 sind es 14 ms, also weniger als ein Bild. Was der Tiefpass an
+     * Ruhe geliefert hat, liefert jetzt der Spitzenhalter in spektrum.js:
+     * Anstieg sofort, Abfall traege. Flimmern entsteht beim Zurueckfallen,
+     * nicht beim Ansteigen - deshalb kostet die Umstellung nichts.
+     */
+    this.messung.smoothingTimeConstant = 0.3;
 
     // Der Echo-Weg fuer den Echo-Schnitt: eine Verzoegerung mit Rueckfuehrung,
     // die sich von selbst totlaeuft.
@@ -4051,6 +4167,10 @@ let brettTextur = null;
 let brettBreite = 0;
 let brettHoehe = 0;
 let brettMoeglich = false;
+// RGBA32F oder RGBA16F - was die Karte als Ziel wirklich annimmt.
+let brettFormat = 0;
+// Ob der erste Durchgang nachweislich etwas geschrieben hat.
+let brettGeprueft = false;
 let brettVersatz = 0;
 // Der Mittelwert der Farbtabelle - siehe gpuFarben().
 let mittelR = 0.5;
@@ -4227,6 +4347,41 @@ function brettBereit() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+
+    /*
+     * Kann die Karte in dieses Format ueberhaupt *hineinzeichnen*?
+     *
+     * Das war der Fehler, und er ist auf dem iPad aufgeschlagen: Das ganze
+     * Bild wurde eine flache Farbflaeche, vom Mandala war nichts mehr zu
+     * sehen. Genau so sieht es aus, wenn der halbe Puffer leer bleibt - der
+     * Aufloesedurchgang liest dann ueberall Nullen, haelt jeden Punkt fuer
+     * einen Innenpunkt und faerbt ihn mit der ersten Farbe der Palette.
+     *
+     * Der Grund: EXT_color_buffer_float *vorhanden* heisst nicht RGBA32F
+     * *bezeichenbar*. Die Erweiterung meldet sich auf Geraeten, auf denen der
+     * Rahmenpuffer mit einem 32-Bit-Gleitkommaziel unvollstaendig bleibt -
+     * und ein unvollstaendiger Rahmenpuffer zeichnet still gar nichts. Ich
+     * habe die Erweiterung abgefragt und den Rahmenpuffer nicht.
+     *
+     * Also wird gefragt, und zwar mit einer Ausweichstufe: RGBA16F traegt
+     * unsere Zahlen auch. Die Ausstiegszeit geht bis rund zwoelftausend und
+     * passt damit bequem in ein halbes Gleitkomma; die Schrittweite dort ist
+     * acht, was nach der Wurzelkennlinie einen Farbschritt von drei
+     * Zehntausendstel eines Bandes ergibt - unsichtbar.
+     */
+    let format = null;
+    for (const versuch of [gl.RGBA32F, gl.RGBA16F]) {
+      gl.texImage2D(gl.TEXTURE_2D, 0, versuch, 8, 8, 0, gl.RGBA, gl.FLOAT, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, brettRahmen);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, brettTextur, 0);
+      const stand = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      if (stand === gl.FRAMEBUFFER_COMPLETE) { format = versuch; break; }
+    }
+    if (format === null) {
+      throw new Error('kein Gleitkomma-Rahmenpuffer - Schachbrett nicht moeglich');
+    }
+    brettFormat = format;
     // Zuletzt, damit ein Abbruch mittendrin nicht als "fertig" gilt.
     programmLoesen = geloest;
     gl.useProgram(programm);
@@ -4238,6 +4393,8 @@ function brettBereit() {
     brettMoeglich = false;
     programmHalb = null;
     programmLoesen = null;
+    brettGeprueft = false;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.useProgram(programm);
     return false;
   }
@@ -4919,7 +5076,7 @@ function gpuZeichnen(lage) {
   if (brettBreite !== hb || brettHoehe !== h) {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, brettTextur);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, hb, h, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, brettFormat, hb, h, 0, gl.RGBA, gl.FLOAT, null);
     brettBreite = hb;
     brettHoehe = h;
   }
@@ -4935,6 +5092,48 @@ function gpuZeichnen(lage) {
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, brettTextur, 0);
   gl.viewport(0, 0, hb, h);
   gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+  /*
+   * Einmal nachsehen, ob wirklich etwas herausgekommen ist.
+   *
+   * Ein vollstaendiger Rahmenpuffer ist noch kein Beweis - es gibt Treiber,
+   * die ihn melden und trotzdem nichts schreiben. Der Preis fuer die
+   * Gewissheit ist *ein* Rueckgriff auf die Karte, einmal beim Einschalten;
+   * jedes Bild waere hier verboten (siehe pruefungen/wabern.mjs: ein
+   * Rueckgriff je sechstes Bild hat die Fahrt sichtbar zerrissen).
+   *
+   * Als leer gilt ein Feld, in dem sechzehn Punkte in allen vier Kanaelen
+   * exakt null sind. Das kann ein echtes Bild nicht liefern: Die groesste
+   * Annaeherung an den Ursprung ist auch bei Innenpunkten groesser als null,
+   * und entkommene Punkte tragen ihre Ausstiegszeit.
+   */
+  if (!brettGeprueft) {
+    brettGeprueft = true;
+    const proben = new Float32Array(4 * 16);
+    const px = Math.max(0, Math.floor(hb / 2) - 2);
+    const py = Math.max(0, Math.floor(h / 2) - 2);
+    gl.readPixels(px, py, 4, 4, gl.RGBA, gl.FLOAT, proben);
+    if (proben.every((x) => x === 0)) {
+      if (typeof console !== 'undefined') {
+        console.warn(
+          'Schachbrett: der halbe Puffer bleibt leer - diese Karte kann nicht ' +
+            'in ein Gleitkommaziel zeichnen. Es bleibt beim bisherigen Weg.',
+        );
+      }
+      brettMoeglich = false;
+      programmHalb = null;
+      programmLoesen = null;
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.useProgram(programm);
+      gl.viewport(0, 0, b, h);
+      // Dieses eine Bild noch auf dem bisherigen Weg, damit nichts blinkt.
+      grundSetzen(orte);
+      reiheSetzen(orte);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+      uhrStoppen();
+      return { leinwand, breite: b, hoehe: h, bahnSchritte, bahnMs, gpuMs: letzteGpuMs, brett: false, punkte: b * h };
+    }
+  }
 
   // Durchgang 2: daraus das ganze Bild.
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -6791,6 +6990,213 @@ function dolceZeichnen(stift, lage) {
 }
 
 
+// ===== public/gemeinsam/spektrum.js =====
+// Das Spektrum so aufbereiten, dass man die Musik sieht.
+//
+// Zwischen dem Analyser des Browsers und dem Bild lag bisher nichts. Das
+// klingt sparsam, kostet aber genau das, worum es geht - drei Dinge waren
+// gemessen falsch:
+//
+// --- 1. Das Bild kam zu spaet ------------------------------------------------
+//
+// Der Analyser glaettet mit einem Faktor, und der stand auf 0,75. Das ist ein
+// Tiefpass mit 58 ms Zeitkonstante: Nach einem Bild sind erst 25 % eines
+// Anschlags da, nach 150 ms 90 %. Bei 128 Schlaegen je Minute ist das ein
+// Drittel Schlag. Das Taktraster der Buehne sitzt derweil auf Millisekunden
+// genau - Bewegung und Farbe liefen also gegeneinander.
+//
+// Der Faktor ist jetzt niedrig, und was der Tiefpass an Ruhe geliefert hat,
+// liefert hier ein Spitzenhalter: Anstieg sofort, Abfall traege. Damit
+// verschwindet die Verzoegerung, ohne dass das Bild flimmert - denn Flimmern
+// entsteht beim Zurueckfallen, nicht beim Ansteigen.
+//
+// --- 2. Zwei Drittel des Spektrums waren tot ---------------------------------
+//
+// Gemessen ueber 900 Bilder Pruefstand: Der Bass liegt im Mittel bei 176 von
+// 255 und ueberschreitet in 89 % der Bilder die Haelfte. Oberhalb von Bin 98
+// liegt der Mittelwert bei 42 und der *Hoechstwert* nie ueber 128. Auf die
+// Farbtabelle des Mandelbrots uebersetzt heisst das: Die inneren Baender sind
+// dauerhaft hell, die aeusseren vierzig Prozent dauerhaft dunkel. Was sich
+// bewegt, ist ein schmaler Ring in der Mitte.
+//
+// Dagegen hilft eine Verstaerkung je Band, bezogen auf das, was dieses Band
+// ueber die letzten Sekunden hergegeben hat. Sie ist begrenzt (hoechstens
+// gut das Dreifache), damit der Bass der Bass bleibt und nicht alles gleich
+// laut wird - aber sie reicht, damit ein Becken oben genauso aufblitzt wie
+// eine Bassdrum unten.
+//
+// --- 3. Oben wurde Rauschen abgetastet ---------------------------------------
+//
+// Die Farbtabelle liest je Eintrag *einen* Bin. Am unteren Ende lesen 245 von
+// 512 Eintraegen denselben Bin wie ihr Vorgaenger, am oberen ueberspringt
+// jeder Eintrag bis zu dreizehn. Ein Becken, das in Bin 700 sitzt, wird also
+// mit einer Wahrscheinlichkeit von eins zu dreizehn ueberhaupt gesehen.
+//
+// Deshalb wird hier zuerst in 64 logarithmische Baender zusammengefasst, und
+// zwar ueber das *Maximum* - ein Mittelwert wuerde die Spitze wegmitteln, auf
+// die es ankommt. Danach traegt jeder Bin den Wert seines Bandes, und das
+// Abtasten kann keinen Anschlag mehr verfehlen.
+//
+// --- Was es kostet -----------------------------------------------------------
+//
+// Weniger als das, was es ersetzt. Ein Durchgang ueber die nutzbaren Bins zum
+// Zusammenfassen, 64 Baender rechnen, ein Durchgang zum Zurueckschreiben:
+// gut tausend Rechenschritte je Bild. Die Farbtabelle daneben braucht
+// sechstausend.
+
+// Wie viele logarithmische Baender. 64 ist die Zahl, ab der die Baender im
+// Bass schmaler sind als ein Bin - mehr braeuchte niemand.
+const BAENDER = 64;
+
+/*
+ * Nur die unteren 45 Prozent der Bins zaehlen: darueber ist bei Musik so gut
+ * wie nie etwas los. Dieselbe Zahl benutzt visualmodi.js fuer seine
+ * Tonlagen-Abbildung; sie steht hier, weil die Aufbereitung sie zuerst
+ * braucht.
+ */
+const NUTZBARER_ANTEIL = 0.45;
+
+function nutzbareBins(anzahl) {
+  return Math.max(2, Math.floor(anzahl * NUTZBARER_ANTEIL));
+}
+
+/*
+ * Wie schnell ein Band zurueckfaellt, je Sekunde.
+ *
+ * 9 heisst: nach 111 ms noch gut ein Drittel, nach einer Viertelsekunde ein
+ * Zehntel. Kuerzer und das Bild flackert zwischen den Bildern; laenger und
+ * zwei Schlaege verschmelzen zu einem Leuchten.
+ */
+const ABKLINGEN = 9;
+/*
+ * Ueber wie viele Sekunden sich ein Band merkt, wozu es faehig ist.
+ *
+ * Vier Sekunden sind rund acht Schlaege - lang genug, dass ein einzelner
+ * Anschlag den Massstab nicht verstellt, kurz genug, dass ein Breakdown
+ * innerhalb weniger Takte durchschlaegt.
+ */
+const GEDAECHTNIS = 4;
+/*
+ * Wie weit ein leises Band hochgezogen werden darf.
+ *
+ * Ohne Deckel wuerde jedes Band auf seinen eigenen Hoechstwert normiert, und
+ * das Spektrum waere flach - der Bass verlore seine Vorherrschaft, und mit
+ * ihr das, was ein Techno-Stueck ausmacht. 3,2 reicht, damit die gemessenen
+ * 42 im oberen Drittel zu sichtbaren 134 werden.
+ */
+const HOECHSTE_VERSTAERKUNG = 3.2;
+/*
+ * Unterhalb dieses Pegels gilt ein Band als still und bekommt keine
+ * Verstaerkung. Ohne diese Grenze wuerde in der Stille das Grundrauschen des
+ * Analysers auf volle Helligkeit gezogen - und das Bild leuchtete, wenn gar
+ * nichts laeuft.
+ */
+const STILLE_UNTER = 8;
+
+/*
+ * Ein Schalter fuer die Abnahme.
+ *
+ * Sie vergleicht das geschaerfte Spektrum mit dem rohen und weist damit nach,
+ * dass die Aufbereitung ueberhaupt etwas bringt - ohne ihn muesste sie den
+ * ganzen Stapel zweimal bauen. Im Betrieb ruehrt ihn nichts an.
+ */
+let umgangen = false;
+function spektrumUmgehen(wert) {
+  umgangen = !!wert;
+}
+
+let kanten = null;
+let bandFuerBin = null;
+let huelle = null;
+let bezug = null;
+let fuerLaenge = 0;
+
+function vorbereiten(laenge) {
+  if (fuerLaenge === laenge) return;
+  fuerLaenge = laenge;
+  const nutzbar = nutzbareBins(laenge);
+  kanten = new Int32Array(BAENDER + 1);
+  /*
+   * Logarithmische Bandgrenzen. Streng steigend erzwungen: Im Bass liegen
+   * mehrere Grenzen rechnerisch auf demselben Bin, und ein Band ohne Bin
+   * haette keinen Wert.
+   */
+  for (let k = 0; k <= BAENDER; k++) {
+    const roh = Math.round(Math.pow(nutzbar, k / BAENDER)) - 1;
+    kanten[k] = Math.min(nutzbar, Math.max(roh, k === 0 ? 0 : kanten[k - 1] + 1));
+  }
+  kanten[BAENDER] = nutzbar;
+  bandFuerBin = new Uint8Array(nutzbar);
+  for (let k = 0; k < BAENDER; k++) {
+    for (let i = kanten[k]; i < kanten[k + 1]; i++) bandFuerBin[i] = k;
+  }
+  huelle = new Float32Array(BAENDER);
+  bezug = new Float32Array(BAENDER);
+}
+
+/** Fuer die Abnahme und den Moduswechsel: Huellkurven und Massstaebe leeren. */
+function spektrumZuruecksetzen() {
+  if (huelle) huelle.fill(0);
+  if (bezug) bezug.fill(0);
+}
+
+/**
+ * Aus dem rohen Spektrum eines machen, in dem die Musik zu sehen ist.
+ *
+ * `roh` bleibt unveraendert - der Pegel fuer die Wucht wird daran gemessen
+ * und darf nicht normiert sein, sonst waere jedes Stueck gleich laut.
+ *
+ * @param {Uint8Array} roh       was der Analyser liefert
+ * @param {Uint8Array} ziel      gleich lang; nimmt das Ergebnis auf
+ * @param {number} sekunden      seit dem letzten Bild
+ * @returns {Uint8Array} ziel
+ */
+function spektrumSchaerfen(roh, ziel, sekunden) {
+  if (umgangen) {
+    ziel.set(roh);
+    return ziel;
+  }
+  vorbereiten(roh.length);
+  const nutzbar = kanten[BAENDER];
+  const abfall = Math.exp(-ABKLINGEN * Math.max(0, sekunden));
+  const vergessen = Math.exp(-Math.max(0, sekunden) / GEDAECHTNIS);
+
+  // Zusammenfassen und Huellkurve nachziehen - in einem Durchgang.
+  let lauteste = 0;
+  for (let k = 0; k < BAENDER; k++) {
+    let spitze = 0;
+    for (let i = kanten[k]; i < kanten[k + 1]; i++) {
+      const v = roh[i];
+      if (v > spitze) spitze = v;
+    }
+    // Spitzenhalter: sofort hoch, traege zurueck.
+    const h = spitze > huelle[k] ? spitze : huelle[k] * abfall;
+    huelle[k] = h;
+    const b = h > bezug[k] ? h : bezug[k] * vergessen;
+    bezug[k] = b;
+    if (b > lauteste) lauteste = b;
+  }
+
+  for (let k = 0; k < BAENDER; k++) {
+    const b = bezug[k];
+    /*
+     * Die Verstaerkung bezieht sich auf das lauteste Band, nicht auf 255.
+     * Damit haengt sie am Stueck und nicht am Aussteuerungspegel: Ein leise
+     * gemasterter Track sieht genauso lebendig aus wie ein lauter.
+     */
+    const v = b > STILLE_UNTER ? Math.min(HOECHSTE_VERSTAERKUNG, Math.max(1, lauteste / b)) : 1;
+    const wert = Math.min(255, huelle[k] * v);
+    for (let i = kanten[k]; i < kanten[k + 1]; i++) ziel[i] = wert;
+  }
+  // Was oberhalb liegt, hat nie Musik enthalten. Es wird auf das oberste Band
+  // gesetzt statt auf null, damit eine Abbildung, die versehentlich bis ganz
+  // oben reicht, nicht in ein schwarzes Loch laeuft.
+  const oben = ziel[nutzbar - 1];
+  for (let i = nutzbar; i < ziel.length; i++) ziel[i] = oben;
+  return ziel;
+}
+
+
 // ===== public/gemeinsam/visualmodi.js =====
 // Vier eigenstaendige Visualisierungs-Modi.
 //
@@ -6833,12 +7239,8 @@ const TAU = Math.PI * 2;
 
 // Nur die unteren 45 Prozent der Bins zaehlen: darueber ist bei Musik so gut
 // wie nie etwas los, und wer sie trotzdem einbezieht, verschenkt Aufloesung
-// im Bereich, der tatsaechlich Bewegung zeigt.
-const NUTZBARER_ANTEIL = 0.45;
-
-function nutzbareBins(anzahl) {
-  return Math.max(2, Math.floor(anzahl * NUTZBARER_ANTEIL));
-}
+// im Bereich, der tatsaechlich Bewegung zeigt. Die Zahl steht in spektrum.js,
+// weil die Aufbereitung sie zuerst braucht.
 
 // Bin-Index zu Position 0..1, logarithmisch. Feste Zuordnung: Dieselbe
 // Tonhoehe liegt immer an derselben Stelle, sonst wandert das Bild und man
@@ -8247,8 +8649,15 @@ function mandelTabellenSichern(grundtonRoh, akzentRoh, baenderZahl, baender) {
     mandelHellTabelle[i * 3 + 1] = g2;
     mandelHellTabelle[i * 3 + 2] = b2;
 
-    // Logarithmische Frequenzachse: die unteren Oktaven bekommen den Platz,
-    // den sie im Stueck auch haben. Haengt nur an der Bandzahl, also einmal.
+    /*
+     * Logarithmische Frequenzachse: die unteren Oktaven bekommen den Platz,
+     * den sie im Stueck auch haben. Haengt nur an der Bandzahl, also einmal.
+     *
+     * Abgebildet wird auf die *nutzbaren* Bins, nicht auf alle. Vorher lief
+     * die Achse bis Bin 1023, wo seit je nichts steht: Die oberen elf Prozent
+     * der Tabelle waren dauerhaft schwarz, und das sind die aeussersten Ringe
+     * des Bildes.
+     */
     mandelBandZuordnung[i] = baender
       ? Math.min(baender - 1, Math.round((Math.pow(baender, t) - 1) * (baender / (baender - 1))))
       : 0;
@@ -8256,7 +8665,7 @@ function mandelTabellenSichern(grundtonRoh, akzentRoh, baenderZahl, baender) {
 }
 
 function mandelTabelleBauen(grundton, akzent, spektrum, glanz, baenderZahl = 3) {
-  const baender = spektrum ? spektrum.length : 0;
+  const baender = spektrum ? nutzbareBins(spektrum.length) : 0;
   mandelTabellenSichern(grundton, akzent, baenderZahl, baender);
   const n = 512;
   if (!mandelFarbtabelle) mandelFarbtabelle = new Uint8Array(n * 3);
@@ -10048,45 +10457,169 @@ const MODI = {
 };
 
 
+// ===== public/gemeinsam/schattenteile.js =====
+// Die Teile des Schatten-DJs - erzeugt, nicht von Hand geschrieben.
+//
+//   node werkzeuge/schattenteile.mjs
+//
+// Das Pult, weiss herausgerechnet, zugeschnitten und verkleinert. Es steht
+// hier als Zeichenkette, damit die Buehne in beiden Fassungen laeuft - aus
+// Modulen unter /buehne und als Einzeldatei unter /dj - ohne dass ein
+// Bildpfad in einer der beiden ins Leere zeigt.
+//
+// 'deckel' ist die Tischkante, 'teller' die Mitte des linken Plattentellers,
+// beide als Anteil - dorthin schneidet der Zeichner die Figur ab und dorthin
+// legt er die Haende.
+//
+// Gesamt 15 kB. Wer die Quellbilder aendert, laesst
+// das Werkzeug noch einmal laufen; von Hand hier zu editieren ist zwecklos.
+
+const PULT = {
+  breite: 720,
+  hoehe: 147,
+  deckel: 0.2585,
+  teller: 0.2507,
+  daten: 'data:image/png;base64,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',
+};
+
+
+// ===== public/gemeinsam/schattenumriss.js =====
+// Der Umriss des Schatten-DJs - erzeugt, nicht von Hand geschrieben.
+//
+//   node werkzeuge/schattenumriss.mjs
+//
+// Geschlossene Streckenzuege, in Einheiten der Figurenhoehe: y = 0 ist der
+// Scheitel, y = 1 die Unterkante, x = 0 die Mitte.
+//
+// 8 Schleifen, 983 Punkte. Breite 1.6317 Figurenhoehen.
+
+const UMRISS = [[[-0.1842,0.3036],[-0.1864,0.3036],[-0.1864,0.3058],[-0.202,0.3058],[-0.202,0.308],[-0.2199,0.3103],[-0.2199,0.3125],[-0.2333,0.3147],[-0.2333,0.317],[-0.2377,0.317],[-0.2377,0.3192],[-0.2444,0.3192],[-0.2444,0.3214],[-0.2489,0.3214],[-0.2489,0.3237],[-0.2533,0.3237],[-0.2533,0.3259],[-0.2712,0.3281],[-0.2712,0.3304],[-0.2958,0.3304],[-0.2958,0.3326],[-0.3203,0.3326],[-0.3203,0.3348],[-0.3449,0.3348],[-0.3449,0.3371],[-0.3761,0.3393],[-0.3783,0.346],[-0.3828,0.3482],[-0.385,0.3594],[-0.3873,0.3594],[-0.3873,0.3929],[-0.385,0.3929],[-0.385,0.3996],[-0.3828,0.3996],[-0.3828,0.404],[-0.3806,0.404],[-0.3806,0.4085],[-0.3783,0.4085],[-0.3761,0.4129],[-0.3471,0.4129],[-0.3471,0.4152],[-0.3337,0.4152],[-0.3337,0.4174],[-0.2913,0.4196],[-0.2913,0.4219],[-0.2422,0.4219],[-0.2422,0.4196],[-0.2199,0.4196],[-0.2199,0.4174],[-0.1705,0.4331],[-0.1402,0.4505],[-0.1054,0.4539],[-0.0723,0.4427],[-0.0468,0.4188],[-0.0334,0.3865],[-0.0344,0.3516],[-0.0498,0.3202],[-0.0767,0.2979],[-0.1105,0.2887],[-0.145,0.2942]],[[0.2221,0.4174],[0.2221,0.4196],[0.2422,0.4196],[0.2422,0.4219],[0.2935,0.4219],[0.2935,0.4196],[0.3158,0.4196],[0.3158,0.4174],[0.3337,0.4174],[0.3337,0.4152],[0.3471,0.4152],[0.3471,0.4129],[0.3761,0.4129],[0.3761,0.4107],[0.3828,0.4063],[0.3828,0.4018],[0.385,0.4018],[0.385,0.3951],[0.3873,0.3951],[0.3873,0.3817],[0.3895,0.3817],[0.3873,0.3594],[0.385,0.3594],[0.385,0.3527],[0.3828,0.3527],[0.3828,0.3482],[0.3806,0.3482],[0.3806,0.3438],[0.3783,0.3438],[0.3761,0.3393],[0.3449,0.3371],[0.3449,0.3348],[0.3225,0.3348],[0.3225,0.3326],[0.298,0.3326],[0.298,0.3304],[0.2734,0.3304],[0.2734,0.3281],[0.26,0.3281],[0.26,0.3259],[0.2533,0.3259],[0.2533,0.3237],[0.2489,0.3237],[0.2489,0.3214],[0.2444,0.3214],[0.2444,0.3192],[0.2377,0.3192],[0.2377,0.317],[0.2333,0.317],[0.2333,0.3147],[0.2266,0.3147],[0.2266,0.3125],[0.2199,0.3125],[0.2199,0.3103],[0.2109,0.3103],[0.2109,0.308],[0.202,0.308],[0.202,0.3058],[0.1553,0.2978],[0.1208,0.2886],[0.0856,0.2948],[0.0562,0.3152],[0.0382,0.3461],[0.0349,0.3817],[0.0468,0.4154],[0.0718,0.4409],[0.1052,0.4536],[0.1409,0.451],[0.1721,0.4336]],[[0.0011,0.0223],[-0.0011,0.0223],[-0.0011,0.0246],[-0.0234,0.0246],[-0.0234,0.0268],[-0.0368,0.029],[-0.0391,0.0335],[-0.0435,0.0335],[-0.0435,0.0357],[-0.048,0.0357],[-0.0502,0.0402],[-0.0547,0.0402],[-0.0547,0.0424],[-0.0658,0.0513],[-0.0658,0.0558],[-0.0703,0.058],[-0.0703,0.0625],[-0.0725,0.0625],[-0.0725,0.067],[-0.0748,0.067],[-0.077,0.0893],[-0.0792,0.0893],[-0.0792,0.1049],[-0.0904,0.1049],[-0.0904,0.1071],[-0.0949,0.1071],[-0.0949,0.1295],[-0.0926,0.1295],[-0.0926,0.1496],[-0.0904,0.1496],[-0.0904,0.1674],[-0.0882,0.1674],[-0.0882,0.1897],[-0.0859,0.1897],[-0.0859,0.2009],[-0.0837,0.2009],[-0.0837,0.2031],[-0.0703,0.2031],[-0.0703,0.2009],[-0.0658,0.1987],[-0.0636,0.2165],[-0.0614,0.2165],[-0.0614,0.221],[-0.0592,0.221],[-0.0592,0.2254],[-0.0569,0.2254],[-0.0569,0.2299],[-0.0547,0.2299],[-0.0547,0.2612],[-0.0569,0.2612],[-0.0569,0.2679],[-0.0592,0.2679],[-0.0592,0.2723],[-0.0636,0.2723],[-0.0658,0.2768],[-0.077,0.279],[-0.077,0.2813],[-0.0837,0.2835],[-0.0815,0.2946],[-0.0792,0.2946],[-0.0792,0.3013],[-0.077,0.3013],[-0.0748,0.3125],[-0.0703,0.3147],[-0.0681,0.3237],[-0.0614,0.3281],[-0.0614,0.3326],[-0.0592,0.3326],[-0.0569,0.3371],[-0.0525,0.3371],[-0.0458,0.346],[-0.0413,0.346],[-0.0413,0.3482],[-0.0368,0.3482],[-0.0368,0.3504],[-0.0324,0.3504],[-0.0324,0.3527],[-0.0279,0.3527],[-0.0279,0.3549],[-0.0212,0.3549],[-0.0212,0.3571],[-0.0078,0.3571],[-0.0078,0.3594],[0.0234,0.3571],[0.0234,0.3549],[0.0279,0.3549],[0.0279,0.3527],[0.0346,0.3527],[0.0346,0.3504],[0.0435,0.3482],[0.0458,0.3438],[0.0502,0.3438],[0.0502,0.3415],[0.0525,0.3415],[0.0525,0.3393],[0.0658,0.3281],[0.0658,0.3237],[0.0703,0.3214],[0.0703,0.317],[0.0725,0.317],[0.0748,0.3103],[0.077,0.3103],[0.077,0.3036],[0.0792,0.3036],[0.0792,0.2969],[0.0815,0.2969],[0.0837,0.2835],[0.077,0.2813],[0.077,0.279],[0.0658,0.2768],[0.0636,0.2723],[0.0592,0.2723],[0.0569,0.2612],[0.0547,0.2612],[0.0547,0.2299],[0.0569,0.2299],[0.0569,0.2254],[0.0592,0.2254],[0.0592,0.221],[0.0614,0.221],[0.0614,0.2165],[0.0636,0.2165],[0.0658,0.1987],[0.0681,0.1987],[0.0703,0.2031],[0.0837,0.2031],[0.0837,0.2009],[0.0859,0.2009],[0.0859,0.1942],[0.0882,0.1942],[0.0882,0.1741],[0.0904,0.1741],[0.0904,0.154],[0.0926,0.154],[0.0926,0.1339],[0.0949,0.1339],[0.0949,0.1138],[0.0971,0.1138],[0.0949,0.1071],[0.0904,0.1071],[0.0904,0.1049],[0.0815,0.1049],[0.0815,0.1071],[0.0792,0.1071],[0.0792,0.0804],[0.077,0.0804],[0.0748,0.0647],[0.0703,0.0625],[0.0681,0.0536],[0.0658,0.0536],[0.0658,0.0513],[0.0636,0.0513],[0.0636,0.0491],[0.0614,0.0491],[0.0502,0.0357],[0.0458,0.0357],[0.0458,0.0335],[0.0413,0.0335],[0.0413,0.0313],[0.0368,0.0313],[0.0368,0.029],[0.0301,0.029],[0.0301,0.0268],[0.0212,0.0268],[0.0212,0.0246],[0.0078,0.0246],[0.0078,0.0223],[0.0033,0.0223]],[[-0.01,0],[-0.0123,0],[-0.0123,0.0022],[-0.0279,0.0022],[-0.0279,0.0045],[-0.0413,0.0067],[-0.0413,0.0089],[-0.0525,0.0112],[-0.0547,0.0156],[-0.0636,0.0179],[-0.0681,0.0246],[-0.0725,0.0246],[-0.0725,0.0268],[-0.0815,0.0335],[-0.0837,0.0446],[-0.0904,0.0491],[-0.0904,0.0536],[-0.0949,0.0558],[-0.0949,0.0603],[-0.0971,0.0603],[-0.0971,0.0647],[-0.0993,0.0647],[-0.0993,0.0692],[-0.1016,0.0692],[-0.1016,0.0759],[-0.1038,0.0759],[-0.1038,0.0826],[-0.106,0.0826],[-0.106,0.0915],[-0.1083,0.0915],[-0.1083,0.1473],[-0.1105,0.1473],[-0.1105,0.1317],[-0.1127,0.1317],[-0.1127,0.125],[-0.115,0.125],[-0.115,0.1295],[-0.1172,0.1295],[-0.1172,0.1652],[-0.115,0.1652],[-0.115,0.1763],[-0.1127,0.1763],[-0.1105,0.1875],[-0.106,0.1875],[-0.106,0.1674],[-0.1038,0.1674],[-0.1016,0.1964],[-0.0949,0.1987],[-0.0949,0.2009],[-0.0882,0.2009],[-0.0882,0.1942],[-0.0904,0.1942],[-0.0926,0.154],[-0.0949,0.154],[-0.0949,0.1362],[-0.0971,0.1362],[-0.0971,0.1138],[-0.0993,0.1138],[-0.1016,0.1094],[-0.0993,0.1094],[-0.0993,0.0982],[-0.0971,0.0982],[-0.0971,0.0871],[-0.0949,0.0871],[-0.0926,0.0737],[-0.0904,0.0737],[-0.0904,0.0692],[-0.0882,0.0692],[-0.0837,0.0558],[-0.0815,0.0558],[-0.0725,0.0446],[-0.0681,0.0446],[-0.0569,0.0313],[-0.0525,0.0313],[-0.0525,0.029],[-0.048,0.029],[-0.048,0.0268],[-0.0435,0.0268],[-0.0435,0.0246],[-0.0391,0.0246],[-0.0391,0.0223],[-0.0346,0.0223],[-0.0346,0.0201],[-0.0257,0.0201],[-0.0257,0.0179],[-0.0167,0.0179],[-0.0167,0.0156],[0.019,0.0156],[0.019,0.0179],[0.0257,0.0179],[0.0257,0.0201],[0.0346,0.0201],[0.0346,0.0223],[0.0391,0.0223],[0.0391,0.0246],[0.0435,0.0246],[0.0435,0.0268],[0.0569,0.0313],[0.0681,0.0446],[0.0725,0.0446],[0.0725,0.0469],[0.0792,0.0491],[0.0792,0.0536],[0.0837,0.0558],[0.0859,0.0647],[0.0882,0.0647],[0.0904,0.0714],[0.0926,0.0714],[0.0926,0.0781],[0.0949,0.0781],[0.0949,0.0848],[0.0971,0.0848],[0.0971,0.0915],[0.0993,0.0915],[0.0993,0.1205],[0.0971,0.1205],[0.0971,0.1406],[0.0949,0.1406],[0.0949,0.1607],[0.0926,0.1607],[0.0904,0.2009],[0.0949,0.2009],[0.0949,0.1987],[0.1016,0.1964],[0.106,0.1629],[0.1083,0.1629],[0.106,0.1897],[0.1127,0.1853],[0.1127,0.1786],[0.115,0.1786],[0.115,0.1719],[0.1172,0.1719],[0.1194,0.1339],[0.1172,0.1339],[0.1172,0.1272],[0.1127,0.125],[0.1105,0.1473],[0.1083,0.1473],[0.1105,0.1071],[0.1083,0.1071],[0.1083,0.096],[0.106,0.096],[0.106,0.0826],[0.1038,0.0826],[0.1038,0.0759],[0.1016,0.0759],[0.1016,0.0692],[0.0993,0.0692],[0.0993,0.0625],[0.0971,0.0625],[0.0949,0.0536],[0.0926,0.0536],[0.0904,0.0469],[0.0837,0.0424],[0.0837,0.0357],[0.0815,0.0357],[0.0815,0.0335],[0.0792,0.0335],[0.0681,0.0201],[0.0636,0.0201],[0.0614,0.0156],[0.0569,0.0156],[0.0569,0.0134],[0.0525,0.0134],[0.0525,0.0112],[0.0458,0.0112],[0.0435,0.0067],[0.0279,0.0045],[0.0279,0.0022],[0.0145,0.0022],[0.0145,0],[-0.0078,0]],[[-0.0949,0.2857],[-0.0971,0.2857],[-0.0971,0.2879],[-0.1038,0.2879],[-0.1038,0.2902],[-0.1083,0.2902],[-0.1083,0.2924],[-0.115,0.2924],[-0.115,0.2946],[-0.1217,0.2946],[-0.1217,0.2969],[-0.1306,0.2991],[-0.1306,0.3013],[-0.1283,0.3013],[-0.1283,0.3147],[-0.1261,0.3147],[-0.1261,0.3348],[-0.1239,0.3348],[-0.1239,0.3973],[-0.1261,0.3973],[-0.1261,0.4174],[-0.1283,0.4174],[-0.1283,0.4286],[-0.1306,0.4286],[-0.1306,0.4397],[-0.1328,0.4397],[-0.1328,0.4464],[-0.135,0.4464],[-0.135,0.4554],[-0.1373,0.4554],[-0.1373,0.4598],[-0.1395,0.4598],[-0.1395,0.4665],[-0.1417,0.4665],[-0.1417,0.471],[-0.144,0.471],[-0.1484,0.4844],[-0.1529,0.4866],[-0.1529,0.5],[-0.1507,0.5],[-0.1507,0.5112],[-0.1484,0.5112],[-0.1484,0.5223],[-0.1462,0.5223],[-0.1462,0.5357],[-0.144,0.5357],[-0.144,0.5513],[-0.1417,0.5513],[-0.1417,0.5692],[-0.1395,0.5692],[-0.1395,0.683],[-0.1417,0.683],[-0.144,0.7277],[-0.1462,0.7277],[-0.1484,0.7679],[-0.1507,0.7679],[-0.1507,0.7879],[-0.1529,0.7879],[-0.1529,0.8036],[-0.1551,0.8036],[-0.1551,0.8192],[-0.1574,0.8192],[-0.1574,0.8348],[-0.1596,0.8348],[-0.1596,0.8527],[-0.1529,0.8549],[-0.1529,0.8571],[-0.135,0.8594],[-0.135,0.8616],[-0.1239,0.8616],[-0.1239,0.8638],[-0.1127,0.8638],[-0.1127,0.8661],[-0.0993,0.8661],[-0.0993,0.8683],[-0.0792,0.8683],[-0.0792,0.8705],[-0.0525,0.8705],[-0.0525,0.8728],[0.0592,0.8728],[0.0592,0.8705],[0.0837,0.8705],[0.0837,0.8683],[0.1016,0.8683],[0.1016,0.8661],[0.115,0.8661],[0.115,0.8638],[0.1373,0.8616],[0.1373,0.8594],[0.1462,0.8594],[0.1462,0.8571],[0.1596,0.8549],[0.1596,0.8504],[0.1618,0.8504],[0.1618,0.846],[0.1596,0.846],[0.1596,0.8304],[0.1574,0.8304],[0.1574,0.817],[0.1551,0.817],[0.1529,0.7835],[0.1507,0.7835],[0.1484,0.7388],[0.1462,0.7388],[0.144,0.6964],[0.1417,0.6964],[0.1417,0.6652],[0.1395,0.6652],[0.1395,0.5826],[0.1417,0.5826],[0.144,0.5402],[0.1462,0.5402],[0.1484,0.5156],[0.1507,0.5156],[0.1507,0.5045],[0.1529,0.5045],[0.1529,0.4933],[0.1551,0.4933],[0.1551,0.4888],[0.1529,0.4888],[0.1529,0.4844],[0.1484,0.4821],[0.1484,0.4777],[0.1462,0.4777],[0.1462,0.4732],[0.144,0.4732],[0.144,0.4688],[0.1417,0.4688],[0.1417,0.4643],[0.1395,0.4643],[0.1395,0.4576],[0.1373,0.4576],[0.1373,0.4509],[0.135,0.4509],[0.135,0.442],[0.1328,0.442],[0.1328,0.433],[0.1306,0.433],[0.1283,0.4063],[0.1261,0.4063],[0.1261,0.3281],[0.1283,0.3281],[0.1306,0.2991],[0.1239,0.2969],[0.1239,0.2946],[0.1172,0.2946],[0.1172,0.2924],[0.1105,0.2924],[0.1105,0.2902],[0.0971,0.2879],[0.0971,0.2902],[0.0949,0.2902],[0.0949,0.2969],[0.0926,0.2969],[0.0926,0.3036],[0.0904,0.3036],[0.0904,0.3103],[0.0882,0.3103],[0.0837,0.3237],[0.0792,0.3259],[0.0792,0.3304],[0.0748,0.3326],[0.0748,0.3371],[0.0725,0.3371],[0.0725,0.3393],[0.0703,0.3393],[0.0592,0.3527],[0.0547,0.3527],[0.0525,0.3571],[0.048,0.3571],[0.048,0.3594],[0.0413,0.3616],[0.0413,0.3638],[0.0346,0.3638],[0.0346,0.3661],[0.0279,0.3661],[0.0279,0.3683],[0.019,0.3683],[0.019,0.3705],[-0.019,0.3705],[-0.019,0.3683],[-0.0279,0.3683],[-0.0279,0.3661],[-0.0346,0.3661],[-0.0346,0.3638],[-0.048,0.3594],[-0.0502,0.3549],[-0.0547,0.3549],[-0.0547,0.3527],[-0.0569,0.3527],[-0.0569,0.3504],[-0.0592,0.3504],[-0.0592,0.3482],[-0.0614,0.3482],[-0.0614,0.346],[-0.0748,0.3348],[-0.0748,0.3304],[-0.0792,0.3281],[-0.0792,0.3237],[-0.0837,0.3214],[-0.0837,0.317],[-0.0859,0.317],[-0.0859,0.3125],[-0.0882,0.3125],[-0.0882,0.3058],[-0.0904,0.3058],[-0.0904,0.2991],[-0.0926,0.2991],[-0.0949,0.2879]],[[-0.1551,0.8683],[-0.1574,0.8683],[-0.1596,0.9063],[-0.1618,0.9063],[-0.1618,0.9286],[-0.1641,0.9286],[-0.1641,0.9777],[-0.1663,0.9777],[-0.1663,1],[-0.01,1],[-0.0078,0.9821],[-0.0056,0.9821],[-0.0056,0.9754],[-0.0033,0.9754],[-0.0011,0.9688],[0.0033,0.9688],[0.0033,0.9732],[0.0056,0.9732],[0.0056,0.9821],[0.0078,0.9821],[0.0078,0.9911],[0.01,0.9911],[0.01,0.9978],[0.0123,0.9978],[0.0123,1],[0.1663,1],[0.1641,0.9219],[0.1618,0.9219],[0.1618,0.9018],[0.1596,0.9018],[0.1596,0.8795],[0.1574,0.8795],[0.1574,0.8683],[0.1462,0.8705],[0.1462,0.8728],[0.1261,0.875],[0.1261,0.8772],[0.1105,0.8772],[0.1105,0.8795],[0.0971,0.8795],[0.0971,0.8817],[0.0748,0.8817],[0.0748,0.8839],[0.048,0.8839],[0.048,0.8862],[-0.0458,0.8862],[-0.0458,0.8839],[-0.0725,0.8839],[-0.0725,0.8817],[-0.0949,0.8817],[-0.0949,0.8795],[-0.1239,0.8772],[-0.1239,0.875],[-0.135,0.875],[-0.135,0.8728],[-0.144,0.8728],[-0.144,0.8705],[-0.1529,0.8705],[-0.1529,0.8683]],[[-0.4721,0.3326],[-0.4743,0.3326],[-0.4743,0.3348],[-0.4944,0.3348],[-0.4944,0.3371],[-0.51,0.3371],[-0.51,0.3393],[-0.5435,0.3415],[-0.5435,0.3438],[-0.5837,0.346],[-0.5837,0.3482],[-0.6306,0.3482],[-0.6306,0.3504],[-0.6417,0.3504],[-0.6417,0.3527],[-0.7042,0.3527],[-0.7042,0.3504],[-0.7266,0.3504],[-0.7266,0.3527],[-0.7333,0.3527],[-0.7333,0.3549],[-0.7377,0.3549],[-0.7377,0.3571],[-0.7578,0.3594],[-0.7578,0.3616],[-0.769,0.3616],[-0.769,0.3638],[-0.7757,0.3638],[-0.7757,0.3661],[-0.7824,0.3661],[-0.7824,0.3683],[-0.7891,0.3683],[-0.7891,0.3705],[-0.7958,0.3705],[-0.7958,0.3728],[-0.8092,0.375],[-0.8092,0.3772],[-0.8158,0.3795],[-0.8158,0.3884],[-0.8136,0.3884],[-0.8136,0.3906],[-0.8069,0.3906],[-0.8069,0.3929],[-0.7913,0.3929],[-0.7913,0.3906],[-0.7824,0.3906],[-0.7824,0.3884],[-0.7734,0.3884],[-0.7734,0.3862],[-0.7578,0.3862],[-0.7578,0.3839],[-0.7243,0.3839],[-0.7243,0.3862],[-0.7154,0.3862],[-0.7176,0.3906],[-0.7288,0.3906],[-0.7288,0.3929],[-0.7467,0.3951],[-0.7489,0.3996],[-0.7533,0.3996],[-0.7533,0.4107],[-0.7511,0.4107],[-0.7511,0.4129],[-0.7444,0.4129],[-0.7444,0.4152],[-0.7288,0.4152],[-0.7288,0.4129],[-0.7154,0.4129],[-0.7154,0.4107],[-0.6685,0.4129],[-0.6685,0.4107],[-0.6618,0.4107],[-0.6618,0.4085],[-0.6529,0.4063],[-0.6507,0.4018],[-0.6462,0.4018],[-0.6462,0.3996],[-0.6395,0.3973],[-0.6395,0.3951],[-0.6239,0.3951],[-0.6239,0.3929],[-0.6194,0.3929],[-0.6194,0.3951],[-0.5882,0.3951],[-0.5882,0.3973],[-0.5569,0.3996],[-0.5569,0.4018],[-0.5458,0.4018],[-0.5458,0.404],[-0.5346,0.404],[-0.5346,0.4063],[-0.5234,0.4063],[-0.5234,0.4085],[-0.5123,0.4085],[-0.5123,0.4107],[-0.4989,0.4107],[-0.4989,0.4129],[-0.4855,0.4129],[-0.4855,0.4152],[-0.4699,0.4152],[-0.4699,0.4174],[-0.4141,0.4174],[-0.4141,0.4129],[-0.4163,0.4129],[-0.4163,0.4085],[-0.4185,0.4085],[-0.4185,0.404],[-0.4208,0.404],[-0.4208,0.3996],[-0.423,0.3996],[-0.423,0.3906],[-0.4252,0.3906],[-0.4252,0.3616],[-0.423,0.3616],[-0.423,0.3549],[-0.4208,0.3549],[-0.4208,0.3482],[-0.4185,0.3482],[-0.4141,0.3348],[-0.4185,0.3348],[-0.4185,0.3326],[-0.4699,0.3326]],[[0.423,0.3326],[0.4208,0.3326],[0.4208,0.3348],[0.4141,0.3348],[0.4141,0.3371],[0.4163,0.3371],[0.4163,0.3438],[0.4185,0.3438],[0.4185,0.3482],[0.4208,0.3482],[0.4208,0.3527],[0.423,0.3527],[0.423,0.3616],[0.4252,0.3616],[0.4252,0.3929],[0.423,0.3929],[0.4208,0.4063],[0.4185,0.4063],[0.4185,0.4107],[0.4163,0.4107],[0.4141,0.4174],[0.4699,0.4174],[0.4699,0.4152],[0.4855,0.4152],[0.4855,0.4129],[0.5011,0.4129],[0.5011,0.4107],[0.5123,0.4107],[0.5123,0.4085],[0.5257,0.4085],[0.5257,0.4063],[0.5458,0.404],[0.5458,0.4018],[0.5569,0.4018],[0.5569,0.3996],[0.5725,0.3996],[0.5725,0.3973],[0.5882,0.3973],[0.5882,0.3951],[0.6194,0.3951],[0.6194,0.3929],[0.6239,0.3929],[0.6239,0.3951],[0.6395,0.3951],[0.6395,0.3973],[0.6484,0.3996],[0.6529,0.4063],[0.6574,0.4063],[0.6574,0.4085],[0.6618,0.4085],[0.6618,0.4107],[0.6685,0.4107],[0.6685,0.4129],[0.7154,0.4107],[0.7154,0.4129],[0.7288,0.4129],[0.7288,0.4152],[0.7467,0.4152],[0.7467,0.4129],[0.7533,0.4107],[0.7533,0.3996],[0.7511,0.3996],[0.7511,0.3973],[0.7467,0.3973],[0.7467,0.3951],[0.7377,0.3951],[0.7377,0.3929],[0.7288,0.3929],[0.7288,0.3906],[0.7176,0.3906],[0.7154,0.3862],[0.7243,0.3862],[0.7243,0.3839],[0.7578,0.3839],[0.7578,0.3862],[0.7734,0.3862],[0.7734,0.3884],[0.7824,0.3884],[0.7824,0.3906],[0.7913,0.3906],[0.7913,0.3929],[0.8069,0.3929],[0.8069,0.3906],[0.8136,0.3906],[0.8136,0.3884],[0.8158,0.3884],[0.8158,0.3795],[0.8092,0.3772],[0.8092,0.375],[0.8025,0.375],[0.8025,0.3728],[0.798,0.3728],[0.798,0.3705],[0.7891,0.3705],[0.7891,0.3683],[0.7824,0.3683],[0.7824,0.3661],[0.7757,0.3661],[0.7757,0.3638],[0.769,0.3638],[0.769,0.3616],[0.7578,0.3616],[0.7578,0.3594],[0.7377,0.3571],[0.7377,0.3549],[0.7266,0.3527],[0.7266,0.3504],[0.7065,0.3504],[0.7065,0.3527],[0.6417,0.3527],[0.6417,0.3504],[0.6306,0.3504],[0.6306,0.3482],[0.5837,0.3482],[0.5837,0.346],[0.5435,0.3438],[0.5435,0.3415],[0.51,0.3393],[0.51,0.3371],[0.4944,0.3371],[0.4944,0.3348],[0.4743,0.3348],[0.4743,0.3326],[0.4252,0.3326]]];
+
+const UMRISS_BREITE = 1.6317;
+
+/*
+ * Welche Schleife was ist - in Zeichenreihenfolge, von hinten nach vorn.
+ *
+ * oberarme    je Seite einer, dreht um die Schulter
+ * kopf        Kopf und Hals, dreht um den Hals
+ * kopfTeile   was mit dem Kopf mitgeht: der Kopfhoererbuegel und was im
+ *             Kopf ausgespart bleibt. Alles in einem Pfad mit dem Kopf,
+ *             Gerade-Ungerade - dadurch werden eingeschlossene Schleifen von
+ *             selbst zu Loechern
+ * rumpf       das Shirt, steht still
+ * still       was sonst noch stillsteht (die Hose)
+ * unterarme   je Seite einer, drehen um den Ellenbogen
+ */
+const ROLLEN = {"oberarme":[0,1],"kopf":2,"kopfTeile":[3],"rumpf":4,"still":[5],"unterarme":[6,7]};
+
+/*
+ * Die Gelenke, alle am Bild gemessen. Die Zeichnung trennt an genau den
+ * Stellen, an denen die Knochen enden - deshalb steht hier keine geschaetzte
+ * Zahl mehr.
+ */
+const MARKEN = {"halsY":0.3563,"arme":[{"seite":-1,"schulter":[-0.115,0.3715],"ellbogen":[-0.4011,0.3804],"hand":[-0.7172,0.3817],"schulterR":0.0471,"ellbogenR":0.0471,"wurzel":[[-0.1417,0.3058],[-0.1574,0.471]]},{"seite":1,"schulter":[0.1172,0.3715],"ellbogen":[0.4017,0.3663],"hand":[0.7175,0.3817],"schulterR":0.0495,"ellbogenR":0.0495,"wurzel":[[0.144,0.3058],[0.1596,0.471]]}]};
+
+
 // ===== public/gemeinsam/schattendj.js =====
 // Der Schatten-DJ.
 //
 // Unten im Bild steht das Gegenlicht-Bild eines DJs hinter seinem Pult. Er
 // bewegt sich zur Musik, und zwar nicht zu *irgendeiner* Musik, sondern zu
-// der, die gerade laeuft: Er nickt auf den Schlag, zieht beim Aufbau den Arm
-// hoch, reisst beim Drop beide hoch, nimmt im Breakdown den Kopfhoerer ans
-// Ohr und legt beim Uebergang die Hand an den Regler.
+// der, die gerade laeuft: Er nickt auf den Schlag, pumpt bei viel Wucht die
+// Faust, zieht beim Aufbau den Arm hoch, reisst beim Drop beide hoch, nimmt
+// im Breakdown den Kopfhoerer ans Ohr und legt beim Uebergang die Hand an den
+// Regler.
 //
 // Warum das mehr ist als Zierrat: Ein Fraktal, das den ganzen Bildschirm
 // fuellt, sieht aus wie ein Bildschirmschoner. Steht eine Silhouette davor,
 // sieht dasselbe Fraktal aus wie eine *Projektion in einem Raum* - und der
 // Raum hat einen DJ. Das ist ein alter Buehnentrick und kostet fast nichts.
 //
+// --- Woraus die Figur besteht ----------------------------------------------
+//
+// Aus *einer* Zeichnung im T-Pose. Sie wird beim Bauen in ihre Teile zerlegt
+// (werkzeuge/schattenumriss.mjs) und hier an einem Skelett bewegt: acht
+// geschlossene Streckenzuege - Kopf, Kopfhoerer, Rumpf, Hose, je Seite Ober-
+// und Unterarm - mit gut tausend Randpunkten zusammen.
+//
+// Jedes Teil ist *starr* und dreht um sein Gelenk. Das ist eine bewusste
+// Rueckkehr: Der Vorgaenger mischte je Randpunkt mehrere Knochen (lineare
+// Mischhaut), damit sich die Haut an der Schulter beugt. Bei kleinen Winkeln
+// sieht das besser aus, bei grossen zerreisst es - ein Punkt mit Gewicht 0,5
+// dreht bei 90 Grad Armdrehung nur 45 Grad mit, und aus der Schulter wird ein
+// Zipfel. Die Zeichnung trennt die Glieder ohnehin durch weisse Linien; wo
+// die Zeichnung schon geschnitten hat, ist ein starres Teil das Ehrlichere.
+// Was an den Gelenken sonst aufreissen wuerde, deckt ein Kreis in
+// Gliedmassendicke ab - genau so macht es jedes Ausschneide-Rig.
+//
+// --- Warum der T-Pose ------------------------------------------------------
+//
+// Weil er die Bindepose ist, von der aus *jede* Zielhaltung eine maessige
+// Drehung ist. Aus haengenden Armen braucht "Haende hoch" fast 180 Grad; aus
+// waagerechten Armen sind es siebzig. Das ist kein Zufall, sondern der Grund,
+// warum die ganze Spielebranche in dieser Haltung modelliert.
+//
 // --- Warum es billig ist ---------------------------------------------------
 //
-// Alles hier sind ein paar Dutzend Pfadbefehle auf der 2D-Ebene, die ohnehin
-// jedes Bild neu gezeichnet wird. Keine Bilder, keine Schrift, kein
-// Rueckgriff auf das fertige Bild, keine neue Ebene. Gemessen liegt es unter
-// einer Zehntelmillisekunde - gegen ein Fraktal, das zwischen 2 und 300 ms
-// braucht, ist das nicht messbar.
-//
-// Zwei Entscheidungen halten es dort:
-//
-//   1. Vorwaerts rechnen statt suchen. Die Arme werden ueber eine
-//      Zweigelenk-Umkehrkinematik gestellt - das ist ein Kosinussatz, keine
-//      Iteration. Zwei Wurzeln und ein Arkuskosinus je Arm.
-//   2. Farbverlaeufe werden gemerkt. createLinearGradient legt ein Objekt an;
-//      je Bild eines anzulegen, waere in sechs Stunden eine Million Objekte
-//      fuer nichts.
+// Ein paar tausend Multiplikationen und ein Dutzend Fuellungen je Bild. Das
+// einzige Bild ist das Pult, und das bewegt sich nicht. Gegen ein Fraktal,
+// das zwischen 2 und 300 ms braucht, ist das nicht messbar.
 //
 // --- Warum die Bewegung stimmt ---------------------------------------------
 //
 // Der Kopf nickt nicht auf einer Sinuskurve. Eine Sinuskurve ist symmetrisch,
 // ein Nicken nicht: Es faellt schnell auf den Schlag und kommt langsam
 // zurueck. Deshalb sitzt hinter dem Kopf eine gedaempfte Feder, die bei jedem
-// Schlag einen Stoss bekommt. Das ergibt von selbst die richtige Asymmetrie -
-// und es haelt auch dann, wenn ein Bild ausfaellt oder das Tempo wechselt,
-// weil die Feder in Sekunden rechnet und nicht in Bildern.
+// Schlag einen Stoss bekommt und deren Steifigkeit dem gemessenen Tempo
+// folgt. Das ergibt von selbst die richtige Asymmetrie - und es haelt auch
+// dann, wenn ein Bild ausfaellt oder das Tempo wechselt, weil die Feder in
+// Sekunden rechnet und nicht in Bildern.
+//
+// Dieselbe Feder treibt die Haende, und zwar *nach* der Glaettung. Das ist
+// der Unterschied zwischen "der Arm wandert irgendwann dorthin" und "der Arm
+// sitzt auf dem Schlag": Ziele werden weich angefahren, der Schlag selbst
+// wird hart draufgelegt.
+
+
+/* --- Das Skelett -----------------------------------------------------------
+ *
+ * Alles hier kommt aus der Zeichnung und wird genau einmal gerechnet. Die
+ * Gelenke sind gemessen, nicht geschaetzt - die Zeichnung trennt an genau den
+ * Stellen, an denen die Knochen enden, und das Werkzeug prueft das Ergebnis
+ * gegen menschliche Gliedmassenverhaeltnisse nach (Ellenbogen bei 42,3 % der
+ * Armlaenge, Handgelenk bei 75,5 %; gemessen 43,1 / 74,6 und 43,5 / 74,9).
+ */
+const RIG = (() => {
+  const arme = MARKEN.arme.map((m, i) => {
+    const [S, E, H] = [m.schulter, m.ellbogen, m.hand];
+    return {
+      seite: m.seite,
+      oberarm: UMRISS[ROLLEN.oberarme[i]],
+      unterarm: UMRISS[ROLLEN.unterarme[i]],
+      schulter: S,
+      ellbogen: E,
+      hand: H,
+      schulterR: m.schulterR,
+      ellbogenR: m.ellbogenR,
+      wurzel: m.wurzel,
+      l1: Math.hypot(E[0] - S[0], E[1] - S[1]),
+      l2: Math.hypot(H[0] - E[0], H[1] - E[1]),
+      bindOben: Math.atan2(E[1] - S[1], E[0] - S[0]),
+      bindUnten: Math.atan2(H[1] - E[1], H[0] - E[0]),
+    };
+  });
+  return {
+    arme,
+    kopf: UMRISS[ROLLEN.kopf],
+    kopfTeile: ROLLEN.kopfTeile.map((n) => UMRISS[n]),
+    rumpf: UMRISS[ROLLEN.rumpf],
+    still: ROLLEN.still.map((n) => UMRISS[n]),
+    // Der Drehpunkt des Kopfes: die schmalste Stelle des Halses.
+    halsY: MARKEN.halsY,
+    // Die ganze Armlaenge - Bezugsmass fuer Reichweite und Pol.
+    armL: arme[0].l1 + arme[0].l2,
+  };
+})();
 
 /* --- Zustand ---------------------------------------------------------------
  *
@@ -10111,7 +10644,20 @@ let handR = null;
 // Traege Groessen: Oberkoerperneigung, seitliches Wiegen, Kopfdrehung.
 let neigung = 0;
 let wiegen = 0;
+/*
+ * Wo in der Gewichtsverlagerung er gerade steht, in ganzen Durchgaengen.
+ *
+ * Fortgeschrieben aus dem *Zuwachs* der Beatnummer und nicht aus ihr selbst.
+ * Der Unterschied zaehlt am Uebergang zwischen zwei Tracks: Dort springt die
+ * Beatnummer auf die des naechsten Abschnitts, und eine direkt daraus
+ * gerechnete Phase risse die Figur mitten im Schritt auf die andere Seite.
+ * Ein Zuwachs laesst sich verwerfen, ein Sprung nicht.
+ */
 let wiegePhase = 0;
+let letzterBeatWert = null;
+// Wie tief er gerade eingesackt ist, aus der Verlagerung abgeleitet: -0,5
+// steht hoch ueber einem Bein, +0,5 ganz unten im Uebergang.
+let senken = 0;
 let kopfDreh = 0;
 // Wie weit der Kopf zuletzt gewandert ist, in Bildpunkten - fuer die Abnahme.
 let letzterNickPx = 0;
@@ -10124,9 +10670,8 @@ let letzterKopf = null;
  *
  * `drop` steht nur in *einem* Bild auf wahr - eine Pose daran zu haengen
  * hiesse, dass die Arme fuer eine Sechzigstelsekunde hochgehen und niemand es
- * sieht. Also wird der Augenblick hier festgehalten und klingt ueber rund
- * zwei Sekunden ab: lang genug, dass man es sieht, kurz genug, dass die Figur
- * nicht minutenlang mit erhobenen Armen dasteht.
+ * sieht. Also wird der Augenblick hier festgehalten und klingt ueber gut
+ * anderthalb Sekunden ab.
  */
 let dropHalt = 0;
 
@@ -10135,10 +10680,64 @@ let dropHalt = 0;
 let zeigenHalt = 0;
 let letztePhrase = -1;
 
-// Gemerkte Farbverlaeufe. Schluessel ist die Bildgroesse plus die Farbe;
-// aendert sich nichts, wird nichts neu gebaut.
-let verlaufSchluessel = '';
-let randVerlauf = null;
+// Wo die Haende zuletzt wirklich waren, und wie die Gelenke standen - fuer
+// die Abnahme.
+const letzteHand = [null, null];
+const letzteGelenke = [null, null];
+
+// Der Kopf laeuft dem Federn des Koerpers hinterher - hier steht, wie weit
+// er gerade ist.
+let kopfNick = 0;
+// Die Ist-Winkel der vier Armgelenke. Sie sind der Zustand, der jeden Sprung
+// verhindert: Gerechnet wird ein Ziel, gezeichnet wird das, was hier steht.
+let armWinkel = null;
+
+// Die Faustpumpe laeuft ueber zwei Schlaege. Sie zaehlt in *Schlaegen* und
+// nicht in Sekunden, damit sie beim Tempowechsel nicht aus dem Takt faellt.
+let pumpPhase = 0;
+
+/*
+ * Die Farbe des Schattens: reines Schwarz.
+ *
+ * Ein Koerper vor einer leuchtenden Flaeche laesst nichts durch, also ist er
+ * die dunkelste Stelle im Bild. Jeder Wert darueber macht aus der Aussparung
+ * eine aufgelegte Flaeche - und wo das Mandala gerade dunkel ist, hebt sich
+ * die Figur dann als *hellerer* Fleck ab statt als Schatten.
+ */
+const SCHATTEN = '#000';
+
+/*
+ * Das Pult ist das einzige, was noch ein Bild ist - es bewegt sich nicht und
+ * braucht kein Skelett.
+ */
+let pultBild = null;
+let pultLaeuft = false;
+
+function pultLaden() {
+  if (pultLaeuft) return;
+  pultLaeuft = true;
+  const bild = new Image();
+  bild.onload = () => {
+    pultBild = bild;
+  };
+  bild.src = PULT.daten;
+}
+
+/**
+ * Warten, bis das Pultbild da ist.
+ *
+ * Ausgefuehrt, weil jeder Aufrufer, der nicht in einer Bildschleife sitzt,
+ * darauf warten muss: Das Bild kommt ueber ein onload, und wer synchron
+ * durchrechnet, gibt dem Browser nie die Gelegenheit, es auszuloesen. Die
+ * Figur selbst braucht das nicht - sie ist Zahlen und sofort da.
+ */
+function schattenLaden() {
+  pultLaden();
+  return new Promise((fertig) => {
+    const sehen = () => (pultBild ? fertig(true) : setTimeout(sehen, 20));
+    sehen();
+  });
+}
 
 /** An- oder abschalten. */
 function schattenSetzen(wert) {
@@ -10161,24 +10760,59 @@ function schattenZuruecksetzen() {
   neigung = 0;
   wiegen = 0;
   wiegePhase = 0;
+  letzterBeatWert = null;
+  senken = 0;
   kopfDreh = 0;
   letzterNickPx = 0;
   letzterKopf = null;
   zeigenHalt = 0;
   letztePhrase = -1;
   dropHalt = 0;
+  pumpPhase = 0;
+  kopfNick = 0;
+  armWinkel = null;
+  letzteHand[0] = null;
+  letzteHand[1] = null;
+  letzteGelenke[0] = null;
+  letzteGelenke[1] = null;
+  schlagDauer = 0.5;
+  letzteSchlagZeit = 0;
+  federStimmen();
 }
 
 /* --- Die Feder hinter dem Nicken -------------------------------------------
  *
- * Kritisch gedaempft waere D = 2*sqrt(K) = 27,6 - dann kaeme der Kopf ohne
- * Nachschwingen zurueck, und das saehe nach Mechanik aus. Mit 15 liegt es
- * deutlich darunter: Der Kopf schwingt einmal nach, und genau das liest das
- * Auge als Koerper.
+ * Sie war zuerst *fest* gestimmt, und das war der Grund fuer "Beat und
+ * Bewegung passen nicht zusammen".
+ *
+ * Bei einer Federkonstanten von 190 schwingt sie mit rund 13,8 je Sekunde,
+ * hat also eine Periode von 0,46 Sekunden. Ein Stueck mit 140 Schlaegen je
+ * Minute hat eine Schlagdauer von 0,43 Sekunden - fast genau dasselbe. Damit
+ * trifft jeder neue Stoss die Feder mitten in ihrer eigenen Schwingung,
+ * einmal mit ihr und einmal gegen sie, und heraus kommt ein Wabern, das mit
+ * dem Schlag nichts mehr zu tun hat.
+ *
+ * Jetzt wird die Schlagdauer gemessen und die Feder danach gestimmt: Sie soll
+ * ihre Bewegung in gut der Haelfte eines Schlages abgeschlossen haben. Damit
+ * nickt die Figur bei 100 wie bei 175 Schlaegen sauber auf den Punkt.
+ *
+ * Die Daempfung wandert mit: Was zaehlt, ist ihr *Verhaeltnis* zur
+ * Eigenfrequenz. Bei 0,54 schwingt der Kopf einmal nach - das liest das Auge
+ * als Koerper und nicht als Mechanik.
  */
-const FEDER_K = 190;
-const FEDER_D = 15;
-const EIGENFREQUENZ = Math.sqrt(FEDER_K);
+const DAEMPFUNGSGRAD = 0.54;
+let schlagDauer = 0.5;
+let letzteSchlagZeit = 0;
+let federK = 190;
+let federD = 15;
+let eigenFrequenz = Math.sqrt(190);
+
+function federStimmen() {
+  const ziel = Math.max(0.15, Math.min(1.2, schlagDauer)) * 0.62;
+  eigenFrequenz = (2 * Math.PI) / ziel;
+  federK = eigenFrequenz * eigenFrequenz;
+  federD = 2 * DAEMPFUNGSGRAD * eigenFrequenz;
+}
 
 /* --- Werkzeug -------------------------------------------------------------- */
 
@@ -10192,23 +10826,32 @@ const folgen = (ist, ziel, tempo, sekunden) =>
  * Zweigelenk-Umkehrkinematik in der Ebene.
  *
  * Gegeben Schulter, Ziel und zwei Gliedlaengen - gesucht der Ellenbogen. Das
- * ist der Kosinussatz und sonst nichts. Die Angabe `beugung` sagt, zu welcher
- * Seite das Gelenk knickt; ohne sie gaebe es zwei gleich gueltige Loesungen,
- * und die Figur wuerde zwischen ihnen umklappen.
+ * ist der Kosinussatz und sonst nichts. Loesungen gibt es immer zwei,
+ * spiegelbildlich zur Verbindung Schulter-Hand. Welche gilt, entscheidet
+ * *nicht* diese Funktion: Sie liefert beide, und der Aufrufer waehlt nach
+ * Anatomie und nach dem, wo der Arm gerade steht.
  *
- * Warum ueberhaupt Umkehrkinematik und nicht einfach Winkel: Weil die Haende
- * an *Dingen* liegen sollen - am Plattenteller, am Regler, am Ohr. Mit
- * Winkeln muesste jede Pose fuer jede Bildgroesse neu gestimmt werden; mit
- * einem Ziel in Bildpunkten stimmt sie ueberall.
+ * Das ist die dritte Fassung, und die beiden Vorgaenger sind der Grund.
+ *
+ *   1. Ein festes Vorzeichen je Seite. Heisst "der Ellenbogen liegt immer auf
+ *      derselben Seite der Sehne" - und welche Seite das im Bild ist, haengt
+ *      davon ab, wo die Hand steht. Greift sie nach unten, stimmt es; geht
+ *      sie ans Ohr, klappt der Ellenbogen nach oben durch.
+ *   2. Ein Polvektor. Besser, aber er entscheidet in jedem Bild neu und ohne
+ *      Gedaechtnis. Wandert die Hand ueber die Linie, auf der beide Loesungen
+ *      gleich weit vom Pol weg sind, springt der Ellenbogen in einem Bild auf
+ *      die andere Seite. Gemessen ueber zwei Schlaege Faustpumpe: Der rechte
+ *      Ellenbogen lief von -163 auf +149 Grad, also durch die Streckung
+ *      hindurch. Genau das sieht aus wie ein gebrochener Arm.
  */
-function ellbogen(sx, sy, zx, zy, l1, l2, beugung) {
+function ellbogenPaar(sx, sy, zx, zy, l1, l2) {
   let dx = zx - sx;
   let dy = zy - sy;
   let d = Math.hypot(dx, dy);
   // Ausserhalb der Reichweite wird das Ziel herangezogen statt der Arm
   // gestreckt - sonst zittert die Hand am Anschlag.
   const hoechst = (l1 + l2) * 0.995;
-  const kleinst = Math.abs(l1 - l2) * 1.02 + 1e-3;
+  const kleinst = Math.abs(l1 - l2) * 1.02 + 1e-4;
   if (d > hoechst) {
     const f = hoechst / d;
     dx *= f; dy *= f; d = hoechst;
@@ -10216,171 +10859,398 @@ function ellbogen(sx, sy, zx, zy, l1, l2, beugung) {
     const f = kleinst / Math.max(d, 1e-6);
     dx *= f; dy *= f; d = kleinst;
   }
-  const richtung = Math.atan2(dy, dx);
-  const kos = klemm((d * d + l1 * l1 - l2 * l2) / (2 * d * l1), -1, 1);
-  const winkel = richtung + beugung * Math.acos(kos);
+  const a = (d * d + l1 * l1 - l2 * l2) / (2 * d);
+  const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
+  const ux = dx / d;
+  const uy = dy / d;
   return {
-    ex: sx + Math.cos(winkel) * l1,
-    ey: sy + Math.sin(winkel) * l1,
+    fx: sx + ux * a,
+    fy: sy + uy * a,
+    nx: -uy,
+    ny: ux,
+    h,
     hx: sx + dx,
     hy: sy + dy,
   };
 }
 
-/* --- Die Figur -------------------------------------------------------------
+// Einen Winkel nach (-PI, PI] bringen.
+function gerade(a) {
+  let w = a;
+  while (w > Math.PI) w -= Math.PI * 2;
+  while (w < -Math.PI) w += Math.PI * 2;
+  return w;
+}
+
+/* --- Die Gelenkgrenzen -----------------------------------------------------
  *
- * Alle Masse haengen an einer einzigen Einheit: der Hoehe des Pultes. Damit
- * stimmt die Figur auf einem Telefon quer genauso wie auf einer Leinwand, und
- * es gibt keine Stelle, an der eine Zahl in Bildpunkten steht und bei anderer
- * Groesse nicht mehr passt.
+ * Am Bild gemessen und an der Anatomie geprueft. Die Bindepose ist der
+ * T-Pose, in dem der Arm gestreckt zur Seite zeigt; der Ellenbogen steht dort
+ * auf 0,1 Grad (links) beziehungsweise 4,3 Grad (rechts), also gerade.
+ *
+ * Ein menschlicher Ellenbogen beugt sich nur in *eine* Richtung. Welche das
+ * in dieser Zeichnung ist, sagen die Haltungen, die richtig aussehen: der
+ * Kopfhoerer am Ohr links bei +136 Grad, der erhobene Arm rechts bei -70. Die
+ * Beugung ist also seitengespiegelt, und mit `seite` als Vorzeichen ergibt
+ * sich eine einzige Regel fuer beide Arme.
+ *
+ * Ueber die Streckung hinaus geht nichts - ein Arm, der nach hinten
+ * durchknickt, ist gebrochen. Fuenfzehn Grad Spiel bleiben, weil Menschen
+ * genau so viel Ueberstreckung haben.
  */
+const ELLBOGEN_BEUGUNG = (150 * Math.PI) / 180;
+const ELLBOGEN_STRECKUNG = (15 * Math.PI) / 180;
+/*
+ * Wie weit der Oberarm aus der Waagerechten heraus darf - nach oben wie nach
+ * unten. 105 Grad heisst: senkrecht hoch und senkrecht runter sind erlaubt,
+ * ein Stueck darueber hinaus auch, aber der Arm kann nicht hinter den Koerper
+ * greifen.
+ */
+const SCHULTER_SPANNE = (105 * Math.PI) / 180;
+/*
+ * Wie schnell Gelenkwinkel ihren Zielen folgen, je Sekunde.
+ *
+ * Das ist die Versicherung gegen jeden Sprung: Ein Gelenk kann sich hier
+ * nicht mehr in einem Bild umlegen, egal was die Kinematik ausrechnet. 26
+ * entspricht 38 ms - schnell genug, dass eine Faustpumpe schlagartig wirkt,
+ * langsam genug, dass ein Wechsel der Loesung als Bewegung sichtbar waere
+ * statt als Sprung. Er kommt nur nicht mehr vor, weil die Grenzen oben ihn
+ * ausschliessen.
+ */
+const GELENK_TEMPO = 26;
+// Wie schnell ein Gelenk hoechstens dreht, im Bogenmass je Sekunde.
+const GELENK_HOECHSTTEMPO = (800 * Math.PI) / 180;
+
+/* --- Das Mass des Grooves --------------------------------------------------
+ *
+ * Alles in Kopfhoehen beziehungsweise Bogenmass, damit es auf jedem Bildschirm
+ * gleich aussieht.
+ */
+/* --- Warum der Koerper nicht mehr auf jeden Schlag federt -------------------
+ *
+ * Hier stand ein Stoss in die Feder bei *jedem* Schlag. Auf dem Papier war
+ * das richtig - die Figur nickte messbar zur Musik, und die Abnahme hat es
+ * bestaetigt. Vor der Leinwand war es falsch, und die Rueckmeldung dazu war
+ * eindeutig: "dieses dauerhafte Klopfen passend zum Beat, zumindest bei
+ * elektronischer Musik geht das nicht".
+ *
+ * Der Grund liegt im Material. Ein Technostueck hat vier gleich schwere
+ * Schlaege je Takt, und wer auf jeden davon reagiert, gibt genau das wieder,
+ * was ohnehin schon zu hoeren ist. Das Ergebnis ist ein Metronom mit Armen -
+ * jeder Schlag gleich stark, kein Bogen darueber, nichts, was auf etwas
+ * zulaeuft. Bei einem Stueck mit Backbeat waere das anders: Dort tragen zwei
+ * der vier Schlaege das Gewicht, und ein Nicken darauf hat eine Richtung.
+ *
+ * Was ein Mensch an einem Pult stattdessen tut, ist gemessen an sich selbst
+ * leicht nachzuvollziehen: Er verlagert das Gewicht von einem Bein aufs
+ * andere, und zwar nicht im Schlagtempo, sondern ueber einen ganzen Takt je
+ * Seite. Waehrend der Verlagerung sackt die Huefte ab, im Stand ueber einem
+ * Bein steht er wieder hoch. Das Auf und Ab ist also *nicht* angetrieben,
+ * sondern faellt beim Verlagern von selbst an - einmal je Takt, nicht
+ * viermal. Und weil die Haende auf den Tellern liegen bleiben, waehrend die
+ * Schulter mitwandert, beugen sich die Ellenbogen von allein mit.
+ *
+ * Uebrig bleibt fuer die Feder das, wofuer sie gebaut ist: die Ausnahme.
+ * Phrasengrenze und Drop - alle acht bis sechzehn Sekunden einmal. Genau
+ * dadurch faellt sie wieder auf.
+ */
+
+// Ueber wie viele Schlaege eine ganze Gewichtsverlagerung laeuft: links,
+// rechts, zurueck. Acht Schlaege sind zwei Takte, also ein Takt je Seite.
+const WIEGE_SCHLAEGE = 8;
+/*
+ * Wie tief der Koerper beim Verlagern absackt, in Kopfhoehen.
+ *
+ * Nachgemessen am Kopf, bei 640 Bildpunkten Bildhoehe: 0,13 ergeben rund elf
+ * Bildpunkte von ganz oben nach ganz unten. Die Figur ist dort 230 Punkte
+ * hoch, ein Mensch also gut 128 Punkte je Meter - elf Punkte sind demnach
+ * knapp neun Zentimeter Kniebeuge. Fuer eine Schattenprojektion ist das die
+ * richtige Uebertreibung: gross genug, um ueber zehn Meter Saal zu tragen,
+ * klein genug, um nicht zu huepfen.
+ *
+ * Der erste Ansatz stand auf 0,55, und das war ein Rechenfehler von mir -
+ * gemessen kamen 46 Bildpunkte heraus, das Vierfache. Die Zahl steht jetzt,
+ * weil sie gemessen ist, nicht weil sie geschaetzt war.
+ */
+const SENKEN = 0.13;
+/*
+ * Wie tief der Akzent zusaetzlich einsackt - der Rest der alten Feder.
+ *
+ * Er kommt nur noch auf Phrasengrenzen und Drops. Halb so gross wie frueher
+ * das Federn je Schlag, und trotzdem auffaelliger, weil daneben nichts mehr
+ * dauernd klopft.
+ */
+const FEDERN = 0.42;
+// Wie weit der Kopf ueber die Bewegung des Koerpers hinaus nachgibt.
+const KOPF_NICKEN = 0.35;
+/*
+ * Seitliche Gewichtsverlagerung.
+ *
+ * Die Zahl ist dieselbe wie vorher, der Weg im Bild ist trotzdem groesser
+ * geworden: Die Verlagerung erreicht jetzt ihren vollen Ausschlag, wo sie
+ * frueher bei 78 Prozent haengen blieb. Gemessen 17 statt 13 Bildpunkte von
+ * links nach rechts. Sie traegt den Groove jetzt mit, also darf sie das.
+ */
+const WIEGEN = 0.13;
+/*
+ * Wie weit der Rumpf dabei um die Huefte rollt, im Bogenmass.
+ *
+ * Das ist die Bewegung, die aus einer wippenden Puppe einen Menschen macht,
+ * und sie ist klein: 0,045 sind zweieinhalb Grad. Mehr, und die Figur
+ * schwankt wie ein Betrunkener; weniger, und die Schulterlinie steht starr,
+ * waehrend der Koerper seitlich wandert - was das Auge sofort als falsch
+ * liest, ohne sagen zu koennen warum.
+ */
+const KOERPER_ROLLEN = 0.045;
+/*
+ * Wie weit der Kopf gegen das Rollen ausgleicht.
+ *
+ * Menschen halten den Kopf senkrecht, auch wenn der Koerper kippt - das
+ * Gleichgewichtsorgan sitzt darin. Der Ausgleich ist nicht vollstaendig,
+ * sonst wirkt der Hals steif.
+ */
+const KOPF_AUSGLEICH = -0.028;
+// Wo die Huefte sitzt, in Figurenhoehen - der Drehpunkt des Rollens.
+const HUEFTE = 0.98;
+/*
+ * Wie weit die Ruhehaltung des Oberarms von der Senkrechten abweicht.
+ *
+ * Ein haengender Arm steht nicht am Koerper an, sondern faellt ein Stueck
+ * nach aussen. Zwanzig Grad sind es beim entspannten Stehen; sie geben der
+ * Loesungswahl ihre Richtung, wenn beide Ellenbogenlagen erlaubt sind.
+ */
+const RUHE_AUSWAERTS = (20 * Math.PI) / 180;
+
+/* --- Die Figur im Bild -----------------------------------------------------
+ *
+ * Vier Zahlen legen die Komposition fest. Sie sind Absicht, nicht Anatomie -
+ * alles Anatomische steht in der Zeichnung.
+ */
+
+/*
+ * Wie hoch die Figur ist, als Anteil der Bildhoehe.
+ *
+ * Sie haengt am Bild und nicht am Pult - das war einmal andersherum und ergab
+ * auf einer Leinwand ein Moebel von doppelter Schulterbreite, hinter dem ein
+ * Kind stand.
+ */
+const FIGUR_ZU_BILD = 0.36;
+// Das Pult ist gut zweieinhalb Schultern breit; eine Schulter ist knapp ein
+// halbes Figurenmass.
+const PULT_ZU_FIGUR = 1.6;
+/*
+ * Wo die Pultkante im Bild liegt, als Anteil der Bildhoehe.
+ *
+ * Ganz unten, und das ist eine Ansage: Vom gemalten Pult soll sich nur die
+ * Oberkante abzeichnen. Am Partyabend steht davor ein echtes, selbstgebautes
+ * Pult, und je weniger vom gemalten zu sehen ist, desto besser gehen beide
+ * ineinander ueber.
+ */
+const PULT_KANTE = 0.94;
+/*
+ * Wo die Pultkante die Figur abschneidet, in Figurenhoehen.
+ *
+ * Die Zeichnung reicht vom Scheitel bis zur Huefte, und genau dort steht ein
+ * DJ-Tisch: Ein Pult ist knapp einen Meter hoch, eine Huefte auch.
+ *
+ * Die Zahl entscheidet ausserdem ueber die Armhaltung, und das ist ihr
+ * eigentliches Gewicht: Sie legt fest, wie hoch die Schulter ueber der Platte
+ * steht - und damit ueber die Armhaltung. Bei 0,95 sind es 0,50
+ * Figurenhoehen gegen eine Armlaenge von 0,63; der Griff zum Teller braucht
+ * damit rund 89 % der Armlaenge, und der Ellenbogen sitzt eine halbe
+ * Kopfhoehe unter der Schulter. Bei 0,90 waren es 85 %, und der Ellenbogen
+ * stand auf Schulterhoehe waagerecht ab - die Figur sah aus, als haette sie
+ * die Haende in die Hueften gestemmt.
+ */
+const SCHNITT = 0.95;
+/*
+ * Wie lange eine Faustpumpe dauert, in Schlaegen - der Rest der zwei Schlaege
+ * ist Pause.
+ *
+ * Ohne Pause ist es keine Geste, sondern ein Dauerzustand: Bei einer vollen
+ * Sinuskuppel ueber zwei Schlaege stand der Arm die meiste Zeit oben und kam
+ * nur kurz herunter. Drei Viertel Schlag hoch, fuenf Viertel unten - so
+ * bleibt es ein Akzent.
+ */
+const PUMPE_DAUER = 0.75;
+
+
 function masse(breite, hoehe) {
-  /*
-   * Gerechnet wird vom *Kopf* aus, nicht vom Pult.
-   *
-   * Der erste Anlauf ging vom Pult aus, und das Ergebnis sah aus wie ein
-   * Lutscher hinter einem Tisch: Der Kopf war zu klein, der Hals zu lang, die
-   * Schultern zu schmal. Eine Silhouette hat keine Gesichtszuege und keine
-   * Falten - sie wird allein an den Verhaeltnissen erkannt, und das
-   * wichtigste davon ist Kopf zu Schultern. Wer die falsch waehlt, bekommt
-   * kein stilisiertes Bild, sondern ein falsches.
-   *
-   * Die Verhaeltnisse hier sind die eines Menschen von vorn:
-   *   Kopfbreite         0,78 Kopfhoehen
-   *   Schulterbreite     1,9 Kopfhoehen (also gut zweieinhalb Kopfbreiten)
-   *   Hals               0,18 Kopfhoehen - kurz; ein langer Hals wirkt sofort
-   *                      wie eine Puppe
-   *   Oberarm            1,0, Unterarm 0,95 Kopfhoehen
-   */
-  const pultH = Math.max(34, hoehe * 0.13);
-  const pultOben = hoehe - pultH;
-  const kopfH = pultH * 0.85;
   const mitte = breite * 0.5;
 
+  const figurH = hoehe * FIGUR_ZU_BILD;
+  // Der Deckel gegen die Bildbreite faengt sehr schmale Bildschirme ab, auf
+  // denen das Pult sonst hinausstuende.
+  const pultB = Math.min(figurH * PULT_ZU_FIGUR, breite * 0.72);
+  const pultH = pultB * (PULT.hoehe / PULT.breite);
+  // Die Platte, an der die Figur abgeschnitten wird. Darueber ragen nur noch
+  // die Plattenteller heraus.
+  const pultOben = hoehe * PULT_KANTE;
+  const pultBildOben = pultOben - pultH * PULT.deckel;
+
+  const figurOben = pultOben - figurH * SCHNITT;
   /*
-   * Wie hoch die Figur ueber dem Pult steht.
-   *
-   * Zuerst standen hier 0,55 Kopfhoehen, und der DJ sah aus, als sei er im
-   * Pult versunken - nur Kopf und Schulteransatz ragten heraus. Bei einem
-   * echten Pult liegt die Kante etwa auf Hueft- bis Brusthoehe, der ganze
-   * Oberkoerper ist zu sehen. 1,35 Kopfhoehen sind der Brustkorb; damit
-   * nimmt die ganze Figur gut vierzig Prozent der Bildhoehe ein, und das ist
-   * die Grenze, ab der sie dem Fraktal den Platz nimmt.
+   * Das Bezugsmass der Choreografie. Nicht Kopf samt Hals (das waere
+   * MARKEN.halsY), sondern der Schaedel - er ist das, was das Auge als "einen
+   * Kopf gross" liest.
    */
-  const schulterY = pultOben - kopfH * 1.35;
-  const kopfY = schulterY - kopfH * 0.68;
+  const kopfH = figurH * 0.28;
+
+  const schulter = MARKEN.arme[1].schulter;
 
   return {
-    e: kopfH,
     mitte,
-    pultOben,
+    pultB,
     pultH,
-    // Das Pult darf die Figur nicht erschlagen: gut die halbe Breite, und
-    // hoechstens sieben Kopfhoehen.
-    pultB: Math.min(breite * 0.56, kopfH * 7),
+    pultBildOben,
+    pultOben,
+    figurH,
+    figurOben,
     kopfH,
-    kopfB: kopfH * 0.78,
-    kopfY,
-    schulterY,
-    schulterB: kopfH * 1.15,
-    // Die Hueftbreite entscheidet ueber die Form des Oberkoerpers. Schmaler
-    // als die Schultern - sonst wird die Figur ein Kegel.
-    hueftB: kopfH * 0.95,
-    oberarm: kopfH * 1.0,
-    unterarm: kopfH * 0.95,
-    armDick: kopfH * 0.30,
-    // Die Teller ragen mit ihrer oberen Haelfte ueber die Pultkante.
-    tellerX: kopfH * 2.15,
-    tellerR: kopfH * 0.66,
-    reglerB: kopfH * 1.35,
+    schulterB: figurH * Math.abs(schulter[0]),
+    schulterY: figurOben + figurH * schulter[1],
+    armL: figurH * RIG.armL,
+    // Das Ohr - dorthin wandert im Breakdown die Hand mit dem Kopfhoerer.
+    ohrX: figurH * 0.11,
+    ohrY: figurOben + figurH * 0.14,
   };
 }
 
-/*
- * Wohin die Haende sollen - die eigentliche Choreografie.
+/* --- Die Choreografie ------------------------------------------------------
  *
- * Fuenf Haltungen, und jede hat einen Grund in der Musik. Sie schliessen sich
- * nicht aus: Was herauskommt, ist eine Mischung, gewichtet nach dem, was die
- * Analyse gerade meldet. Deshalb gibt es keinen sichtbaren Umschaltpunkt.
+ * Zwei Arten von Haltung, und sie brauchen zwei verschiedene Werkzeuge. Das
+ * zu trennen ist die wichtigste Entscheidung an dieser Figur.
+ *
+ *   Griffe   - die Hand muss an einen *Ort*: auf den Plattenteller, an den
+ *              Regler, ans Ohr. Wo der Ellenbogen dabei landet, ergibt sich.
+ *              Dafuer ist Umkehrkinematik gemacht.
+ *   Gesten   - die Faust in die Luft, beide Arme hoch, der Zeigefinger ins
+ *              Publikum. Hier gibt es keinen Ort in der Welt, nur eine Form.
+ *
+ * Beides mit Umkehrkinematik zu machen war der Fehler, und er war messbar:
+ * Bei der Faustpumpe liegt das Handziel nur 64 Bildpunkte von der Schulter
+ * weg, der Arm ist aber 156 lang. Er muss sich also stark falten, und *wie*
+ * er sich faltet, entscheidet die Kinematik in jedem Bild neu. Protokolliert
+ * ueber zwei Schlaege: Der Oberarm drehte sich von 69 auf 102 Grad - kaum
+ * etwas -, waehrend der Unterarm in siebzig Millisekunden um 117 Grad
+ * durchpeitschte. Genau das ist das Zucken im Ellenbogen.
+ *
+ * Gesten werden deshalb als *Gelenkwinkel* hingeschrieben, so wie ein
+ * Animator sie hinschreiben wuerde. Zwei Zahlen je Arm genuegen:
+ *
+ *   aus      wie weit der Oberarm aus der Senkrechten heraussteht -
+ *            0 = haengt herunter, 90 = waagerecht, 180 = senkrecht hoch.
+ *   beugung  wie weit der Ellenbogen gebeugt ist, immer in die eine
+ *            Richtung, in die ein Ellenbogen sich beugen kann.
+ *
+ * Beide Zahlen gelten fuer beide Arme; die Seite kommt ueber das Vorzeichen
+ * dazu. Damit kann eine Geste gar nicht erst unmenschlich werden.
  */
-function handZiele(m, lage) {
-  const { spannung, abbau, dropHalt, anteilB, wucht } = lage;
+const grad = (g) => (g * Math.PI) / 180;
 
-  // Grundhaltung: linke Hand am linken Teller, rechte am Regler. Das ist die
-  // Haltung, in der ein DJ die meiste Zeit wirklich steht.
+const GESTEN = {
+  /*
+   * Die Faustpumpe: Oberarm waagerecht nach aussen, Ellenbogen zu gut
+   * siebzig Grad gebeugt - der Unterarm steht dadurch fast senkrecht und die
+   * Faust ueber dem Kopf.
+   *
+   * Der erste Versuch hatte den Oberarm haengen (28 Grad aus der Senkrechten)
+   * und den Ellenbogen mit 112 Grad staerker gebeugt. Nachgerechnet landet
+   * die Faust damit nicht oben, sondern *seitlich* auf Schulterhoehe: Bei
+   * einem Unterarm von 82 Bildpunkten und dieser Beugung zeigt er nach
+   * rechts oben, nicht nach oben. Im Bild sah es aus, als winke die Figur.
+   */
+  pumpe: { aus: grad(118), beugung: grad(78) },
+  // Beide Arme hoch, leicht nach innen geneigt: das V ueber dem Kopf.
+  drop: { aus: grad(150), beugung: grad(30) },
+  // Der Aufbau: ein Arm steigt fast gestreckt hoch.
+  aufbau: { aus: grad(158), beugung: grad(16) },
+  // Der Zeigefinger ins Publikum - Arm nach vorn oben, fast gestreckt.
+  zeigen: { aus: grad(108), beugung: grad(10) },
+};
+
+/*
+ * Wohin die Haende greifen sollen, und welche Geste wie stark dazwischenkommt.
+ */
+function armZiele(m, lage) {
+  const { spannung, abbau, dropHalt: halt, anteilB, wucht, pumpe } = lage;
+
   /*
    * Grundhaltung: beide Haende auf den Tellern.
    *
-   * Zuerst lag die rechte am Mischer, dicht neben dem Koerper - und
-   * verschwand dort hinter dem Oberkoerper. Von einem Arm, den man nicht
-   * sieht, hat die Silhouette nichts. Beide Haende aussen spreizen die Arme
-   * und geben der Figur ihre Kontur.
+   * Wo die Teller stehen, ist nicht geraten - PULT.teller ist im Pultbild
+   * gemessen. Steht die Hand woanders, sieht man es sofort: ein DJ, der neben
+   * den Teller greift.
    */
-  let lx = m.mitte - m.tellerX;
-  let ly = m.pultOben - m.kopfH * 0.42;
-  let rx = m.mitte + m.tellerX;
-  let ry = m.pultOben - m.kopfH * 0.42;
+  const tellerX = m.pultB * PULT.teller;
+  let lx = m.mitte - tellerX;
+  /*
+   * Die Ruhehaende liegen *auf* den Tellern, also knapp ueber der Pultkante.
+   * Darunter waeren sie unsichtbar, weil das Pult zuletzt darueber kommt -
+   * und von einem Arm, der im Moebel endet, hat die Silhouette nichts.
+   */
+  let ly = m.pultOben - m.kopfH * 0.12;
+  let rx = m.mitte + tellerX;
+  let ry = ly;
 
   /*
    * Uebergang: die rechte Hand wandert mit dem Regler.
    *
    * Das ist die ehrlichste Bewegung der ganzen Figur - der Mischer blendet
    * wirklich gerade ueber, und anteilB ist wirklich der Stand des Reglers.
-   * Wer genau hinsieht, kann am Schatten ablesen, wie weit der Wechsel ist.
+   * Nach aussen versetzt, weil die Hand in der Mitte hinter dem Oberkoerper
+   * verschwindet und man vom Uebergang dann nichts saehe.
    */
   if (anteilB > 0) {
-    const weg = m.reglerB * (anteilB - 0.5);
-    rx = m.mitte + weg;
-    ry = m.pultOben - m.kopfH * 0.14;
+    /*
+     * Der Weg ist etwas laenger als frueher und faengt weiter innen an, weil
+     * jetzt die *echte* Handposition gemessen wird und nicht mehr das Ziel.
+     * Am aeusseren Ende reicht der Arm nicht mehr ganz hin, der zurueckgelegte
+     * Weg faellt also kuerzer aus als der Sollweg - gemessen 55 statt 74
+     * Bildpunkten. Mit 0,24 der Pultbreite bleibt das Ziel in Reichweite und
+     * die Bewegung ist wieder von hinten im Raum zu sehen.
+     */
+    rx = m.mitte + m.pultB * (0.08 + 0.24 * anteilB);
+    ry = m.pultOben - m.kopfH * 0.04;
   }
 
   /*
-   * Breakdown: der Kopfhoerer ans Ohr.
-   *
-   * Auch das stimmt: Im Breakdown bereitet die Buehne den naechsten Track vor.
-   * Ein DJ hoert dann vor, und genau das tut die Figur.
+   * Breakdown: der Kopfhoerer ans Ohr. Auch das stimmt - im Breakdown
+   * bereitet die Buehne wirklich den naechsten Track vor, und ein DJ hoert
+   * dann vor.
    */
-  if (abbau > 0.15) {
-    const t = klemm((abbau - 0.15) / 0.5, 0, 1);
-    lx += (m.mitte - m.kopfB * 0.78 - lx) * t;
-    ly += (m.kopfY + m.kopfH * 0.05 - ly) * t;
+  const amOhr = klemm((abbau - 0.15) / 0.5, 0, 1);
+  if (amOhr > 0) {
+    lx += (m.mitte - m.ohrX - lx) * amOhr;
+    ly += (m.ohrY - ly) * amOhr;
   }
 
   /*
-   * Aufbau: der rechte Arm geht hoch, je naeher der Drop kommt. Nicht
-   * schlagartig - das Hochgehen *ist* die Ankuendigung.
+   * Die Gesten, nach Rang geordnet: Was staerker ist, gewinnt. Sie mischen
+   * sich nicht - zwei halbe Gesten ergeben keine halbe Figur, sondern eine
+   * unentschlossene.
    */
-  const hoch = klemm((spannung - 0.35) / 0.55, 0, 1);
-  if (hoch > 0) {
-    rx += (m.mitte + m.schulterB * 0.9 - rx) * hoch;
-    ry += (m.schulterY - m.kopfH * (1.0 + wucht * 0.35) - ry) * hoch;
+  const aufbau = klemm((spannung - 0.35) / 0.55, 0, 1);
+  const gesten = [null, null];
+  const setzen = (seite, name, gewicht) => {
+    if (gewicht <= 0.01) return;
+    const bisher = gesten[seite];
+    if (!bisher || gewicht > bisher.gewicht) gesten[seite] = { ...GESTEN[name], gewicht };
+  };
+  // Rechts: Pumpe, Aufbau, Zeigen - je nach Lage.
+  setzen(1, 'pumpe', pumpe);
+  setzen(1, 'aufbau', aufbau);
+  if (halt <= 0) setzen(1, 'zeigen', klemm(zeigenHalt, 0, 1));
+  // Der Drop nimmt beide und schlaegt alles.
+  if (halt > 0) {
+    gesten[0] = { ...GESTEN.drop, gewicht: klemm(halt, 0, 1) };
+    gesten[1] = { ...GESTEN.drop, gewicht: klemm(halt, 0, 1) };
   }
+  // Am Ohr bleibt der linke Arm, was er ist - eine Geste waere dort falsch.
+  if (amOhr > 0.2) gesten[0] = null;
+  void wucht;
 
-  /*
-   * Drop: beide Arme hoch, und zwar sofort. dropHalt klingt ueber rund zwei
-   * Sekunden ab - lang genug, dass man es sieht, kurz genug, dass die Figur
-   * nicht minutenlang mit erhobenen Armen dasteht.
-   */
-  if (dropHalt > 0) {
-    const t = klemm(dropHalt, 0, 1);
-    lx += (m.mitte - m.schulterB * 1.0 - lx) * t;
-    ly += (m.schulterY - m.kopfH * 1.35 - ly) * t;
-    rx += (m.mitte + m.schulterB * 1.0 - rx) * t;
-    ry += (m.schulterY - m.kopfH * 1.35 - ry) * t;
-  }
-
-  /*
-   * Der Zeigefinger ins Publikum. Nur auf Phrasengrenzen, nur bei Betrieb,
-   * und nur manchmal - eine Geste, die jeden Takt kommt, ist keine Geste
-   * mehr, sondern ein Zucken.
-   */
-  if (zeigenHalt > 0 && dropHalt <= 0) {
-    const t = klemm(zeigenHalt, 0, 1);
-    rx += (m.mitte + m.schulterB * 1.5 - rx) * t;
-    ry += (m.pultOben - m.kopfH * 1.0 - ry) * t;
-  }
-
-  return { lx, ly, rx, ry };
+  return { lx, ly, rx, ry, gesten };
 }
 
 /* --- Zeichnen -------------------------------------------------------------- */
@@ -10394,6 +11264,7 @@ function handZiele(m, lage) {
  */
 function schattenZeichnen(stift, breite, hoehe, lage = {}) {
   if (!an || !stift || breite < 120 || hoehe < 120) return;
+  if (!pultBild) pultLaden();
 
   const sekunden = klemm(lage.sekunden ?? 1 / 60, 0, 0.2);
   const takt = lage.takt ?? null;
@@ -10411,288 +11282,602 @@ function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * kann man nicht ueberspringen, ohne dass es auffaellt.
    */
   if (takt && takt.nummer !== schattenLetzterBeat) {
-    if (schattenLetzterBeat >= 0) {
-      const staerke = takt.aufPhrase ? 1 : takt.aufEins ? 0.72 : 0.42;
-      /*
-       * Der Stoss geht in die *Geschwindigkeit*, die gewuenschte Groesse ist
-       * aber eine *Auslenkung* - und zwischen beiden steht die Eigenfrequenz
-       * der Feder.
-       *
-       * Hier stand zuerst der Wunschwert direkt als Stoss, und gemessen kam
-       * dabei eine Auslenkung von 0,02 heraus statt der beabsichtigten 0,4:
-       * Bei einer Federkonstanten von 190 ist die Eigenfrequenz rund 13,8 je
-       * Sekunde, und ein Geschwindigkeitsstoss v erzeugt nur v/13,8 an Weg.
-       * Der Faktor fehlte, und das Nicken war fast unsichtbar.
-       */
-      const wunsch = staerke * (0.30 + wucht * 0.45 + spannung * 0.25) * (1 - abbau * 0.6);
-      nickV += wunsch * EIGENFREQUENZ;
+    /*
+     * Die Schlagdauer aus dem Abstand zweier Schlaege - nicht aus der
+     * BPM-Angabe des Tracks. In einem Stundenmix wechselt das Tempo
+     * unterwegs, und die Tempokarte weiss davon; eine feste Zahl aus dem
+     * Dateinamen nicht.
+     */
+    const gemessen = (letzteSchlagZeit || 0) + sekunden;
+    if (schattenLetzterBeat >= 0 && takt.nummer === schattenLetzterBeat + 1) {
+      if (gemessen > 0.12 && gemessen < 2) {
+        schlagDauer = schlagDauer * 0.7 + gemessen * 0.3;
+        federStimmen();
+      }
+    }
+    letzteSchlagZeit = 0;
+    /*
+     * Der Akzent - und nur er.
+     *
+     * Frueher stand hier ein Stoss bei jedem Schlag, gestaffelt nach Eins,
+     * Phrase und Rest. Genau das war das Klopfen: vier gleichartige Stoesse
+     * je Takt, die zusammen keinen Bogen ergeben. Jetzt loest allein die
+     * Phrasengrenze aus, also alle acht Takte einmal, und der Drop weiter
+     * unten. Was dazwischen passiert, macht die Verlagerung.
+     *
+     * Der Stoss geht in die *Geschwindigkeit*, die gewuenschte Groesse ist
+     * aber eine *Auslenkung* - und zwischen beiden steht die Eigenfrequenz
+     * der Feder. Ohne diesen Faktor kam von 0,4 gerade 0,02 an.
+     */
+    if (schattenLetzterBeat >= 0 && takt.aufPhrase) {
+      const wunsch = (0.5 + wucht * 0.55 + spannung * 0.3) * (1 - abbau * 0.6);
+      nickV += wunsch * eigenFrequenz;
     }
     schattenLetzterBeat = takt.nummer;
 
     // Die Geste ins Publikum: auf Phrasengrenzen, wenn es laut genug ist.
     if (takt.aufPhrase && takt.nummer !== letztePhrase) {
       letztePhrase = takt.nummer;
-      if (wucht > 0.35 && abbau < 0.2 && Math.random() < 0.35) zeigenHalt = 1;
+      if (wucht > 0.35 && abbau < 0.2 && Math.random() < 0.5) zeigenHalt = 1;
     }
   }
 
-  /*
-   * Die Feder. Kritisch gedaempft waere langweilig, also ein bisschen
-   * darunter - dann schwingt der Kopf einmal nach, und das sieht nach
-   * Koerper aus statt nach Mechanik.
-   */
-  nickV += (-FEDER_K * nickX - FEDER_D * nickV) * sekunden;
+  // Die Feder.
+  nickV += (-federK * nickX - federD * nickV) * sekunden;
   nickX += nickV * sekunden;
-  // Ohne Deckel schaukelt sich die Feder bei sehr schnellen Beats auf.
-  nickX = klemm(nickX, -0.55, 0.55);
+  // Ohne Deckel schaukelt sie sich bei sehr schnellen Beats auf.
+  nickX = klemm(nickX, -0.6, 0.6);
 
-  if (zeigenHalt > 0) zeigenHalt = Math.max(0, zeigenHalt - sekunden * 0.55);
-  if (lage.drop) dropHalt = 1;
-  else if (dropHalt > 0) dropHalt = Math.max(0, dropHalt - sekunden * 0.5);
+  letzteSchlagZeit += sekunden;
+  if (zeigenHalt > 0) zeigenHalt = Math.max(0, zeigenHalt - sekunden * 0.8);
+  /*
+   * Der Drop stoesst die Feder jetzt selbst an.
+   *
+   * Vorher hat er das nicht gebraucht: Der naechste Schlag kam ohnehin
+   * spaetestens nach einer halben Sekunde und trug den Ruck mit. Ohne die
+   * Schlagstoesse waere der Drop sonst die einzige Stelle, an der die Musik
+   * aufreisst und der Koerper nichts tut.
+   */
+  if (lage.drop) {
+    if (dropHalt < 0.5) nickV += 1.15 * eigenFrequenz;
+    dropHalt = 1;
+  } else if (dropHalt > 0) dropHalt = Math.max(0, dropHalt - sekunden * 0.65);
 
   const m = masse(breite, hoehe);
+
+  /*
+   * Wie sehr er mitgeht. Aus Wucht und Abbau, denn beides steht in der
+   * Analyse: Wucht ist die Energie des Stuecks, Abbau der Breakdown. Im
+   * Breakdown pumpt niemand die Faust, und waehrend eines Uebergangs hat die
+   * rechte Hand am Regler zu tun.
+   */
+  const schwung = klemm(wucht * 1.35 - abbau * 1.6 - anteilB * 0.5, 0, 1);
+
+  /*
+   * Die Faustpumpe zaehlt in Schlaegen, nicht in Sekunden.
+   *
+   * Bei einem Tempowechsel mitten im Mix bliebe eine Pumpe auf Sekundenbasis
+   * stehen, waehrend der Schlag weiterlaeuft. Der Schlagzaehler kommt aus der
+   * Analyse und ist die einzige Zeitachse, die zur Musik gehoert.
+   */
+  if (takt) pumpPhase = takt.beat ?? takt.nummer + (takt.imBeat ?? 0);
+  /*
+   * Die Form der Pumpe: harter Anschlag, langsames Zurueck.
+   *
+   * Zuerst stand hier eine Sinuskuppel ueber zwei Schlaege. Die ist
+   * symmetrisch, und symmetrisch sieht aus wie *Winken*: Die Hand steigt
+   * genauso lange, wie sie faellt, und beschreibt einen grossen Bogen. Ein
+   * Fauststoss geht in einem Sechstel Schlag hoch und kommt ueber den Rest
+   * zurueck - dieselbe Asymmetrie, die auch das Nicken erst zu einem Nicken
+   * macht.
+   */
+  const uPump = (((pumpPhase % 2) + 2) % 2) / PUMPE_DAUER;
+  /*
+   * Die Form der Pumpe: steil hoch, oben bleiben, steil zurueck.
+   *
+   * Der Sinus hoch 0,6 macht genau das - flache Kuppe, steile Flanken. Die
+   * beiden Vorgaenger waren beide falsch, und zwar aus demselben Grund: Eine
+   * halb eingemischte Geste ist die *Durchgangslage*, und die ist hier ein
+   * waagerecht abstehender Arm. Eine Sinuskuppel (hoch 1) haelt sich zu lange
+   * darin auf, ein langsames Abklingen erst recht - im Filmstreifen stand der
+   * Arm in fuenf von achtzehn Bildern seitlich ab und die Figur sah aus, als
+   * winke sie. Was zaehlt, ist nicht die Dauer der Geste, sondern wie schnell
+   * sie durch die Mitte kommt.
+   */
+  const roh = uPump >= 1 ? 0 : Math.sin(Math.PI * uPump) ** 0.6;
+  /*
+   * Die Pumpe kommt erst bei wirklich viel Energie, und dann ganz.
+   *
+   * Ein Versuch, den Arm zwischen zwei Pumpen auf halber Hoehe stehen zu
+   * lassen, ist wieder heraus: Eine halb eingemischte Geste ist keine halbe
+   * Geste, sondern die *Durchgangslage* - der Arm stand waagerecht ab, als
+   * zeige die Figur dauerhaft zur Seite. Zwischenwerte einer Pose sind nur
+   * auf dem Weg gut, nicht als Ruhelage.
+   *
+   * Stattdessen eine Schwelle, und eine scharfe: Unterhalb arbeitet die Figur
+   * am Pult und grooved mit dem Koerper, oberhalb pumpt sie. Ueber acht
+   * Prozent Wucht ist der Uebergang durch - waere er breiter, staende der
+   * Arm bei mittlerer Lautstaerke dauerhaft in der Durchgangslage. Das ist
+   * auch musikalisch richtig: Niemand reisst bei halber Lautstaerke die
+   * Faust hoch.
+   */
+  const pumpe = klemm((schwung - 0.62) / 0.08, 0, 1) * roh;
 
   // Traege Koerpergroessen. Der Oberkoerper geht mit der Spannung nach vorn -
   // der DJ beugt sich ueber das Pult, wenn es darauf zulaeuft.
   const neigungZiel = spannung * 0.16 - abbau * 0.06 + dropHalt * 0.1;
-  neigung = folgen(neigung, neigungZiel, 2.4, sekunden);
-  // Seitliches Wiegen, im halben Tempo des Schlags. Es laeuft ueber eine
-  // eigene Phase und nicht ueber imBeat, damit es beim Tempowechsel nicht
-  // springt.
-  wiegePhase += sekunden * (0.7 + wucht * 0.7);
-  const wiegeZiel = Math.sin(wiegePhase * Math.PI) * (0.35 + wucht * 0.5) * (1 - abbau * 0.5);
-  wiegen = folgen(wiegen, wiegeZiel, 6, sekunden);
+  neigung = folgen(neigung, neigungZiel, 3.2, sekunden);
+  /* --- Die Gewichtsverlagerung, und das Absacken darin --------------------
+   *
+   * Sie ist jetzt der ganze Groove. Ein voller Durchgang - links, rechts,
+   * zurueck - dauert acht Schlaege, also zwei Takte, und die Phase dafuer
+   * waechst mit dem *Zuwachs* der Beatnummer. Damit haengt sie am Tempo des
+   * Stuecks, ohne beim Trackwechsel zu springen: Ein Sprung im Zuwachs wird
+   * verworfen, und die Verlagerung laeuft dort einfach weiter, wo sie war.
+   */
+  const beatJetzt = takt ? takt.beat ?? takt.nummer + (takt.imBeat ?? 0) : null;
+  if (beatJetzt !== null) {
+    const zuwachs = letzterBeatWert === null ? 0 : beatJetzt - letzterBeatWert;
+    // Bis zu einem halben Schlag je Bild ist glaubwuerdig; alles darueber ist
+    // ein Abschnittswechsel oder ein Sprung in der Wiedergabe.
+    if (zuwachs > 0 && zuwachs < 0.5) wiegePhase += zuwachs / WIEGE_SCHLAEGE;
+    letzterBeatWert = beatJetzt;
+  } else {
+    letzterBeatWert = null;
+  }
+  wiegePhase -= Math.floor(wiegePhase);
+  /*
+   * Wie gross die Verlagerung ausfaellt. Bei Stille ist sie null - eine
+   * Figur, die im Nichts weiterschaukelt, sieht gespenstisch aus.
+   */
+  const groesse = klemm(wucht * 1.6 - 0.08, 0, 1) * (1 - abbau * 0.5);
+  const winkel = 2 * Math.PI * wiegePhase;
+  const wiegeZiel = Math.sin(winkel) * (0.35 + groesse * 0.65) * groesse;
+  wiegen = folgen(wiegen, wiegeZiel, 7, sekunden);
+  /*
+   * Und das Absacken: Es ist keine eigene Bewegung, sondern die Folge der
+   * Verlagerung. Wer das Gewicht von einem Bein aufs andere bringt, ist
+   * unterwegs am tiefsten und ueber dem Bein am hoechsten - also genau dann
+   * unten, wenn die seitliche Auslenkung durch null geht. Das ist cos(2x),
+   * doppelt so schnell wie die Verlagerung: einmal je Takt.
+   *
+   * Deshalb kann es gar nicht klopfen. Es gibt keinen Anstoss, den man
+   * zaehlen koennte, nur einen Bogen ueber vier Schlaege.
+   */
+  senken = folgen(senken, Math.cos(2 * winkel) * 0.5 * groesse, 9, sekunden);
   // Der Kopf dreht sich zur Hand, die gerade etwas tut.
-  kopfDreh = folgen(kopfDreh, (anteilB > 0 ? 0.35 : 0) - abbau * 0.5, 2, sekunden);
+  kopfDreh = folgen(kopfDreh, (anteilB > 0 ? 0.4 : 0) - abbau * 0.55, 2.6, sekunden);
 
-  const ziele = handZiele(m, { spannung, abbau, dropHalt, anteilB, wucht });
-  if (!handL) { handL = { x: ziele.lx, y: ziele.ly }; handR = { x: ziele.rx, y: ziele.ry }; }
-  // Haende schnell, damit ein Drop wirklich schlagartig wirkt - aber nicht so
-  // schnell, dass es zuckt.
-  const handTempo = 9 + dropHalt * 14;
+  const ziele = armZiele(m, { spannung, abbau, dropHalt, anteilB, wucht, pumpe });
+  if (!handL) {
+    handL = { x: ziele.lx, y: ziele.ly };
+    handR = { x: ziele.rx, y: ziele.ry };
+  }
+  /*
+   * Wie schnell die Haende ihren Zielen folgen.
+   *
+   * Vorher 9 je Sekunde, also eine Zeitkonstante von 110 ms - und das war der
+   * Grund fuer "viel zu langsam fuer einen motivierten DJ". Bei 22 sind es
+   * 45 ms: schnell genug, dass ein Drop schlagartig wirkt, langsam genug,
+   * dass nichts zuckt.
+   */
+  const handTempo = 22 + dropHalt * 30;
   handL.x = folgen(handL.x, ziele.lx, handTempo, sekunden);
   handL.y = folgen(handL.y, ziele.ly, handTempo, sekunden);
   handR.x = folgen(handR.x, ziele.rx, handTempo, sekunden);
   handR.y = folgen(handR.y, ziele.ry, handTempo, sekunden);
 
-  /*
-   * Das Nicken bewegt den ganzen Oberkoerper, den Kopf am staerksten.
+  /* --- Der Groove: aus dem Koerper, nicht aus den Haenden ----------------
    *
-   * Der Faktor sass zuerst bei 0,22 und war zu klein: Von der beabsichtigten
-   * Auslenkung kommt bei einem Daempfungsgrad von 0,54 nur gut die Haelfte
-   * an - das ist kein Fehler der Feder, sondern ihre Bauart. Statt die Feder
-   * zu verstimmen wird hier verstaerkt, denn nur diese Zahl entscheidet
-   * darueber, wie weit der Kopf wirklich wandert.
+   * Hier stand vorher das Gegenteil, und das war der Fehler. Der Schlag wurde
+   * auf die *Haende* gelegt: Sie zuckten auf jeden Beat ein Stueck nach unten
+   * und aussen. Gemessen ueber zwei Schlaege lief der rechte Ellenbogen dabei
+   * um 125 Grad hin und her, im Ruhezustand wohlgemerkt - er zuckte, statt zu
+   * grooven.
+   *
+   * Ein Mensch macht es umgekehrt. Die Haende liegen auf den Tellern und
+   * bleiben dort; was federt, sind die Knie. Der Koerper sackt auf den Schlag
+   * ein paar Zentimeter ab, die Huefte verlagert das Gewicht von einem Bein
+   * aufs andere, die Schulterlinie kippt dabei mit. Und weil die Hand liegen
+   * bleibt, waehrend die Schulter sinkt, *beugt sich der Ellenbogen von
+   * selbst* - genau im Takt, ohne dass irgendwo ein Beat auf einen Arm
+   * gerechnet wird. Das ist der ganze Trick, und es ist derselbe, den eine
+   * Bewegungsaufnahme liefern wuerde.
+   *
+   * Vier Groessen, vier Koerperteile:
+   *
+   *   Federn    Knie  - der Koerper sackt auf den Schlag ab.
+   *   Wiegen    Huefte- Gewichtsverlagerung ueber zwei Schlaege, seitlich.
+   *   Rollen    Rumpf - die Schulterlinie kippt zur belasteten Seite.
+   *   Nicken    Kopf  - laeuft dem Koerper hinterher, nicht mit ihm.
    */
-  const nickPx = nickX * m.kopfH * 0.42;
-  letzterNickPx = nickPx;
-  const seitePx = wiegen * m.kopfH * 0.11;
-
-  const kopfX = m.mitte + seitePx * 1.4 + kopfDreh * m.kopfH * 0.12;
-  const kopfY = m.kopfY + nickPx + neigung * m.kopfH * 0.55;
-  const schulterY = m.schulterY + nickPx * 0.5 + neigung * m.kopfH * 0.32;
-  const schulterLx = m.mitte - m.schulterB + seitePx;
-  const schulterRx = m.mitte + m.schulterB + seitePx;
 
   /*
-   * Die Farbe.
+   * Das Nicken des Kopfes laeuft dem Federn *nach*.
    *
-   * Ein Schatten ist nicht schwarz, sondern *fast* schwarz - ein Rest des
-   * Bildes dahinter scheint durch. Voellig schwarz sieht aus wie ein
-   * ausgeschnittenes Stueck Papier; mit einem Hauch Durchlaessigkeit sieht es
-   * aus wie jemand vor einer Leinwand.
+   * Ein Kopf sitzt auf einem Hals, und ein Hals ist weich. Sackt der Koerper
+   * ab, folgt der Kopf ein Stueck spaeter - diese Verzoegerung ist das, was
+   * das Auge als Masse liest. Bewegen sich beide gleichzeitig, sieht die Figur
+   * aus wie aus einem Stueck Holz.
    */
-  const palette = lage.palette ?? null;
-  const randfarbe = palette?.[Math.min(palette.length - 1, 3)] ?? '#8ad7ff';
-  const schluessel = `${Math.round(breite)}x${Math.round(hoehe)}|${randfarbe}`;
-  if (schluessel !== verlaufSchluessel) {
-    verlaufSchluessel = schluessel;
-    randVerlauf = stift.createLinearGradient(0, m.kopfY - m.kopfH, 0, hoehe);
-    randVerlauf.addColorStop(0, randfarbe);
-    randVerlauf.addColorStop(1, 'rgba(0,0,0,0)');
-  }
+  const hoehenLage = senken * SENKEN + nickX * FEDERN;
+  kopfNick += (hoehenLage - kopfNick) * klemm(sekunden * 17, 0, 1);
+
+  const federPx = hoehenLage * m.kopfH;
+  letzterNickPx = (hoehenLage + kopfNick * KOPF_NICKEN) * m.kopfH;
+  const seitePx = wiegen * m.kopfH * WIEGEN;
+
+  /* --- Die Figur stellen -------------------------------------------------- */
+  const figH = m.figurH;
+  const bx = m.mitte;
+  const by = m.figurOben;
+
+  /*
+   * Der Koerper dreht um die Huefte, nicht um seine Mitte.
+   *
+   * Dort steht er auf den Beinen, und dort ist der Drehpunkt jeder
+   * Gewichtsverlagerung. Rollt er um die Mitte, wandern Kopf und Huefte
+   * gegenlaeufig aus - das sieht aus wie ein Metronom, nicht wie ein Mensch.
+   */
+  const hueftY = by + figH * HUEFTE;
+  const koerperW = wiegen * KOERPER_ROLLEN;
+  const rcos = Math.cos(koerperW);
+  const rsin = Math.sin(koerperW);
+  const rvx = seitePx;
+  const rvy = federPx + neigung * m.kopfH * 0.32;
+  const amKoerper = (px, py, aus) => {
+    const dx = px - bx;
+    const dy = py - hueftY;
+    aus[0] = bx + dx * rcos - dy * rsin + rvx;
+    aus[1] = hueftY + dx * rsin + dy * rcos + rvy;
+  };
+
+  /*
+   * Der Kopf: er dreht zusaetzlich um den Hals und faellt weiter als die
+   * Schultern. Beides zusammen ist ein Nicken. Nur aus dem Hals sieht es aus
+   * wie ein Wackelkopf im Auto, nur aus den Schultern wie ein Aufzug.
+   */
+  const hals = [0, 0];
+  amKoerper(bx, by + RIG.halsY * figH, hals);
+  const kopfW = kopfDreh * 0.2 + wiegen * KOPF_AUSGLEICH;
+  const kvy = kopfNick * KOPF_NICKEN * m.kopfH + neigung * m.kopfH * 0.25;
+  const kvx = kopfDreh * m.kopfH * 0.14;
+  const kcos = Math.cos(kopfW);
+  const ksin = Math.sin(kopfW);
+  const amKopf = (px, py, aus) => {
+    amKoerper(px, py, aus);
+    const dx = aus[0] - hals[0];
+    const dy = aus[1] - hals[1];
+    aus[0] = hals[0] + dx * kcos - dy * ksin + kvx;
+    aus[1] = hals[1] + dx * ksin + dy * kcos + kvy;
+  };
+
+  /*
+   * Die Arme.
+   *
+   * Die Hand ist das Ziel, die Schulter der Ausgangspunkt - und die Schulter
+   * bewegt sich mit dem Koerper. Aus beidem rechnet die Kinematik den
+   * Ellenbogen, und weil sie zwei Loesungen liefert, faellt hier die
+   * Entscheidung: erst nach Anatomie, dann nach Naehe zum jetzigen Stand.
+   */
+  if (!armWinkel) armWinkel = RIG.arme.map(() => null);
+  const schulterPunkt = [0, 0];
+  const armLage = RIG.arme.map((a, i) => {
+    amKoerper(bx + a.schulter[0] * figH, by + a.schulter[1] * figH, schulterPunkt);
+    const sx = schulterPunkt[0];
+    const sy = schulterPunkt[1];
+    const hand = i === 0 ? handL : handR;
+    const g = ellbogenPaar(sx, sy, hand.x, hand.y, a.l1 * figH, a.l2 * figH);
+
+    let bestes = null;
+    for (const vz of [1, -1]) {
+      const ex = g.fx + vz * g.h * g.nx;
+      const ey = g.fy + vz * g.h * g.ny;
+      const o = Math.atan2(ey - sy, ex - sx);
+      const u = Math.atan2(g.hy - ey, g.hx - ex);
+      const rel = gerade(u - o);
+      /*
+       * Erlaubt ist nur, was ein Ellenbogen kann: Beugung in *eine* Richtung,
+       * und ueber die Streckung hinaus fast nichts. `seite` dreht die Regel
+       * fuer den linken Arm um - beide Arme beugen spiegelbildlich.
+       */
+      const gebeugt = -a.seite * rel;
+      const erlaubt = gebeugt <= ELLBOGEN_BEUGUNG && gebeugt >= -ELLBOGEN_STRECKUNG;
+      /*
+       * Sind beide zulaessig, entscheiden zwei Dinge: wie nah die Loesung an
+       * der Ruhehaltung liegt, und wie nah am jetzigen Stand.
+       *
+       * Die Ruhehaltung ist noetig, und das war ein Fehler: Zuerst zaehlte
+       * nur die Naehe zum Ist-Wert. Im ersten Bild gibt es den aber nicht,
+       * also gewann die zuerst gepruefte Loesung - und weil sie danach
+       * *ihre eigene* Naehe geniesst, blieb der Arm fuer immer dort. Im
+       * Standbild stand der rechte Arm waagerecht ab, waehrend der linke
+       * ordentlich am Teller lag.
+       *
+       * Die Ruhehaltung ist "haengend, leicht nach aussen" - dorthin faellt
+       * ein Arm unter seinem Gewicht.
+       */
+      const zurRuhe = Math.abs(gerade(o - (Math.PI / 2 - a.seite * RUHE_AUSWAERTS)));
+      const naehe = armWinkel[i] ? Math.abs(gerade(o - armWinkel[i].o)) : 0;
+      const wert = (erlaubt ? 0 : 100) + zurRuhe * 0.6 + naehe * 0.5;
+      if (!bestes || wert < bestes.wert) bestes = { wert, o, u, rel, ex, ey };
+    }
+
+    /*
+     * Die Geste dazwischenmischen.
+     *
+     * Sie kommt als Gelenkwinkel und nicht als Ort, also wird auch in
+     * Winkeln gemischt - auf dem kuerzeren Bogen, sonst laeuft der Arm bei
+     * einer Ueberblendung ueber 180 Grad einmal falsch herum.
+     */
+    let o = bestes.o;
+    let uZiel = bestes.u;
+    const geste = ziele.gesten[i];
+    if (geste) {
+      const oG = Math.PI / 2 - a.seite * geste.aus + koerperW;
+      const uG = oG - a.seite * geste.beugung;
+      o += gerade(oG - o) * geste.gewicht;
+      uZiel += gerade(uG - uZiel) * geste.gewicht;
+    }
+    const ausBind = gerade(o - (a.bindOben + koerperW));
+    if (ausBind > SCHULTER_SPANNE) o -= ausBind - SCHULTER_SPANNE;
+    else if (ausBind < -SCHULTER_SPANNE) o -= ausBind + SCHULTER_SPANNE;
+    let u = uZiel;
+    const gebeugt2 = -a.seite * gerade(u - o);
+    if (gebeugt2 > ELLBOGEN_BEUGUNG) u = o - a.seite * ELLBOGEN_BEUGUNG;
+    else if (gebeugt2 < -ELLBOGEN_STRECKUNG) u = o + a.seite * ELLBOGEN_STRECKUNG;
+
+    /*
+     * Zum Schluss nachziehen - und zwar zweifach begrenzt.
+     *
+     * Das traege Nachziehen allein genuegt nicht. Es laesst je Bild einen
+     * festen *Anteil* der Differenz zu, also bei einem grossen Sprung auch
+     * einen grossen Schritt: Beim Drop schaltet die Geste in einem Bild von
+     * null auf eins, und die Abnahme mass daraufhin 61 Grad in einer
+     * Sechzigstelsekunde - 3700 Grad je Sekunde. Kein Gelenk kann das.
+     *
+     * Deshalb zusaetzlich eine Hoechstgeschwindigkeit. 800 Grad je Sekunde
+     * ist schnell: Ein Boxer kommt am Ellenbogen auf gut das Doppelte, eine
+     * Faust in die Luft auf die Haelfte. Der Drop braucht damit 175
+     * Millisekunden, bis die Arme oben sind - ein Drittel Schlag, also genau
+     * so schnell, wie es sich anfuehlen soll, und trotzdem eine Bewegung
+     * statt eines Umschaltens.
+     */
+    const t = klemm(sekunden * GELENK_TEMPO, 0, 1);
+    const hoechstens = GELENK_HOECHSTTEMPO * sekunden;
+    /*
+     * Gedaempft wird im *Gelenkraum*: die Schulter absolut, der Ellenbogen
+     * gegen den Oberarm. Wuerde man beide absolut deckeln, koennten sie
+     * gegenlaeufig ans Limit laufen und die Beugung aenderte sich doppelt so
+     * schnell wie erlaubt - die Abnahme hat genau das gemessen, 18,5 Grad je
+     * Bild bei einem Deckel von 13,3.
+     */
+    if (!armWinkel[i]) armWinkel[i] = { o, rel: gerade(u - o) };
+    else {
+      armWinkel[i].o += klemm(gerade(o - armWinkel[i].o) * t, -hoechstens, hoechstens);
+      const relZiel = gerade(u - o);
+      armWinkel[i].rel += klemm(gerade(relZiel - armWinkel[i].rel) * t, -hoechstens, hoechstens);
+    }
+    if (typeof window !== 'undefined' && window.__armLog) {
+      window.__armLog.push([i, Math.round((o*180)/Math.PI), Math.round((u*180)/Math.PI),
+        Math.round((armWinkel[i].o*180)/Math.PI), Math.round((armWinkel[i].u*180)/Math.PI),
+        geste ? Math.round(geste.gewicht*100) : 0]);
+    }
+    const oI = armWinkel[i].o;
+    const uI = oI + armWinkel[i].rel;
+    /*
+     * Wo die Hand wirklich gelandet ist.
+     *
+     * Nicht das Ziel, sondern das Ergebnis - und das ist ein Unterschied,
+     * seit Gesten ueber Gelenkwinkel laufen: Bei erhobenen Armen gibt es gar
+     * kein Handziel mehr, das man messen koennte. Die Abnahme prueft damit
+     * das gezeichnete Bild statt einer Zwischenrechnung.
+     */
+    const exI = sx + Math.cos(oI) * a.l1 * figH;
+    const eyI = sy + Math.sin(oI) * a.l1 * figH;
+    letzteHand[i] = {
+      x: exI + Math.cos(uI) * a.l2 * figH,
+      y: eyI + Math.sin(uI) * a.l2 * figH,
+    };
+    /*
+     * Die Gelenkstellung nach aussen sichtbar machen - fuer die Abnahme.
+     *
+     * `schulter` ist die Drehung des Oberarms gegen die Bindepose, `beugung`
+     * die Beugung des Ellenbogens; beide in Grad, beide seitenbereinigt, so
+     * dass links und rechts dieselben Zahlen ergeben. Damit kann die Abnahme
+     * pruefen, was ein Mensch kann - und nicht nur, ob ein Bild entsteht.
+     */
+    letzteGelenke[i] = {
+      schulter: (gerade(oI - (a.bindOben + koerperW)) * 180) / Math.PI * -a.seite,
+      beugung: (-a.seite * gerade(uI - oI) * 180) / Math.PI,
+    };
+    const w1 = oI - a.bindOben;
+    const w2 = uI - a.bindUnten;
+    return {
+      sx, sy,
+      bsx: bx + a.schulter[0] * figH,
+      bsy: by + a.schulter[1] * figH,
+      bex: bx + a.ellbogen[0] * figH,
+      bey: by + a.ellbogen[1] * figH,
+      ex: exI,
+      ey: eyI,
+      c1: Math.cos(w1), s1: Math.sin(w1),
+      c2: Math.cos(w2), s2: Math.sin(w2),
+    };
+  });
+
+  // Wo der Kopf gelandet ist - die Abnahme misst daran, ob die Hand ans Ohr
+  // kommt, und darf die Zahl nicht selbst nachrechnen muessen.
+  const kopfMitte = [0, 0];
+  amKopf(bx, by + RIG.halsY * 0.45 * figH, kopfMitte);
+  letzterKopf = { x: kopfMitte[0], y: kopfMitte[1], hoehe: m.kopfH };
 
   stift.save();
-  stift.lineJoin = 'round';
-  stift.lineCap = 'round';
 
-  /*
-   * Voll deckend, und das ist eine Korrektur.
+  /* --- Kein Streiflicht ---------------------------------------------------
    *
-   * Zuerst stand hier rgba(...,0.94) - ein Hauch Durchlaessigkeit, damit die
-   * Figur nicht wie ausgeschnittenes Papier wirkt. Der Haken ist die
-   * Zeichenreihenfolge: Wo sich zwei halbdurchlaessige Flaechen ueberlappen -
-   * Arm ueber Oberkoerper, Kopf ueber Hals -, addieren sich die Deckungen,
-   * und es entstehen dunklere Flecken entlang jeder inneren Naht. Im Bild war
-   * das deutlich zu sehen.
+   * Hier lag ein zweiter, weisser Durchgang ein paar Bildpunkte hoeher, der
+   * die Oberkanten der Figur aufleuchten liess. Er ist raus, und zwar nicht
+   * aus Geschmack, sondern weil er die Physik verletzt hat: Was hier steht,
+   * ist ein Koerper *vor* einer leuchtenden Flaeche. Ein Koerper ist
+   * undurchsichtig; er kann nichts nach vorn abstrahlen, was hinter ihm
+   * liegt. Der Saum hat die Figur zu einer beleuchteten Puppe gemacht statt
+   * zu einem Schatten.
    *
-   * Ein Schatten vor einer Projektion ist ohnehin praktisch schwarz. Fuer die
-   * Trennung vom Hintergrund sorgt das Streiflicht, nicht die Durchsicht.
-   */
-  const koerper = 'rgb(4,5,10)';
-  letzterKopf = { x: kopfX, y: kopfY, hoehe: m.kopfH };
-  stift.fillStyle = koerper;
-  stift.strokeStyle = koerper;
-
-  const pl = m.mitte - m.pultB / 2;
-  const pr = m.mitte + m.pultB / 2;
-
-  /*
-   * Die Reihenfolge ist die halbe Miete, und sie ist zweimal falsch gewesen.
+   * Uebrig bleibt genau das Richtige: ein Loch im Licht.
    *
-   * Sie muss der Tiefe im Raum folgen: Die Teller stehen *auf* dem Pult, die
-   * Haende liegen *auf* den Tellern, und die Pultfront steht vor allem. Wer
-   * die Teller nach den Armen zeichnet, verschluckt die Haende - genau das
-   * war zu sehen. Also von hinten nach vorn:
+   * Nachgemessen, ob der Umriss sich ohne Saum ueberhaupt noch abhebt - der
+   * Grund hinter der Figur, mit abgeschaltetem Schatten, ueber 120 Bilder je
+   * Modus:
    *
-   *   1. Teller und Mischer
-   *   2. Koerper, Arme, Kopf
-   *   3. die Pultfront, die unten alles abschneidet
+   *   Mandelbrot  Median sRGB 47, unteres Zehntel 18, unter 6 liegen 0,0 %
+   *   Mandala     Median sRGB 54, unteres Zehntel 22, unter 6 liegen 0,1 %
+   *   Tunnel      Median sRGB 82, unteres Zehntel 53, unter 6 liegen 0,0 %
    *
-   * Damit muessen Beine gar nicht erst gezeichnet werden, und der Uebergang
-   * stimmt bei jeder Bildgroesse von selbst.
+   * Praktisch nirgends ist der Grund so dunkel, dass ein schwarzer Umriss
+   * darin verschwaende. Der Saum war also nicht einmal noetig, um die Figur
+   * zu finden.
+   *
+   * Und noch etwas ergab dieselbe Messung: Rund drei Prozent des Grundes
+   * liegen unter sRGB 12, also unter dem fast-schwarzen rgb(4,5,10), mit dem
+   * die Figur bisher gefuellt war. Dort hob sie sich als *hellerer* Fleck ab
+   * - genau verkehrt herum fuer einen Schatten. Reines Schwarz kann das
+   * nicht passieren.
+   *
+   * Es kostet auch nichts, sondern spart: ein Fuelldurchgang ueber die ganze
+   * Figur und ein zweites Blitten des Pults fallen weg.
    */
 
-  // --- 1. Teller und Mischer -----------------------------------------------
-  for (const seite of [-1, 1]) {
-    stift.beginPath();
-    stift.ellipse(
-      m.mitte + seite * m.tellerX, m.pultOben,
-      m.tellerR, m.tellerR * 0.72, 0, Math.PI, 0,
-    );
-    stift.fill();
+  /* --- Alles in einem Pfad ------------------------------------------------
+   *
+   * Die Figur besteht aus acht Umrissen und vier Gelenkkreisen. Sie einzeln
+   * zu fuellen kostete gemessen 0,80 ms je Bild - sechsmal so viel wie die
+   * Vorgaengerfassung, und das lag nicht an der Rechnung, sondern an der
+   * Zahl der Fuellungen: vierundzwanzig je Bild statt sechs. Jede kostet den
+   * Rasterer einen festen Aufschlag, unabhaengig davon, wie gross die Flaeche
+   * ist.
+   *
+   * Also ein einziger Pfad je Durchgang, gefuellt mit der Nichtnull-Regel.
+   * Ueberlappende Teile bleiben dabei gefuellt, weil alle Umrisse denselben
+   * Umlaufsinn haben - das ist kein Zufall, sondern faellt bei der
+   * Randverfolgung so an (das Innere liegt immer links). Ein echtes Loch
+   * laeuft andersherum und bleibt deshalb ein Loch, ohne dass jemand
+   * Aussen- von Innenrand unterscheiden muss.
+   *
+   * Nebenwirkung, und eine gute: Innerhalb eines Durchgangs gibt es keine
+   * Reihenfolge mehr und damit auch keine inneren Kanten, an denen das
+   * Streiflicht durchscheinen koennte.
+   */
+
+  // Ein starres Teil: um seinen Bindepunkt gedreht und ans Gelenk gelegt.
+  const teil = (punkte, dx0, dy0, zx0, zy0, c, s) => {
+    for (let i = 0; i < punkte.length; i++) {
+      const px = bx + punkte[i][0] * figH - dx0;
+      const py = by + punkte[i][1] * figH - dy0;
+      const x = zx0 + px * c - py * s;
+      const y = zy0 + px * s + py * c;
+      if (i) stift.lineTo(x, y);
+      else stift.moveTo(x, y);
+    }
+    stift.closePath();
+  };
+
+  // Ein Teil, das sich nur verschiebt.
+  const stillTeil = (punkte, vx, vy) => {
+    for (let i = 0; i < punkte.length; i++) {
+      const x = bx + punkte[i][0] * figH + vx;
+      const y = by + punkte[i][1] * figH + vy;
+      if (i) stift.lineTo(x, y);
+      else stift.moveTo(x, y);
+    }
+    stift.closePath();
+  };
+
+  // Kopf und Kopfhoererbuegel drehen um den Hals.
+  const kopfTeile = () => {
+    const k = [0, 0];
+    for (const stueck of [RIG.kopf, ...RIG.kopfTeile]) {
+      for (let i = 0; i < stueck.length; i++) {
+        amKopf(bx + stueck[i][0] * figH, by + stueck[i][1] * figH, k);
+        if (i) stift.lineTo(k[0], k[1]);
+        else stift.moveTo(k[0], k[1]);
+      }
+      stift.closePath();
+    }
+  };
+
+  /*
+   * An der Schulter wird *nicht* abgedeckt.
+   *
+   * Hier standen nacheinander zwei Loesungen fuer die Fuge, die beim Drehen
+   * zwischen Arm und Rumpf aufgeht: erst ein Kreis in Armdicke (der sass als
+   * sichtbare Kugel auf der Schulter), dann ein Viereck ueber die
+   * ueberstrichene Flaeche. Beide sind wieder heraus, und das ist eine
+   * Entscheidung der Zeichnung: Das Aermelloch ist als weisser Schlitz
+   * gezeichnet, weil die Trennung dort *gewollt* ist. Ein Rig, das sie
+   * zukleistert, arbeitet gegen die Vorlage.
+   *
+   * Am Ellenbogen ist es anders - dort liegt eine weisse Naht quer durch den
+   * Arm, und die soll beim Beugen nicht aufklaffen. Deshalb bleibt nur der
+   * Kreis unten.
+   */
+
+  /*
+   * Ein Gelenkkreis.
+   *
+   * Zwei starre Teile, die um einen gemeinsamen Punkt gegeneinander drehen,
+   * reissen an der Aussenseite der Beugung einen Keil auf - beide Enden sind
+   * gerade abgeschnitten. Der Kreis deckt ihn bei jedem Winkel ab. Sein
+   * Radius ist die halbe Gliedmassendicke, im Bild gemessen: groesser waere
+   * eine Beule, kleiner liesse den Keil stehen.
+   *
+   * Der Bogen laeuft rueckwaerts, damit sein Umlaufsinn zu den Umrissen
+   * passt. Andersherum wuerde die Nichtnull-Regel aus jedem Gelenk ein Loch
+   * machen.
+   */
+  const gelenk = (x, y, r) => {
+    stift.moveTo(x + r, y);
+    stift.arc(x, y, r, 0, Math.PI * 2, true);
+    stift.closePath();
+  };
+
+  // Die ganze Figur in einem Zug.
+  stift.beginPath();
+  for (let i = 0; i < RIG.arme.length; i++) {
+    const a = RIG.arme[i];
+    const L = armLage[i];
+    teil(a.oberarm, L.bsx, L.bsy, L.sx, L.sy, L.c1, L.s1);
+    gelenk(L.ex, L.ey, a.ellbogenR * figH);
+    teil(a.unterarm, L.bex, L.bey, L.ex, L.ey, L.c2, L.s2);
   }
-  stift.beginPath();
-  stift.rect(m.mitte - m.reglerB / 2, m.pultOben - m.kopfH * 0.30, m.reglerB, m.kopfH * 0.30);
-  stift.fill();
-
-  // --- 2. Der Oberkoerper ---------------------------------------------------
-  //
-  // Eine Schulter faellt. Zuerst stand hier ein Trapez mit flachem Deckel, und
-  // das las sich als Kasten - eher Laptopdeckel als Mensch. Die schraege
-  // Linie vom Hals zur Schulter ist die eine Form, an der das Auge einen
-  // Oberkoerper erkennt; ohne sie hilft keine Proportion.
-  // Der Hals: schmal. Bei 0,42 Kopfbreiten je Seite war er fast so breit wie
-  // der Kopf, und Kopf und Rumpf verschmolzen zu einem Klotz.
-  const halsB = m.kopfB * 0.26;
-  const halsY = schulterY - m.kopfH * 0.42;
-  stift.beginPath();
-  stift.moveTo(m.mitte - m.hueftB + seitePx * 0.5, hoehe);
-  stift.lineTo(schulterLx, schulterY + m.kopfH * 0.10);
-  stift.quadraticCurveTo(
-    schulterLx + m.kopfH * 0.06, schulterY - m.kopfH * 0.30,
-    m.mitte + seitePx - halsB, halsY,
-  );
-  stift.lineTo(m.mitte + seitePx + halsB * 1.6, halsY);
-  stift.quadraticCurveTo(
-    schulterRx - m.kopfH * 0.06, schulterY - m.kopfH * 0.30,
-    schulterRx, schulterY + m.kopfH * 0.10,
-  );
-  stift.lineTo(m.mitte + m.hueftB + seitePx * 0.5, hoehe);
-  stift.closePath();
-  stift.fill();
-
-  // --- Arme -----------------------------------------------------------------
-  //
-  // Nach dem Oberkoerper, damit sie davor liegen. Ein Arm, der hinter der
-  // Schulter verschwindet, sieht abgerissen aus.
-  stift.lineWidth = m.armDick;
-  const armAnsatzY = schulterY - m.kopfH * 0.05;
-  for (const [sx, hand, beugung] of [
-    /*
-     * Das Vorzeichen der Beugung: Der Ellenbogen soll *haengen*. Mit dem
-     * umgekehrten Vorzeichen stand er ueber der Schulter, und der Arm sah aus
-     * wie gebrochen - der haeufigste Fehler bei Zweigelenk-Kinematik, und von
-     * aussen sofort sichtbar.
-     */
-    [schulterLx + m.kopfH * 0.05, handL, -1],
-    [schulterRx - m.kopfH * 0.05, handR, 1],
-  ]) {
-    const g = ellbogen(sx, armAnsatzY, hand.x, hand.y, m.oberarm, m.unterarm, beugung);
-    stift.beginPath();
-    stift.moveTo(sx, armAnsatzY);
-    stift.lineTo(g.ex, g.ey);
-    stift.lineTo(g.hx, g.hy);
-    stift.stroke();
-    // Die Hand: ohne sie enden die Arme wie abgesaegt.
-    stift.beginPath();
-    stift.arc(g.hx, g.hy, m.armDick * 0.56, 0, Math.PI * 2);
-    stift.fill();
-  }
-
-  // --- Hals und Kopf ---------------------------------------------------------
-  stift.lineWidth = halsB * 2;
-  stift.beginPath();
-  stift.moveTo(kopfX, kopfY + m.kopfH * 0.28);
-  stift.lineTo(m.mitte + seitePx, halsY + m.kopfH * 0.08);
-  stift.stroke();
-  stift.beginPath();
-  stift.ellipse(kopfX, kopfY, m.kopfB / 2, m.kopfH / 2, kopfDreh * 0.22, 0, Math.PI * 2);
+  kopfTeile();
+  stillTeil(RIG.rumpf, rvx, rvy);
+  for (const st of RIG.still) stillTeil(st, rvx, rvy);
+  stift.fillStyle = SCHATTEN;
   stift.fill();
 
   /*
-   * Der Kopfhoerer - das Zeichen, an dem ein DJ als DJ erkannt wird. Ohne ihn
-   * ist die Silhouette nur jemand hinter einem Tisch.
+   * Das Pult in zwei Teilen - und das halbiert seine Kosten.
+   *
+   * Unterhalb der Kante ist es ein schwarzer Block, und ein Block ist ein
+   * Rechteck. Ihn als Bild zu blitten heisst, zehntausende Bildpunkte durch
+   * das Alpha-Mischwerk zu schicken, obwohl jeder davon dasselbe
+   * undurchsichtige Schwarz ist. Ein fillRect schreibt dieselbe Flaeche ohne
+   * zu mischen.
+   *
+   * Als Bild bleibt nur der Streifen oben, in dem die Plattenteller ueber die
+   * Kante ragen.
    */
-  const buegel = m.kopfB * 0.64;
-  stift.lineWidth = m.kopfH * 0.12;
-  stift.beginPath();
-  stift.arc(kopfX, kopfY, buegel, Math.PI * 1.04, Math.PI * 1.96);
-  stift.stroke();
-  for (const seite of [-1, 1]) {
-    stift.beginPath();
-    stift.ellipse(
-      kopfX + seite * buegel, kopfY - m.kopfH * 0.02,
-      m.kopfH * 0.14, m.kopfH * 0.23, 0, 0, Math.PI * 2,
+  if (pultBild) {
+    const anteil = PULT.deckel + 0.02;
+    stift.drawImage(
+      pultBild, 0, 0, PULT.breite, Math.ceil(PULT.hoehe * anteil),
+      m.mitte - m.pultB / 2, m.pultBildOben, m.pultB, m.pultH * anteil,
     );
-    stift.fill();
   }
-
-  // --- 3. Die Pultfront ------------------------------------------------------
-  //
-  // Ein schlichter Block. Alles Verspielte daran waere im Gegenlicht ohnehin
-  // nicht zu sehen.
-  stift.beginPath();
-  stift.rect(pl, m.pultOben, m.pultB, hoehe - m.pultOben);
-  stift.fill();
-
-  /*
-   * Das Streiflicht - der eine Strich, der aus einer Silhouette eine Person
-   * macht. Eine helle Kante dort, wo das Licht der Leinwand auf Kopf,
-   * Schulter und Pultkante faellt. Es wird heller, wenn die Musik lauter ist,
-   * denn dann leuchtet die Projektion dahinter ja auch staerker.
-   */
-  if ((lage.guetestufe ?? 'hoch') !== 'niedrig') {
-    stift.globalCompositeOperation = 'lighter';
-    stift.strokeStyle = randVerlauf;
-    stift.globalAlpha = 0.30 + wucht * 0.45 + dropHalt * 0.25;
-    stift.lineWidth = Math.max(1.5, m.kopfH * 0.055);
-    // Kopf.
-    stift.beginPath();
-    stift.ellipse(kopfX, kopfY, m.kopfB / 2, m.kopfH / 2, kopfDreh * 0.22, Math.PI * 1.05, Math.PI * 1.95);
-    stift.stroke();
-    // Die Schulterlinie - dieselbe Kurve wie beim Koerper, damit das Licht
-    // wirklich auf der Kante sitzt und nicht daneben.
-    stift.beginPath();
-    stift.moveTo(schulterLx, schulterY + m.kopfH * 0.10);
-    stift.quadraticCurveTo(
-      schulterLx + m.kopfH * 0.06, schulterY - m.kopfH * 0.30,
-      m.mitte + seitePx - m.kopfB * 0.42, schulterY - m.kopfH * 0.42,
-    );
-    stift.moveTo(schulterRx, schulterY + m.kopfH * 0.10);
-    stift.quadraticCurveTo(
-      schulterRx - m.kopfH * 0.06, schulterY - m.kopfH * 0.30,
-      m.mitte + seitePx + m.kopfB * 0.42, schulterY - m.kopfH * 0.42,
-    );
-    stift.stroke();
-    // Pultkante - sie gibt dem Block eine Oberflaeche.
-    stift.beginPath();
-    stift.moveTo(pl, m.pultOben);
-    stift.lineTo(pr, m.pultOben);
-    stift.stroke();
-    stift.globalAlpha = 1;
-    stift.globalCompositeOperation = 'source-over';
-  }
+  const pultKante = m.pultBildOben + m.pultH * (PULT.deckel + 0.015);
+  stift.fillStyle = SCHATTEN;
+  stift.fillRect(m.mitte - m.pultB / 2, pultKante, m.pultB, hoehe - pultKante);
 
   stift.restore();
 }
@@ -10703,14 +11888,22 @@ function schattenStand() {
     an,
     nickX,
     nickV,
+    geladen: pultBild !== null,
     nickPx: letzterNickPx,
     kopf: letzterKopf ? { ...letzterKopf } : null,
     zeigenHalt,
     dropHalt,
-    handL: handL ? { ...handL } : null,
-    handR: handR ? { ...handR } : null,
+    handL: letzteHand[0] ? { ...letzteHand[0] } : null,
+    handR: letzteHand[1] ? { ...letzteHand[1] } : null,
+    // Die *Ziele* daneben - fuer die Fehlersuche, wenn Ziel und Ergebnis
+    // auseinanderlaufen.
+    zielL: handL ? { ...handL } : null,
+    zielR: handR ? { ...handR } : null,
+    gelenke: letzteGelenke.map((g) => (g ? { ...g } : null)),
     neigung,
     wiegen,
+    senken,
+    wiegePhase,
   };
 }
 
@@ -10876,6 +12069,22 @@ function rauschen(startwert) {
  *      Kennlinie und gleiche wahrgenommene Schritte, sonst entstehen Kanten,
  *      die in den Daten nicht stehen (Kovesi zu Farbskalen). Deshalb Oklab
  *      und ein Kosinus ueber ganze Perioden.
+ *
+ * Nachgeprueft, und die Prueffung steht in FARBWIRKUNG.md: Alle sechzehn
+ * Toene der acht Paletten liegen in dem Bereich, den Valdez und Mehrabian als
+ * angenehm gemessen haben (Blau, Blaugruen, Gruen, Purpur und ihre Nachbarn);
+ * Gelb und Gruengelb, die unangenehmsten, kommen nirgends als Flaeche vor.
+ * Dass alles dunkel und maessig gesaettigt ist, passt zu ihrer Regression
+ * Erregung = -0,31*Helligkeit + 0,60*Saettigung: wach, ohne den Raum zu
+ * ueberstrahlen.
+ *
+ * Und es hat eine Nebenwirkung, die wichtiger ist als die Farbe: Das hellste
+ * gemessene Bild erreicht nur ein Zehntel der moeglichen Leuchtdichte. Ein
+ * Blitz im Sinne der Photosensibilitaets-Schwelle braucht eine Aenderung um
+ * ein Zehntel auf einem Viertel der Flaeche - er ist mit dieser Palette gar
+ * nicht darstellbar. Die Projektion ist durch ihre Bauart sicher, nicht durch
+ * eine Bremse. Wer die Helligkeit anhebt, laesst pruefungen/bildwirkung.mjs
+ * noch einmal laufen.
  *
  * Die Tonwerte sind Oklab-Winkel, nicht HSL-Grade - sie sehen anders aus als
  * die gewohnten Zahlen und meinen auch etwas anderes.
@@ -11062,6 +12271,9 @@ class Visualisierung {
   /** Von Hand festlegen, oder mit null zurueck auf automatisch. */
   modusSetzen(name) {
     this.modusZwang = name && MODI[name] ? name : null;
+    // Die Huellkurven des Spektrums mit zuruecksetzen: Sie tragen den
+    // Massstab der letzten Sekunden, und der gehoert zum vorigen Bild.
+    spektrumZuruecksetzen();
     // Die Szenenfolge faengt von vorne an. Ohne das stuende beim Aufrufen
     // noch die Szene von vorhin im Bild, mitten in ihrer Bewegung.
     if (this.modusZwang === 'dolce') dolceZuruecksetzen();
@@ -11108,7 +12320,23 @@ class Visualisierung {
     const takt = this.taktLage(aktiv);
     const spannung = this.spannungBis(aktiv, takt);
     const abbau = this.abbauBei(aktiv, takt);
+    /*
+     * Die Wucht kommt aus dem *rohen* Spektrum, das Bild aus dem
+     * aufbereiteten.
+     *
+     * Der Unterschied ist wichtig: Die Aufbereitung normiert jedes Band auf
+     * das, was es zuletzt hergegeben hat. Fuer das Bild ist das genau
+     * richtig - man sieht dann auch ein Becken. Fuer ein Mass, das "wie laut
+     * ist es gerade" heissen soll, waere es falsch, denn nach der Normierung
+     * ist jede Passage gleich laut.
+     */
     const wucht = this.pegelWucht(spektrum);
+    if (spektrum) {
+      if (!this.spektrumScharf || this.spektrumScharf.length !== spektrum.length) {
+        this.spektrumScharf = new Uint8Array(spektrum.length);
+      }
+      spektrum = spektrumSchaerfen(spektrum, this.spektrumScharf, sekunden);
+    }
 
     // Beim Drop: alles auf einmal. Das Signal geht auch an den Modus - das
     // Mandelbrot kehrt dabei seine Flugrichtung um, und damit hat der
@@ -11127,6 +12355,10 @@ class Visualisierung {
     if (!modus.eigeneEbene) this.lavaZeichnen(aktiv, zweit, uebergang, spannung, wucht);
     const bildBegonnen = performance.now();
     this.letzterModusName = modus.name;
+    // Die Taktlage nach aussen sichtbar lassen. Die Abnahme misst daran, ob
+    // das Bild *auf* dem Schlag hell wird - und das Taktraster ist die
+    // einzige Zeitachse im ganzen Haus, die auf Millisekunden stimmt.
+    this.letzterTakt = takt;
     modus.zeichne(stift, {
       breite,
       hoehe,
@@ -13018,7 +14250,24 @@ function schattenUmschalten(an) {
   zuruf(an ? 'Schatten-DJ an.' : 'Schatten-DJ aus.');
 }
 {
-  // Vorgabe ist an; nur ein ausdrueckliches "nein" schaltet ihn ab.
+  /*
+   * Vorgabe ist wieder *an*.
+   *
+   * Sie war eine Weile aus, und der Grund war ehrlich: Die Figur bestand aus
+   * fuenf einzeln gezeichneten Teilen, und das sah man ihr an - zwei
+   * Schultern uebereinander, harte Naehte an den Gelenken, nichts verformte
+   * sich. Der erste Mensch, der sie gesehen hat, fand sie unheimlich, und
+   * eine Figur, die Leuten Angst macht, gehoert nicht ungefragt auf eine
+   * Geburtstagsleinwand.
+   *
+   * Jetzt kommt sie aus *einer* Zeichnung und wird als Umriss an einem
+   * Skelett verformt (siehe SCHATTENDJ.md). Damit ist der Grund weg - und die
+   * Bewegung stimmte ohnehin schon: Nicken auf den Schlag, Arm hoch beim
+   * Aufbau, Kopfhoerer im Breakdown, Hand am Regler.
+   *
+   * Wer sie einmal abgeschaltet hat, bekommt sie nicht wieder aufgedraengt;
+   * nur das Fehlen des Eintrags heisst "an".
+   */
   const gemerkt = localStorage.getItem('djSchatten') !== 'nein';
   $('schattenWahl').checked = gemerkt;
   schattenSetzen(gemerkt);
@@ -13037,7 +14286,7 @@ function schattenUmschalten(an) {
   const gemerkt = Number(localStorage.getItem('djVersatzHand') ?? 0);
   $('versatzRegler').value = String(gemerkt);
   const zeigen = (ms) => {
-    $('versatzWert').textContent = `Bild ${ms > 0 ? '+' : ''}${ms} ms`;
+    $('versatzWert').textContent = `${ms > 0 ? '+' : ''}${ms} ms`;
     if (welt.mixer) welt.mixer.versatzHand = ms / 1000;
   };
   zeigen(gemerkt);
