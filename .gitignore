@@ -60,3 +60,7 @@ dj-bilder/
 # Die Referenzmusik zum Vortanzen wird erzeugt, nicht versioniert.
 # npm run dj:vortanzmusik
 dj/vortanz/
+
+# Der Pruef-Taenzer wird erzeugt, nicht versioniert.
+# npm run dj:prueftaenzer
+dj/pruefungen/proben/
