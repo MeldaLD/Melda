@@ -469,7 +469,7 @@ try {
       }
 
       const armMarken = armPaare.map((A) => {
-        const OA = normiert[A.oberarm];
+        const OA = normiert[A.oberarm].map((p) => p.slice());
         const UA = normiert[A.unterarm];
         const rumpfMitte = [masse[koerper].mx, masse[koerper].my];
 
@@ -540,6 +540,70 @@ try {
           e1[1] + (e2[1] - e1[1]) * OBERES_DRITTEL - achseO.dy * wurzelLaenge * 0.2,
         ];
         const dicke = breiteBei(rO, loO + 0.01);
+
+        /*
+         * Die Wurzel des Oberarms rund abschneiden.
+         *
+         * Sie ist lang: Das Aermelloch reicht von der Schulterhoehe bis in
+         * die Achsel, gut 0,165 Figurenhoehen. Im T-Pose steht diese
+         * Schnittkante senkrecht und liegt unsichtbar am Rumpf an - dreht der
+         * Arm aber nach unten, dreht sie mit und steht als langer Keil aus
+         * der Schulter heraus. Im Standbild sah das aus wie Schulterpolster,
+         * und es wanderte auch noch mit jeder Armbewegung.
+         *
+         * Ein Kreisbogen um das Gelenk hat dieses Problem nicht: Er sieht bei
+         * jedem Winkel gleich aus. Was danach ueber den Rumpf hinausragt, ist
+         * eine runde Schulter - also genau das, was dort hingehoert.
+         *
+         * Abgeschnitten wird bei einem halben Wurzelmass vom Gelenk. Dort ist
+         * der Arm ohnehin schon fast so schmal wie der Bogen, der Uebergang
+         * faellt also nicht auf.
+         */
+        const rWurzel = wurzelLaenge * 0.5;
+        const laengsAb = (x, y) =>
+          (x - schulter[0]) * achseO.dx + (y - schulter[1]) * achseO.dy;
+        const behalten = OA.map(([x, y]) => laengsAb(x, y) >= rWurzel);
+        let start = -1;
+        for (let k = 0; k < OA.length; k++) {
+          if (behalten[k] && !behalten[(k - 1 + OA.length) % OA.length]) { start = k; break; }
+        }
+        if (start >= 0) {
+          const gerundet = [];
+          let k = start;
+          while (behalten[k]) { gerundet.push(OA[k]); k = (k + 1) % OA.length; }
+          // Der Bogen zurueck, hinter dem Gelenk herum.
+          const letzter = gerundet[gerundet.length - 1];
+          const erster = gerundet[0];
+          const wink = (p) => Math.atan2(p[1] - schulter[1], p[0] - schulter[0]);
+          let a2 = wink(letzter);
+          let b3 = wink(erster);
+          // Immer den Weg nehmen, der hinter dem Gelenk vorbeifuehrt.
+          const hinten = Math.atan2(-achseO.dy, -achseO.dx);
+          const drin = (w) => {
+            const d1 = ((w - a2) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+            const d2 = ((b3 - a2) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+            return d1 <= d2;
+          };
+          const vorwaerts = drin(hinten);
+          const BOGEN = 12;
+          for (let j = 1; j < BOGEN; j++) {
+            const t = j / BOGEN;
+            let w;
+            if (vorwaerts) {
+              const d = ((b3 - a2) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+              w = a2 + d * t;
+            } else {
+              const d = ((a2 - b3) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+              w = a2 - d * t;
+            }
+            gerundet.push([
+              schulter[0] + Math.cos(w) * rWurzel,
+              schulter[1] + Math.sin(w) * rWurzel,
+            ]);
+          }
+          OA.length = 0;
+          for (const p of gerundet) OA.push(p);
+        }
 
         // Der Ellenbogen: die Mitte zwischen den beiden Enden, die sich in
         // der weissen Naht gegenueberstehen.

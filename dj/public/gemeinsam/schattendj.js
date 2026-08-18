@@ -146,6 +146,18 @@ let dropHalt = 0;
 let zeigenHalt = 0;
 let letztePhrase = -1;
 
+// Wo die Haende zuletzt wirklich waren, und wie die Gelenke standen - fuer
+// die Abnahme.
+const letzteHand = [null, null];
+const letzteGelenke = [null, null];
+
+// Der Kopf laeuft dem Federn des Koerpers hinterher - hier steht, wie weit
+// er gerade ist.
+let kopfNick = 0;
+// Die Ist-Winkel der vier Armgelenke. Sie sind der Zustand, der jeden Sprung
+// verhindert: Gerechnet wird ein Ziel, gezeichnet wird das, was hier steht.
+let armWinkel = null;
+
 // Die Faustpumpe laeuft ueber zwei Schlaege. Sie zaehlt in *Schlaegen* und
 // nicht in Sekunden, damit sie beim Tempowechsel nicht aus dem Takt faellt.
 let pumpPhase = 0;
@@ -221,6 +233,12 @@ export function schattenZuruecksetzen() {
   letztePhrase = -1;
   dropHalt = 0;
   pumpPhase = 0;
+  kopfNick = 0;
+  armWinkel = null;
+  letzteHand[0] = null;
+  letzteHand[1] = null;
+  letzteGelenke[0] = null;
+  letzteGelenke[1] = null;
   schlagDauer = 0.5;
   letzteSchlagZeit = 0;
   federStimmen();
@@ -269,29 +287,28 @@ const folgen = (ist, ziel, tempo, sekunden) =>
   ist + (ziel - ist) * klemm(sekunden * tempo, 0, 1);
 
 /*
- * Zweigelenk-Umkehrkinematik in der Ebene, mit Polvektor.
+ * Zweigelenk-Umkehrkinematik in der Ebene.
  *
  * Gegeben Schulter, Ziel und zwei Gliedlaengen - gesucht der Ellenbogen. Das
- * ist der Kosinussatz und sonst nichts. Zwei Loesungen gibt es immer,
- * spiegelbildlich zur Verbindung Schulter-Hand; welche davon gilt, sagt der
- * Pol.
+ * ist der Kosinussatz und sonst nichts. Loesungen gibt es immer zwei,
+ * spiegelbildlich zur Verbindung Schulter-Hand. Welche gilt, entscheidet
+ * *nicht* diese Funktion: Sie liefert beide, und der Aufrufer waehlt nach
+ * Anatomie und nach dem, wo der Arm gerade steht.
  *
- * --- Warum ein Pol und kein festes Vorzeichen ---------------------------
+ * Das ist die dritte Fassung, und die beiden Vorgaenger sind der Grund.
  *
- * Vorher stand hier ein Vorzeichen je Seite: links so herum, rechts anders
- * herum. Das ist falsch, und zwar sichtbar falsch - im Video war es der
- * schlimmste Fehler der ganzen Figur. Ein festes Vorzeichen heisst "der
- * Ellenbogen liegt immer auf derselben Seite der Sehne", und welche Seite das
- * im Bild ist, haengt davon ab, wo die Hand gerade steht. Greift die Hand
- * nach unten, ist es die richtige; geht sie hoch ans Ohr, klappt derselbe
- * Ellenbogen nach oben durch. Der Arm sah aus wie gebrochen.
- *
- * Der Pol ist die Antwort, die jedes Rig gibt: ein Punkt, zu dem der
- * Ellenbogen zeigen *soll*. Er liegt unten aussen - dorthin, wohin ein Arm
- * unter seinem eigenen Gewicht faellt. Damit stimmt das Gelenk in jeder
- * Haltung, ohne dass irgendwo ein Sonderfall steht.
+ *   1. Ein festes Vorzeichen je Seite. Heisst "der Ellenbogen liegt immer auf
+ *      derselben Seite der Sehne" - und welche Seite das im Bild ist, haengt
+ *      davon ab, wo die Hand steht. Greift sie nach unten, stimmt es; geht
+ *      sie ans Ohr, klappt der Ellenbogen nach oben durch.
+ *   2. Ein Polvektor. Besser, aber er entscheidet in jedem Bild neu und ohne
+ *      Gedaechtnis. Wandert die Hand ueber die Linie, auf der beide Loesungen
+ *      gleich weit vom Pol weg sind, springt der Ellenbogen in einem Bild auf
+ *      die andere Seite. Gemessen ueber zwei Schlaege Faustpumpe: Der rechte
+ *      Ellenbogen lief von -163 auf +149 Grad, also durch die Streckung
+ *      hindurch. Genau das sieht aus wie ein gebrochener Arm.
  */
-function ellbogen(sx, sy, zx, zy, l1, l2, polx, poly) {
+function ellbogenPaar(sx, sy, zx, zy, l1, l2) {
   let dx = zx - sx;
   let dy = zy - sy;
   let d = Math.hypot(dx, dy);
@@ -310,18 +327,111 @@ function ellbogen(sx, sy, zx, zy, l1, l2, polx, poly) {
   const h = Math.sqrt(Math.max(0, l1 * l1 - a * a));
   const ux = dx / d;
   const uy = dy / d;
-  const fx = sx + ux * a;
-  const fy = sy + uy * a;
-  const nx = -uy;
-  const ny = ux;
-  const seite = (polx - fx) * nx + (poly - fy) * ny >= 0 ? 1 : -1;
   return {
-    ex: fx + seite * h * nx,
-    ey: fy + seite * h * ny,
+    fx: sx + ux * a,
+    fy: sy + uy * a,
+    nx: -uy,
+    ny: ux,
+    h,
     hx: sx + dx,
     hy: sy + dy,
   };
 }
+
+// Einen Winkel nach (-PI, PI] bringen.
+function gerade(a) {
+  let w = a;
+  while (w > Math.PI) w -= Math.PI * 2;
+  while (w < -Math.PI) w += Math.PI * 2;
+  return w;
+}
+
+/* --- Die Gelenkgrenzen -----------------------------------------------------
+ *
+ * Am Bild gemessen und an der Anatomie geprueft. Die Bindepose ist der
+ * T-Pose, in dem der Arm gestreckt zur Seite zeigt; der Ellenbogen steht dort
+ * auf 0,1 Grad (links) beziehungsweise 4,3 Grad (rechts), also gerade.
+ *
+ * Ein menschlicher Ellenbogen beugt sich nur in *eine* Richtung. Welche das
+ * in dieser Zeichnung ist, sagen die Haltungen, die richtig aussehen: der
+ * Kopfhoerer am Ohr links bei +136 Grad, der erhobene Arm rechts bei -70. Die
+ * Beugung ist also seitengespiegelt, und mit `seite` als Vorzeichen ergibt
+ * sich eine einzige Regel fuer beide Arme.
+ *
+ * Ueber die Streckung hinaus geht nichts - ein Arm, der nach hinten
+ * durchknickt, ist gebrochen. Fuenfzehn Grad Spiel bleiben, weil Menschen
+ * genau so viel Ueberstreckung haben.
+ */
+const ELLBOGEN_BEUGUNG = (150 * Math.PI) / 180;
+const ELLBOGEN_STRECKUNG = (15 * Math.PI) / 180;
+/*
+ * Wie weit der Oberarm aus der Waagerechten heraus darf - nach oben wie nach
+ * unten. 105 Grad heisst: senkrecht hoch und senkrecht runter sind erlaubt,
+ * ein Stueck darueber hinaus auch, aber der Arm kann nicht hinter den Koerper
+ * greifen.
+ */
+const SCHULTER_SPANNE = (105 * Math.PI) / 180;
+/*
+ * Wie schnell Gelenkwinkel ihren Zielen folgen, je Sekunde.
+ *
+ * Das ist die Versicherung gegen jeden Sprung: Ein Gelenk kann sich hier
+ * nicht mehr in einem Bild umlegen, egal was die Kinematik ausrechnet. 26
+ * entspricht 38 ms - schnell genug, dass eine Faustpumpe schlagartig wirkt,
+ * langsam genug, dass ein Wechsel der Loesung als Bewegung sichtbar waere
+ * statt als Sprung. Er kommt nur nicht mehr vor, weil die Grenzen oben ihn
+ * ausschliessen.
+ */
+const GELENK_TEMPO = 26;
+// Wie schnell ein Gelenk hoechstens dreht, im Bogenmass je Sekunde.
+const GELENK_HOECHSTTEMPO = (800 * Math.PI) / 180;
+
+/* --- Das Mass des Grooves --------------------------------------------------
+ *
+ * Alles in Kopfhoehen beziehungsweise Bogenmass, damit es auf jedem Bildschirm
+ * gleich aussieht.
+ */
+/*
+ * Wie tief der Koerper auf den Schlag einsackt.
+ *
+ * Nachgerechnet: Die Feder erreicht bei viel Wucht eine Auslenkung von rund
+ * 0,25, die Kopfhoehe betraegt 64 Bildpunkte auf einem 640 Punkte hohen Bild.
+ * 0,8 ergibt daraus knapp 13 Bildpunkte - umgerechnet auf einen Menschen gut
+ * vier Zentimeter Kniebeuge, also das, was jemand tut, der mitgeht. Bei 0,42
+ * waren es sechs Bildpunkte, und die sah man nicht.
+ */
+const FEDERN = 0.8;
+// Wie weit der Kopf ueber das Federn des Koerpers hinaus nachgibt.
+const KOPF_NICKEN = 0.35;
+// Seitliche Gewichtsverlagerung.
+const WIEGEN = 0.13;
+/*
+ * Wie weit der Rumpf dabei um die Huefte rollt, im Bogenmass.
+ *
+ * Das ist die Bewegung, die aus einer wippenden Puppe einen Menschen macht,
+ * und sie ist klein: 0,045 sind zweieinhalb Grad. Mehr, und die Figur
+ * schwankt wie ein Betrunkener; weniger, und die Schulterlinie steht starr,
+ * waehrend der Koerper seitlich wandert - was das Auge sofort als falsch
+ * liest, ohne sagen zu koennen warum.
+ */
+const KOERPER_ROLLEN = 0.045;
+/*
+ * Wie weit der Kopf gegen das Rollen ausgleicht.
+ *
+ * Menschen halten den Kopf senkrecht, auch wenn der Koerper kippt - das
+ * Gleichgewichtsorgan sitzt darin. Der Ausgleich ist nicht vollstaendig,
+ * sonst wirkt der Hals steif.
+ */
+const KOPF_AUSGLEICH = -0.028;
+// Wo die Huefte sitzt, in Figurenhoehen - der Drehpunkt des Rollens.
+const HUEFTE = 0.98;
+/*
+ * Wie weit die Ruhehaltung des Oberarms von der Senkrechten abweicht.
+ *
+ * Ein haengender Arm steht nicht am Koerper an, sondern faellt ein Stueck
+ * nach aussen. Zwanzig Grad sind es beim entspannten Stehen; sie geben der
+ * Loesungswahl ihre Richtung, wenn beide Ellenbogenlagen erlaubt sind.
+ */
+const RUHE_AUSWAERTS = (20 * Math.PI) / 180;
 
 /* --- Die Figur im Bild -----------------------------------------------------
  *
@@ -376,6 +486,7 @@ const SCHNITT = 0.95;
  */
 const PUMPE_DAUER = 0.75;
 
+
 function masse(breite, hoehe) {
   const mitte = breite * 0.5;
 
@@ -417,14 +528,63 @@ function masse(breite, hoehe) {
   };
 }
 
-/*
- * Wohin die Haende sollen - die eigentliche Choreografie.
+/* --- Die Choreografie ------------------------------------------------------
  *
- * Sechs Haltungen, und jede hat einen Grund in der Musik. Sie schliessen sich
- * nicht aus: Was herauskommt, ist eine Mischung, gewichtet nach dem, was die
- * Analyse gerade meldet. Deshalb gibt es keinen sichtbaren Umschaltpunkt.
+ * Zwei Arten von Haltung, und sie brauchen zwei verschiedene Werkzeuge. Das
+ * zu trennen ist die wichtigste Entscheidung an dieser Figur.
+ *
+ *   Griffe   - die Hand muss an einen *Ort*: auf den Plattenteller, an den
+ *              Regler, ans Ohr. Wo der Ellenbogen dabei landet, ergibt sich.
+ *              Dafuer ist Umkehrkinematik gemacht.
+ *   Gesten   - die Faust in die Luft, beide Arme hoch, der Zeigefinger ins
+ *              Publikum. Hier gibt es keinen Ort in der Welt, nur eine Form.
+ *
+ * Beides mit Umkehrkinematik zu machen war der Fehler, und er war messbar:
+ * Bei der Faustpumpe liegt das Handziel nur 64 Bildpunkte von der Schulter
+ * weg, der Arm ist aber 156 lang. Er muss sich also stark falten, und *wie*
+ * er sich faltet, entscheidet die Kinematik in jedem Bild neu. Protokolliert
+ * ueber zwei Schlaege: Der Oberarm drehte sich von 69 auf 102 Grad - kaum
+ * etwas -, waehrend der Unterarm in siebzig Millisekunden um 117 Grad
+ * durchpeitschte. Genau das ist das Zucken im Ellenbogen.
+ *
+ * Gesten werden deshalb als *Gelenkwinkel* hingeschrieben, so wie ein
+ * Animator sie hinschreiben wuerde. Zwei Zahlen je Arm genuegen:
+ *
+ *   aus      wie weit der Oberarm aus der Senkrechten heraussteht -
+ *            0 = haengt herunter, 90 = waagerecht, 180 = senkrecht hoch.
+ *   beugung  wie weit der Ellenbogen gebeugt ist, immer in die eine
+ *            Richtung, in die ein Ellenbogen sich beugen kann.
+ *
+ * Beide Zahlen gelten fuer beide Arme; die Seite kommt ueber das Vorzeichen
+ * dazu. Damit kann eine Geste gar nicht erst unmenschlich werden.
  */
-function handZiele(m, lage) {
+const grad = (g) => (g * Math.PI) / 180;
+
+const GESTEN = {
+  /*
+   * Die Faustpumpe: Oberarm waagerecht nach aussen, Ellenbogen zu gut
+   * siebzig Grad gebeugt - der Unterarm steht dadurch fast senkrecht und die
+   * Faust ueber dem Kopf.
+   *
+   * Der erste Versuch hatte den Oberarm haengen (28 Grad aus der Senkrechten)
+   * und den Ellenbogen mit 112 Grad staerker gebeugt. Nachgerechnet landet
+   * die Faust damit nicht oben, sondern *seitlich* auf Schulterhoehe: Bei
+   * einem Unterarm von 82 Bildpunkten und dieser Beugung zeigt er nach
+   * rechts oben, nicht nach oben. Im Bild sah es aus, als winke die Figur.
+   */
+  pumpe: { aus: grad(118), beugung: grad(78) },
+  // Beide Arme hoch, leicht nach innen geneigt: das V ueber dem Kopf.
+  drop: { aus: grad(150), beugung: grad(30) },
+  // Der Aufbau: ein Arm steigt fast gestreckt hoch.
+  aufbau: { aus: grad(158), beugung: grad(16) },
+  // Der Zeigefinger ins Publikum - Arm nach vorn oben, fast gestreckt.
+  zeigen: { aus: grad(108), beugung: grad(10) },
+};
+
+/*
+ * Wohin die Haende greifen sollen, und welche Geste wie stark dazwischenkommt.
+ */
+function armZiele(m, lage) {
   const { spannung, abbau, dropHalt: halt, anteilB, wucht, pumpe } = lage;
 
   /*
@@ -446,20 +606,6 @@ function handZiele(m, lage) {
   let ry = ly;
 
   /*
-   * Die Faustpumpe - der Grund, warum die Figur "motiviert" aussieht statt
-   * beschaeftigt.
-   *
-   * Alles andere hier haengt an langsam wandernden Groessen (Spannung, Abbau,
-   * Reglerstand); eine Figur, die nur davon lebt, driftet. Die Pumpe ist die
-   * einzige Bewegung, die *jeden zweiten Schlag* etwas tut, und sie traegt
-   * den ganzen Eindruck.
-   */
-  if (pumpe > 0) {
-    rx += (m.mitte + m.schulterB * 1.35 - rx) * pumpe;
-    ry += (m.schulterY - m.kopfH * 1.0 - ry) * pumpe;
-  }
-
-  /*
    * Uebergang: die rechte Hand wandert mit dem Regler.
    *
    * Das ist die ehrlichste Bewegung der ganzen Figur - der Mischer blendet
@@ -468,66 +614,55 @@ function handZiele(m, lage) {
    * verschwindet und man vom Uebergang dann nichts saehe.
    */
   if (anteilB > 0) {
-    rx = m.mitte + m.pultB * (0.10 + 0.20 * anteilB);
+    /*
+     * Der Weg ist etwas laenger als frueher und faengt weiter innen an, weil
+     * jetzt die *echte* Handposition gemessen wird und nicht mehr das Ziel.
+     * Am aeusseren Ende reicht der Arm nicht mehr ganz hin, der zurueckgelegte
+     * Weg faellt also kuerzer aus als der Sollweg - gemessen 55 statt 74
+     * Bildpunkten. Mit 0,24 der Pultbreite bleibt das Ziel in Reichweite und
+     * die Bewegung ist wieder von hinten im Raum zu sehen.
+     */
+    rx = m.mitte + m.pultB * (0.08 + 0.24 * anteilB);
     ry = m.pultOben - m.kopfH * 0.04;
   }
 
   /*
-   * Breakdown: der Kopfhoerer ans Ohr.
-   *
-   * Auch das stimmt: Im Breakdown bereitet die Buehne den naechsten Track
-   * vor. Ein DJ hoert dann vor, und genau das tut die Figur.
+   * Breakdown: der Kopfhoerer ans Ohr. Auch das stimmt - im Breakdown
+   * bereitet die Buehne wirklich den naechsten Track vor, und ein DJ hoert
+   * dann vor.
    */
-  if (abbau > 0.15) {
-    const t = klemm((abbau - 0.15) / 0.5, 0, 1);
-    lx += (m.mitte - m.ohrX - lx) * t;
-    ly += (m.ohrY - ly) * t;
+  const amOhr = klemm((abbau - 0.15) / 0.5, 0, 1);
+  if (amOhr > 0) {
+    lx += (m.mitte - m.ohrX - lx) * amOhr;
+    ly += (m.ohrY - ly) * amOhr;
   }
 
   /*
-   * Aufbau: der rechte Arm geht hoch, je naeher der Drop kommt. Nicht
-   * schlagartig - das Hochgehen *ist* die Ankuendigung.
+   * Die Gesten, nach Rang geordnet: Was staerker ist, gewinnt. Sie mischen
+   * sich nicht - zwei halbe Gesten ergeben keine halbe Figur, sondern eine
+   * unentschlossene.
    */
-  const hoch = klemm((spannung - 0.35) / 0.55, 0, 1);
-  if (hoch > 0) {
-    rx += (m.mitte + m.schulterB * 1.5 - rx) * hoch;
-    ry += (m.schulterY - m.kopfH * (1.4 + wucht * 0.4) - ry) * hoch;
-  }
-
-  /*
-   * Drop: beide Arme hoch, und zwar sofort. dropHalt klingt ueber gut
-   * anderthalb Sekunden ab - lang genug, dass man es sieht, kurz genug, dass
-   * die Figur nicht minutenlang mit erhobenen Armen dasteht.
-   */
+  const aufbau = klemm((spannung - 0.35) / 0.55, 0, 1);
+  const gesten = [null, null];
+  const setzen = (seite, name, gewicht) => {
+    if (gewicht <= 0.01) return;
+    const bisher = gesten[seite];
+    if (!bisher || gewicht > bisher.gewicht) gesten[seite] = { ...GESTEN[name], gewicht };
+  };
+  // Rechts: Pumpe, Aufbau, Zeigen - je nach Lage.
+  setzen(1, 'pumpe', pumpe);
+  setzen(1, 'aufbau', aufbau);
+  if (halt <= 0) setzen(1, 'zeigen', klemm(zeigenHalt, 0, 1));
+  // Der Drop nimmt beide und schlaegt alles.
   if (halt > 0) {
-    /*
-     * Die Haende gehen nach oben *und nach innen*, nicht nach oben und
-     * aussen. Der Grund steckt in der Kinematik: Die Hand haengt am
-     * Unterarm, und der zeigt dorthin, wo die Hand steht. Liegt das Ziel
-     * weit aussen, weist der ganze Unterarm nach aussen und die Finger
-     * zeigen vom Koerper weg - das sieht aus, als wolle jemand etwas
-     * abwehren. Steht das Ziel innerhalb des Ellenbogens, laeuft der
-     * Unterarm nach innen oben, und heraus kommt das V, das jeder kennt.
-     */
-    const t = klemm(halt, 0, 1);
-    lx += (m.mitte - m.schulterB * 1.15 - lx) * t;
-    ly += (m.schulterY - m.kopfH * 1.8 - ly) * t;
-    rx += (m.mitte + m.schulterB * 1.15 - rx) * t;
-    ry += (m.schulterY - m.kopfH * 1.8 - ry) * t;
+    gesten[0] = { ...GESTEN.drop, gewicht: klemm(halt, 0, 1) };
+    gesten[1] = { ...GESTEN.drop, gewicht: klemm(halt, 0, 1) };
   }
+  // Am Ohr bleibt der linke Arm, was er ist - eine Geste waere dort falsch.
+  if (amOhr > 0.2) gesten[0] = null;
+  void wucht;
 
-  /*
-   * Der Zeigefinger ins Publikum. Nur auf Phrasengrenzen, nur bei Betrieb,
-   * und nur manchmal - eine Geste, die jeden Takt kommt, ist keine Geste
-   * mehr, sondern ein Zucken.
-   */
-  if (zeigenHalt > 0 && halt <= 0) {
-    const t = klemm(zeigenHalt, 0, 1);
-    rx += (m.mitte + m.schulterB * 3.4 - rx) * t;
-    ry += (m.pultOben - m.kopfH * 1.8 - ry) * t;
-  }
-
-  return { lx, ly, rx, ry };
+  return { lx, ly, rx, ry, gesten };
 }
 
 /* --- Zeichnen -------------------------------------------------------------- */
@@ -633,12 +768,36 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
    * macht.
    */
   const uPump = (((pumpPhase % 2) + 2) % 2) / PUMPE_DAUER;
-  const ANSCHLAG = 0.22;
-  const roh =
-    uPump >= 1 ? 0
-      : uPump < ANSCHLAG ? uPump / ANSCHLAG
-        : (1 - (uPump - ANSCHLAG) / (1 - ANSCHLAG)) ** 2.2;
-  const pumpe = schwung * roh;
+  /*
+   * Die Form der Pumpe: steil hoch, oben bleiben, steil zurueck.
+   *
+   * Der Sinus hoch 0,6 macht genau das - flache Kuppe, steile Flanken. Die
+   * beiden Vorgaenger waren beide falsch, und zwar aus demselben Grund: Eine
+   * halb eingemischte Geste ist die *Durchgangslage*, und die ist hier ein
+   * waagerecht abstehender Arm. Eine Sinuskuppel (hoch 1) haelt sich zu lange
+   * darin auf, ein langsames Abklingen erst recht - im Filmstreifen stand der
+   * Arm in fuenf von achtzehn Bildern seitlich ab und die Figur sah aus, als
+   * winke sie. Was zaehlt, ist nicht die Dauer der Geste, sondern wie schnell
+   * sie durch die Mitte kommt.
+   */
+  const roh = uPump >= 1 ? 0 : Math.sin(Math.PI * uPump) ** 0.6;
+  /*
+   * Die Pumpe kommt erst bei wirklich viel Energie, und dann ganz.
+   *
+   * Ein Versuch, den Arm zwischen zwei Pumpen auf halber Hoehe stehen zu
+   * lassen, ist wieder heraus: Eine halb eingemischte Geste ist keine halbe
+   * Geste, sondern die *Durchgangslage* - der Arm stand waagerecht ab, als
+   * zeige die Figur dauerhaft zur Seite. Zwischenwerte einer Pose sind nur
+   * auf dem Weg gut, nicht als Ruhelage.
+   *
+   * Stattdessen eine Schwelle, und eine scharfe: Unterhalb arbeitet die Figur
+   * am Pult und grooved mit dem Koerper, oberhalb pumpt sie. Ueber acht
+   * Prozent Wucht ist der Uebergang durch - waere er breiter, staende der
+   * Arm bei mittlerer Lautstaerke dauerhaft in der Durchgangslage. Das ist
+   * auch musikalisch richtig: Niemand reisst bei halber Lautstaerke die
+   * Faust hoch.
+   */
+  const pumpe = klemm((schwung - 0.62) / 0.08, 0, 1) * roh;
 
   // Traege Koerpergroessen. Der Oberkoerper geht mit der Spannung nach vorn -
   // der DJ beugt sich ueber das Pult, wenn es darauf zulaeuft.
@@ -652,7 +811,7 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
   // Der Kopf dreht sich zur Hand, die gerade etwas tut.
   kopfDreh = folgen(kopfDreh, (anteilB > 0 ? 0.4 : 0) - abbau * 0.55, 2.6, sekunden);
 
-  const ziele = handZiele(m, { spannung, abbau, dropHalt, anteilB, wucht, pumpe });
+  const ziele = armZiele(m, { spannung, abbau, dropHalt, anteilB, wucht, pumpe });
   if (!handL) {
     handL = { x: ziele.lx, y: ziele.ly };
     handR = { x: ziele.rx, y: ziele.ry };
@@ -671,108 +830,243 @@ export function schattenZeichnen(stift, breite, hoehe, lage = {}) {
   handR.x = folgen(handR.x, ziele.rx, handTempo, sekunden);
   handR.y = folgen(handR.y, ziele.ry, handTempo, sekunden);
 
-  /*
-   * Wie weit das Nicken den Koerper bewegt.
+  /* --- Der Groove: aus dem Koerper, nicht aus den Haenden ----------------
    *
-   * Bei 0,42 war es rechnerisch da und praktisch nicht zu sehen - "die
-   * Bewegungen passen nicht zum Beat" hiess in Wirklichkeit "ich sehe keine
-   * Bewegung".
+   * Hier stand vorher das Gegenteil, und das war der Fehler. Der Schlag wurde
+   * auf die *Haende* gelegt: Sie zuckten auf jeden Beat ein Stueck nach unten
+   * und aussen. Gemessen ueber zwei Schlaege lief der rechte Ellenbogen dabei
+   * um 125 Grad hin und her, im Ruhezustand wohlgemerkt - er zuckte, statt zu
+   * grooven.
+   *
+   * Ein Mensch macht es umgekehrt. Die Haende liegen auf den Tellern und
+   * bleiben dort; was federt, sind die Knie. Der Koerper sackt auf den Schlag
+   * ein paar Zentimeter ab, die Huefte verlagert das Gewicht von einem Bein
+   * aufs andere, die Schulterlinie kippt dabei mit. Und weil die Hand liegen
+   * bleibt, waehrend die Schulter sinkt, *beugt sich der Ellenbogen von
+   * selbst* - genau im Takt, ohne dass irgendwo ein Beat auf einen Arm
+   * gerechnet wird. Das ist der ganze Trick, und es ist derselbe, den eine
+   * Bewegungsaufnahme liefern wuerde.
+   *
+   * Vier Groessen, vier Koerperteile:
+   *
+   *   Federn    Knie  - der Koerper sackt auf den Schlag ab.
+   *   Wiegen    Huefte- Gewichtsverlagerung ueber zwei Schlaege, seitlich.
+   *   Rollen    Rumpf - die Schulterlinie kippt zur belasteten Seite.
+   *   Nicken    Kopf  - laeuft dem Koerper hinterher, nicht mit ihm.
    */
-  const nickPx = nickX * m.kopfH * 1.15;
-  letzterNickPx = nickPx;
-  const seitePx = wiegen * m.kopfH * 0.13;
 
   /*
-   * Der Schlag auf den Haenden - und zwar *nach* der Glaettung.
+   * Das Nicken des Kopfes laeuft dem Federn *nach*.
    *
-   * Das ist der Kunstgriff, der die Figur auf den Punkt bringt. Ginge der
-   * Stoss in die Ziele, wuerde ihn dieselbe Traegheit wegbuegeln, die die
-   * Posenwechsel weich macht. So bleibt beides: weiche Wege, harter Schlag.
+   * Ein Kopf sitzt auf einem Hals, und ein Hals ist weich. Sackt der Koerper
+   * ab, folgt der Kopf ein Stueck spaeter - diese Verzoegerung ist das, was
+   * das Auge als Masse liest. Bewegen sich beide gleichzeitig, sieht die Figur
+   * aus wie aus einem Stueck Holz.
    */
-  const schlagY = nickPx * (0.8 + schwung * 0.9);
-  const schlagX = nickPx * 0.35 * (0.3 + schwung);
+  kopfNick += (nickX - kopfNick) * klemm(sekunden * 17, 0, 1);
+
+  const federPx = nickX * m.kopfH * FEDERN;
+  letzterNickPx = kopfNick * m.kopfH * (FEDERN + KOPF_NICKEN);
+  const seitePx = wiegen * m.kopfH * WIEGEN;
 
   /* --- Die Figur stellen -------------------------------------------------- */
   const figH = m.figurH;
   const bx = m.mitte;
   const by = m.figurOben;
 
-  // Der Rumpf verschiebt sich nur - er hat kein eigenes Gelenk.
+  /*
+   * Der Koerper dreht um die Huefte, nicht um seine Mitte.
+   *
+   * Dort steht er auf den Beinen, und dort ist der Drehpunkt jeder
+   * Gewichtsverlagerung. Rollt er um die Mitte, wandern Kopf und Huefte
+   * gegenlaeufig aus - das sieht aus wie ein Metronom, nicht wie ein Mensch.
+   */
+  const hueftY = by + figH * HUEFTE;
+  const koerperW = wiegen * KOERPER_ROLLEN;
+  const rcos = Math.cos(koerperW);
+  const rsin = Math.sin(koerperW);
   const rvx = seitePx;
-  const rvy = nickPx * 0.85 + neigung * m.kopfH * 0.32;
+  const rvy = federPx + neigung * m.kopfH * 0.32;
+  const amKoerper = (px, py, aus) => {
+    const dx = px - bx;
+    const dy = py - hueftY;
+    aus[0] = bx + dx * rcos - dy * rsin + rvx;
+    aus[1] = hueftY + dx * rsin + dy * rcos + rvy;
+  };
 
   /*
-   * Der Kopf dreht um den Hals und geht ein Stueck weiter als der Rumpf.
-   * Beides zusammen ist das, was ein Nicken ausmacht: Der Kopf faellt weiter
-   * als die Schultern, und er kippt dabei ein wenig. Ein Nicken allein aus
-   * dem Hals sieht aus wie ein Wackelkopf im Auto; eines allein aus den
-   * Schultern wie ein Aufzug.
+   * Der Kopf: er dreht zusaetzlich um den Hals und faellt weiter als die
+   * Schultern. Beides zusammen ist ein Nicken. Nur aus dem Hals sieht es aus
+   * wie ein Wackelkopf im Auto, nur aus den Schultern wie ein Aufzug.
    */
-  const halsX = bx + rvx;
-  const halsPy = by + RIG.halsY * figH + rvy;
-  const kopfW = kopfDreh * 0.2 + wiegen * 0.06;
-  const kvx = seitePx * 0.45 + kopfDreh * m.kopfH * 0.14;
-  const kvy = nickPx * 0.55 + neigung * m.kopfH * 0.25;
+  const hals = [0, 0];
+  amKoerper(bx, by + RIG.halsY * figH, hals);
+  const kopfW = kopfDreh * 0.2 + wiegen * KOPF_AUSGLEICH;
+  const kvy = kopfNick * m.kopfH * KOPF_NICKEN + neigung * m.kopfH * 0.25;
+  const kvx = kopfDreh * m.kopfH * 0.14;
   const kcos = Math.cos(kopfW);
   const ksin = Math.sin(kopfW);
+  const amKopf = (px, py, aus) => {
+    amKoerper(px, py, aus);
+    const dx = aus[0] - hals[0];
+    const dy = aus[1] - hals[1];
+    aus[0] = hals[0] + dx * kcos - dy * ksin + kvx;
+    aus[1] = hals[1] + dx * ksin + dy * kcos + kvy;
+  };
 
   /*
-   * Die Arme: je Seite einmal Umkehrkinematik, daraus zwei Drehwinkel.
+   * Die Arme.
    *
-   * Gedreht wird gegen die *Bindepose* - den T-Pose, in dem gezeichnet wurde.
-   * Der Winkel ist also nicht "wohin zeigt der Arm", sondern "wie weit hat er
-   * sich seit der Zeichnung gedreht". Nur so stimmen Umriss und Skelett
-   * zusammen.
+   * Die Hand ist das Ziel, die Schulter der Ausgangspunkt - und die Schulter
+   * bewegt sich mit dem Koerper. Aus beidem rechnet die Kinematik den
+   * Ellenbogen, und weil sie zwei Loesungen liefert, faellt hier die
+   * Entscheidung: erst nach Anatomie, dann nach Naehe zum jetzigen Stand.
    */
+  if (!armWinkel) armWinkel = RIG.arme.map(() => null);
+  const schulterPunkt = [0, 0];
   const armLage = RIG.arme.map((a, i) => {
-    const bsx = bx + a.schulter[0] * figH;
-    const bsy = by + a.schulter[1] * figH;
-    const sx = bsx + rvx;
-    const sy = bsy + rvy;
+    amKoerper(bx + a.schulter[0] * figH, by + a.schulter[1] * figH, schulterPunkt);
+    const sx = schulterPunkt[0];
+    const sy = schulterPunkt[1];
     const hand = i === 0 ? handL : handR;
-    const zx = hand.x + a.seite * schlagX;
-    const zy = hand.y + schlagY;
+    const g = ellbogenPaar(sx, sy, hand.x, hand.y, a.l1 * figH, a.l2 * figH);
+
+    let bestes = null;
+    for (const vz of [1, -1]) {
+      const ex = g.fx + vz * g.h * g.nx;
+      const ey = g.fy + vz * g.h * g.ny;
+      const o = Math.atan2(ey - sy, ex - sx);
+      const u = Math.atan2(g.hy - ey, g.hx - ex);
+      const rel = gerade(u - o);
+      /*
+       * Erlaubt ist nur, was ein Ellenbogen kann: Beugung in *eine* Richtung,
+       * und ueber die Streckung hinaus fast nichts. `seite` dreht die Regel
+       * fuer den linken Arm um - beide Arme beugen spiegelbildlich.
+       */
+      const gebeugt = -a.seite * rel;
+      const erlaubt = gebeugt <= ELLBOGEN_BEUGUNG && gebeugt >= -ELLBOGEN_STRECKUNG;
+      /*
+       * Sind beide zulaessig, entscheiden zwei Dinge: wie nah die Loesung an
+       * der Ruhehaltung liegt, und wie nah am jetzigen Stand.
+       *
+       * Die Ruhehaltung ist noetig, und das war ein Fehler: Zuerst zaehlte
+       * nur die Naehe zum Ist-Wert. Im ersten Bild gibt es den aber nicht,
+       * also gewann die zuerst gepruefte Loesung - und weil sie danach
+       * *ihre eigene* Naehe geniesst, blieb der Arm fuer immer dort. Im
+       * Standbild stand der rechte Arm waagerecht ab, waehrend der linke
+       * ordentlich am Teller lag.
+       *
+       * Die Ruhehaltung ist "haengend, leicht nach aussen" - dorthin faellt
+       * ein Arm unter seinem Gewicht.
+       */
+      const zurRuhe = Math.abs(gerade(o - (Math.PI / 2 - a.seite * RUHE_AUSWAERTS)));
+      const naehe = armWinkel[i] ? Math.abs(gerade(o - armWinkel[i].o)) : 0;
+      const wert = (erlaubt ? 0 : 100) + zurRuhe * 0.6 + naehe * 0.5;
+      if (!bestes || wert < bestes.wert) bestes = { wert, o, u, rel, ex, ey };
+    }
+
     /*
-     * Der Pol: aussen und unten, im Verhaeltnis 0,9 zu 0,75 - also gut
-     * vierzig Grad unter der Waagerechten.
+     * Die Geste dazwischenmischen.
      *
-     * Beide Extreme sind durchprobiert und beide sind falsch. Fast
-     * waagerecht (1,15 zu 0,5) stellt die Ellenbogen ab wie Arme in die
-     * Seite gestemmt. Fast senkrecht (0,42 zu 1,25) klappt sie nach innen
-     * *hinter* den Rumpf - dort verschwinden die Oberarme, und uebrig
-     * bleiben zwei waagerechte Stoecke am Pult.
-     *
-     * Nachgerechnet fuer die drei Schluesselhaltungen ergibt dieser Pol:
-     * Haende am Teller - Ellenbogen aussen, knapp unter Schulterhoehe;
-     * Kopfhoerer am Ohr - Ellenbogen aussen und angehoben, wie beim
-     * Vorhoeren; Haende hoch - Ellenbogen aussen unter den Haenden.
-     *
-     * Er wandert mit dem Schlag ein Stueck mit, damit bei viel Wucht auch
-     * der Ellenbogen sichtbar mitarbeitet und nicht nur die Hand.
+     * Sie kommt als Gelenkwinkel und nicht als Ort, also wird auch in
+     * Winkeln gemischt - auf dem kuerzeren Bogen, sonst laeuft der Arm bei
+     * einer Ueberblendung ueber 180 Grad einmal falsch herum.
      */
-    const polx = sx + a.seite * m.armL * (0.9 + schwung * 0.2);
-    const poly = sy + m.armL * (0.75 + nickX * 0.2);
-    const g = ellbogen(sx, sy, zx, zy, a.l1 * figH, a.l2 * figH, polx, poly);
-    const w1 = Math.atan2(g.ey - sy, g.ex - sx) - a.bindOben;
-    const w2 = Math.atan2(g.hy - g.ey, g.hx - g.ex) - a.bindUnten;
+    let o = bestes.o;
+    let uZiel = bestes.u;
+    const geste = ziele.gesten[i];
+    if (geste) {
+      const oG = Math.PI / 2 - a.seite * geste.aus + koerperW;
+      const uG = oG - a.seite * geste.beugung;
+      o += gerade(oG - o) * geste.gewicht;
+      uZiel += gerade(uG - uZiel) * geste.gewicht;
+    }
+    const ausBind = gerade(o - (a.bindOben + koerperW));
+    if (ausBind > SCHULTER_SPANNE) o -= ausBind - SCHULTER_SPANNE;
+    else if (ausBind < -SCHULTER_SPANNE) o -= ausBind + SCHULTER_SPANNE;
+    let u = uZiel;
+    const gebeugt2 = -a.seite * gerade(u - o);
+    if (gebeugt2 > ELLBOGEN_BEUGUNG) u = o - a.seite * ELLBOGEN_BEUGUNG;
+    else if (gebeugt2 < -ELLBOGEN_STRECKUNG) u = o + a.seite * ELLBOGEN_STRECKUNG;
+
+    /*
+     * Zum Schluss nachziehen - und zwar zweifach begrenzt.
+     *
+     * Das traege Nachziehen allein genuegt nicht. Es laesst je Bild einen
+     * festen *Anteil* der Differenz zu, also bei einem grossen Sprung auch
+     * einen grossen Schritt: Beim Drop schaltet die Geste in einem Bild von
+     * null auf eins, und die Abnahme mass daraufhin 61 Grad in einer
+     * Sechzigstelsekunde - 3700 Grad je Sekunde. Kein Gelenk kann das.
+     *
+     * Deshalb zusaetzlich eine Hoechstgeschwindigkeit. 800 Grad je Sekunde
+     * ist schnell: Ein Boxer kommt am Ellenbogen auf gut das Doppelte, eine
+     * Faust in die Luft auf die Haelfte. Der Drop braucht damit 175
+     * Millisekunden, bis die Arme oben sind - ein Drittel Schlag, also genau
+     * so schnell, wie es sich anfuehlen soll, und trotzdem eine Bewegung
+     * statt eines Umschaltens.
+     */
+    const t = klemm(sekunden * GELENK_TEMPO, 0, 1);
+    const hoechstens = GELENK_HOECHSTTEMPO * sekunden;
+    /*
+     * Gedaempft wird im *Gelenkraum*: die Schulter absolut, der Ellenbogen
+     * gegen den Oberarm. Wuerde man beide absolut deckeln, koennten sie
+     * gegenlaeufig ans Limit laufen und die Beugung aenderte sich doppelt so
+     * schnell wie erlaubt - die Abnahme hat genau das gemessen, 18,5 Grad je
+     * Bild bei einem Deckel von 13,3.
+     */
+    if (!armWinkel[i]) armWinkel[i] = { o, rel: gerade(u - o) };
+    else {
+      armWinkel[i].o += klemm(gerade(o - armWinkel[i].o) * t, -hoechstens, hoechstens);
+      const relZiel = gerade(u - o);
+      armWinkel[i].rel += klemm(gerade(relZiel - armWinkel[i].rel) * t, -hoechstens, hoechstens);
+    }
+    if (typeof window !== 'undefined' && window.__armLog) {
+      window.__armLog.push([i, Math.round((o*180)/Math.PI), Math.round((u*180)/Math.PI),
+        Math.round((armWinkel[i].o*180)/Math.PI), Math.round((armWinkel[i].u*180)/Math.PI),
+        geste ? Math.round(geste.gewicht*100) : 0]);
+    }
+    const oI = armWinkel[i].o;
+    const uI = oI + armWinkel[i].rel;
+    /*
+     * Wo die Hand wirklich gelandet ist.
+     *
+     * Nicht das Ziel, sondern das Ergebnis - und das ist ein Unterschied,
+     * seit Gesten ueber Gelenkwinkel laufen: Bei erhobenen Armen gibt es gar
+     * kein Handziel mehr, das man messen koennte. Die Abnahme prueft damit
+     * das gezeichnete Bild statt einer Zwischenrechnung.
+     */
+    const exI = sx + Math.cos(oI) * a.l1 * figH;
+    const eyI = sy + Math.sin(oI) * a.l1 * figH;
+    letzteHand[i] = {
+      x: exI + Math.cos(uI) * a.l2 * figH,
+      y: eyI + Math.sin(uI) * a.l2 * figH,
+    };
+    /*
+     * Die Gelenkstellung nach aussen sichtbar machen - fuer die Abnahme.
+     *
+     * `schulter` ist die Drehung des Oberarms gegen die Bindepose, `beugung`
+     * die Beugung des Ellenbogens; beide in Grad, beide seitenbereinigt, so
+     * dass links und rechts dieselben Zahlen ergeben. Damit kann die Abnahme
+     * pruefen, was ein Mensch kann - und nicht nur, ob ein Bild entsteht.
+     */
+    letzteGelenke[i] = {
+      schulter: (gerade(oI - (a.bindOben + koerperW)) * 180) / Math.PI * -a.seite,
+      beugung: (-a.seite * gerade(uI - oI) * 180) / Math.PI,
+    };
+    const w1 = oI - a.bindOben;
+    const w2 = uI - a.bindUnten;
     return {
       sx, sy,
-      bsx, bsy,
+      bsx: bx + a.schulter[0] * figH,
+      bsy: by + a.schulter[1] * figH,
       bex: bx + a.ellbogen[0] * figH,
       bey: by + a.ellbogen[1] * figH,
-      ex: g.ex, ey: g.ey,
+      ex: exI,
+      ey: eyI,
       c1: Math.cos(w1), s1: Math.sin(w1),
       c2: Math.cos(w2), s2: Math.sin(w2),
     };
   });
-
-  // Einen Punkt der Zeichnung dorthin bringen, wo der Kopf ihn haben will.
-  const amKopf = (px, py, aus) => {
-    const dx = px + rvx - halsX;
-    const dy = py + rvy - halsPy;
-    aus[0] = halsX + dx * kcos - dy * ksin + kvx;
-    aus[1] = halsPy + dx * ksin + dy * kcos + kvy;
-  };
 
   // Wo der Kopf gelandet ist - die Abnahme misst daran, ob die Hand ans Ohr
   // kommt, und darf die Zahl nicht selbst nachrechnen muessen.
@@ -962,8 +1256,13 @@ export function schattenStand() {
     kopf: letzterKopf ? { ...letzterKopf } : null,
     zeigenHalt,
     dropHalt,
-    handL: handL ? { ...handL } : null,
-    handR: handR ? { ...handR } : null,
+    handL: letzteHand[0] ? { ...letzteHand[0] } : null,
+    handR: letzteHand[1] ? { ...letzteHand[1] } : null,
+    // Die *Ziele* daneben - fuer die Fehlersuche, wenn Ziel und Ergebnis
+    // auseinanderlaufen.
+    zielL: handL ? { ...handL } : null,
+    zielR: handR ? { ...handR } : null,
+    gelenke: letzteGelenke.map((g) => (g ? { ...g } : null)),
     neigung,
     wiegen,
   };

@@ -19,7 +19,16 @@ const ZIEL = path.resolve(process.argv[2] ?? 'werkzeuge/schattenbilder');
 // Vorlaufen ist noetig, weil die Haende ihren Zielen nachlaufen - ein
 // einzelnes Bild zeigte immer die Ruhehaltung.
 const LAGEN = [
-  ['01-ruhe', {}, 120],
+  /*
+   * Die Ruhe braucht wenig Wucht, und das ist eine Korrektur.
+   *
+   * Vorher lief sie mit derselben Wucht von 0,5 wie alle anderen - und bei
+   * 0,5 pumpt die Figur die Faust. Das Standbild "Ruhe" zeigte also die
+   * Pumpe, zufaellig irgendwo in ihrem Schwung, und sah jedes Mal anders
+   * aus. Beim Durchsehen hielt ich das fuer einen verrenkten Arm.
+   */
+  ['01-ruhe', { wucht: 0.2 }, 120],
+  ['01b-pumpe', { wucht: 0.95 }, 118],
   ['02-aufbau-halb', { spannung: 0.6, wucht: 0.6 }, 120],
   ['03-aufbau-voll', { spannung: 1, wucht: 0.85 }, 120],
   ['04-drop', { spannung: 0.9, wucht: 1, drop: true }, 120],

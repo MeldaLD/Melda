@@ -326,7 +326,21 @@ export class Mixer {
     this.ausgang.gain.value = 1;
 
     this.messung.fftSize = 2048;
-    this.messung.smoothingTimeConstant = 0.75;
+    /*
+     * Wenig Glaettung, und das ist eine Korrektur.
+     *
+     * Sie stand auf 0,75. Das ist ein Tiefpass mit 58 ms Zeitkonstante: Von
+     * einem Anschlag sind nach einem Bild erst 25 % da, nach 150 ms 90 %. Bei
+     * 128 Schlaegen je Minute ist das ein Drittel Schlag - waehrend das
+     * Taktraster der Buehne auf Millisekunden genau sitzt. Bild und Ton
+     * liefen also gegeneinander, und niemand konnte sagen warum.
+     *
+     * Mit 0,3 sind es 14 ms, also weniger als ein Bild. Was der Tiefpass an
+     * Ruhe geliefert hat, liefert jetzt der Spitzenhalter in spektrum.js:
+     * Anstieg sofort, Abfall traege. Flimmern entsteht beim Zurueckfallen,
+     * nicht beim Ansteigen - deshalb kostet die Umstellung nichts.
+     */
+    this.messung.smoothingTimeConstant = 0.3;
 
     // Der Echo-Weg fuer den Echo-Schnitt: eine Verzoegerung mit Rueckfuehrung,
     // die sich von selbst totlaeuft.

@@ -18,6 +18,7 @@ import {
   reiheAuskunft,
 } from './mandelgpu.js';
 import { dolceZeichnen, dolceZuruecksetzen } from './dolce.js';
+import { nutzbareBins } from './spektrum.js';
 
 export { dolceZuruecksetzen };
 
@@ -44,12 +45,8 @@ export const TAU = Math.PI * 2;
 
 // Nur die unteren 45 Prozent der Bins zaehlen: darueber ist bei Musik so gut
 // wie nie etwas los, und wer sie trotzdem einbezieht, verschenkt Aufloesung
-// im Bereich, der tatsaechlich Bewegung zeigt.
-const NUTZBARER_ANTEIL = 0.45;
-
-function nutzbareBins(anzahl) {
-  return Math.max(2, Math.floor(anzahl * NUTZBARER_ANTEIL));
-}
+// im Bereich, der tatsaechlich Bewegung zeigt. Die Zahl steht in spektrum.js,
+// weil die Aufbereitung sie zuerst braucht.
 
 // Bin-Index zu Position 0..1, logarithmisch. Feste Zuordnung: Dieselbe
 // Tonhoehe liegt immer an derselben Stelle, sonst wandert das Bild und man
@@ -1458,8 +1455,15 @@ function mandelTabellenSichern(grundtonRoh, akzentRoh, baenderZahl, baender) {
     mandelHellTabelle[i * 3 + 1] = g2;
     mandelHellTabelle[i * 3 + 2] = b2;
 
-    // Logarithmische Frequenzachse: die unteren Oktaven bekommen den Platz,
-    // den sie im Stueck auch haben. Haengt nur an der Bandzahl, also einmal.
+    /*
+     * Logarithmische Frequenzachse: die unteren Oktaven bekommen den Platz,
+     * den sie im Stueck auch haben. Haengt nur an der Bandzahl, also einmal.
+     *
+     * Abgebildet wird auf die *nutzbaren* Bins, nicht auf alle. Vorher lief
+     * die Achse bis Bin 1023, wo seit je nichts steht: Die oberen elf Prozent
+     * der Tabelle waren dauerhaft schwarz, und das sind die aeussersten Ringe
+     * des Bildes.
+     */
     mandelBandZuordnung[i] = baender
       ? Math.min(baender - 1, Math.round((Math.pow(baender, t) - 1) * (baender / (baender - 1))))
       : 0;
@@ -1467,7 +1471,7 @@ function mandelTabellenSichern(grundtonRoh, akzentRoh, baenderZahl, baender) {
 }
 
 function mandelTabelleBauen(grundton, akzent, spektrum, glanz, baenderZahl = 3) {
-  const baender = spektrum ? spektrum.length : 0;
+  const baender = spektrum ? nutzbareBins(spektrum.length) : 0;
   mandelTabellenSichern(grundton, akzent, baenderZahl, baender);
   const n = 512;
   if (!mandelFarbtabelle) mandelFarbtabelle = new Uint8Array(n * 3);

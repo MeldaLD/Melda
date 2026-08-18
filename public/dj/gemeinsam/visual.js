@@ -29,6 +29,7 @@ import {
   TAU,
 } from './visualmodi.js';
 import { beatBei } from './takt.js';
+import { spektrumSchaerfen, spektrumZuruecksetzen } from './spektrum.js';
 import { schattenZeichnen } from './schattendj.js';
 
 // Die Reihenfolge, in der die Modi durchgewechselt werden. Nicht zufaellig
@@ -354,6 +355,9 @@ export class Visualisierung {
   /** Von Hand festlegen, oder mit null zurueck auf automatisch. */
   modusSetzen(name) {
     this.modusZwang = name && MODI[name] ? name : null;
+    // Die Huellkurven des Spektrums mit zuruecksetzen: Sie tragen den
+    // Massstab der letzten Sekunden, und der gehoert zum vorigen Bild.
+    spektrumZuruecksetzen();
     // Die Szenenfolge faengt von vorne an. Ohne das stuende beim Aufrufen
     // noch die Szene von vorhin im Bild, mitten in ihrer Bewegung.
     if (this.modusZwang === 'dolce') dolceZuruecksetzen();
@@ -400,7 +404,23 @@ export class Visualisierung {
     const takt = this.taktLage(aktiv);
     const spannung = this.spannungBis(aktiv, takt);
     const abbau = this.abbauBei(aktiv, takt);
+    /*
+     * Die Wucht kommt aus dem *rohen* Spektrum, das Bild aus dem
+     * aufbereiteten.
+     *
+     * Der Unterschied ist wichtig: Die Aufbereitung normiert jedes Band auf
+     * das, was es zuletzt hergegeben hat. Fuer das Bild ist das genau
+     * richtig - man sieht dann auch ein Becken. Fuer ein Mass, das "wie laut
+     * ist es gerade" heissen soll, waere es falsch, denn nach der Normierung
+     * ist jede Passage gleich laut.
+     */
     const wucht = this.pegelWucht(spektrum);
+    if (spektrum) {
+      if (!this.spektrumScharf || this.spektrumScharf.length !== spektrum.length) {
+        this.spektrumScharf = new Uint8Array(spektrum.length);
+      }
+      spektrum = spektrumSchaerfen(spektrum, this.spektrumScharf, sekunden);
+    }
 
     // Beim Drop: alles auf einmal. Das Signal geht auch an den Modus - das
     // Mandelbrot kehrt dabei seine Flugrichtung um, und damit hat der

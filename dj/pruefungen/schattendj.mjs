@@ -217,7 +217,13 @@ try {
 
   console.log('\nDer Drop hebt die Haende:');
   const drop = await seite.evaluate(() => {
-    const ruhe = window.__probe.lauf(240);
+    /*
+     * Der Vergleichslauf braucht *wenig* Wucht, sonst vergleicht er den Drop
+     * mit der Faustpumpe statt mit dem Ruhezustand. Bei der Vorgabe von 0,5
+     * pumpt die Figur bereits zu 69 Prozent, und der Unterschied schrumpfte
+     * dadurch von deutlich sichtbar auf 57 Bildpunkte.
+     */
+    const ruhe = window.__probe.lauf(240, { wucht: 0.2 });
     // Der Drop faellt in Bild 120; danach wird eine Sekunde lang gemessen.
     const mit = window.__probe.lauf(240, {}, (lage, i) => {
       if (i === 120) lage.drop = true;
@@ -308,6 +314,105 @@ try {
    * Arm. Erlaubt sind nur Kruemel; die Aussparung im Kopfhoerer und die
    * weichen Kanten der Leinwand liefern immer ein paar.
    */
+  /* --- Was ein Mensch kann, und was nicht ------------------------------
+   *
+   * Diese beiden Pruefungen gibt es, weil die Figur ueber Wochen Arme hatte,
+   * die in echt gebrochen waeren, und weil niemand es an einer Zahl sehen
+   * konnte. Erst ein Protokoll der Gelenkwinkel ueber zwei Schlaege zeigte
+   * es: Der rechte Ellenbogen lief bei der Faustpumpe von -163 auf +149 Grad,
+   * also durch die Streckung hindurch auf die andere Seite, und im
+   * Ruhezustand wanderte er 125 Grad hin und her, obwohl nichts passierte.
+   *
+   * Gemessen wird deshalb ueber *alle* Haltungen und jedes Bild:
+   *
+   *   1. Kein Gelenk verlaesst seinen menschlichen Bereich. Der Ellenbogen
+   *      beugt sich nur in eine Richtung, hoechstens 150 Grad weit, und ueber
+   *      die Streckung hinaus fast nicht. Der Oberarm dreht sich nicht hinter
+   *      den Koerper.
+   *   2. Kein Gelenk springt. Ein Winkel, der sich in einer Sechzigstel-
+   *      sekunde um mehr als ein paar Grad aendert, ist kein Bewegung mehr,
+   *      sondern ein Umschalten - und genau so sah es aus.
+   */
+  console.log('\nDie Gelenke bleiben im menschlichen Bereich:');
+  const gelenke = await seite.evaluate(() => {
+    const { m, stift } = window.__probe;
+    const lagen = {
+      ruhe: { wucht: 0.2 },
+      pumpe: { wucht: 0.95 },
+      aufbau: { spannung: 1, wucht: 0.85 },
+      drop: { spannung: 0.9, wucht: 1, drop: true },
+      breakdown: { abbau: 0.85, wucht: 0.15 },
+      uebergang: { anteilB: 0.5, wucht: 0.5 },
+    };
+    const aus = {};
+    for (const [name, grund] of Object.entries(lagen)) {
+      m.schattenZuruecksetzen();
+      m.schattenSetzen(true);
+      let schulterMin = 1e9, schulterMax = -1e9, beugMin = 1e9, beugMax = -1e9;
+      let groessterSprung = 0;
+      let vorher = null;
+      for (let i = 0; i < 260; i++) {
+        const beat = ((i / 60) * 128) / 60;
+        m.schattenZeichnen(stift, 900, 600, {
+          sekunden: 1 / 60,
+          takt: {
+            beat, imBeat: beat - Math.floor(beat), nummer: Math.floor(beat),
+            aufEins: Math.floor(beat) % 4 === 0, aufPhrase: Math.floor(beat) % 32 === 0,
+          },
+          spannung: 0, abbau: 0, wucht: 0.5, anteilB: 0,
+          palette: ['#123', '#456', '#789', '#8ad7ff'], guetestufe: 'hoch',
+          ...grund, ...(grund.drop ? { drop: i === 200 } : {}),
+        });
+        const g = m.schattenStand().gelenke;
+        // Die ersten Bilder ueberspringen: Da faehrt die Figur erst an.
+        if (i < 20 || !g[0] || !g[1]) { vorher = g; continue; }
+        for (const k of [0, 1]) {
+          schulterMin = Math.min(schulterMin, g[k].schulter);
+          schulterMax = Math.max(schulterMax, g[k].schulter);
+          beugMin = Math.min(beugMin, g[k].beugung);
+          beugMax = Math.max(beugMax, g[k].beugung);
+          if (vorher && vorher[k]) {
+            groessterSprung = Math.max(
+              groessterSprung,
+              Math.abs(g[k].schulter - vorher[k].schulter),
+              Math.abs(g[k].beugung - vorher[k].beugung),
+            );
+          }
+        }
+        vorher = g;
+      }
+      aus[name] = { schulterMin, schulterMax, beugMin, beugMax, groessterSprung };
+    }
+    return aus;
+  });
+  let schlimmsteBeugung = 0;
+  let schlimmsteSchulter = 0;
+  let schlimmsterSprung = 0;
+  for (const [name, w] of Object.entries(gelenke)) {
+    schlimmsteBeugung = Math.max(schlimmsteBeugung, w.beugMax, -w.beugMin);
+    schlimmsteSchulter = Math.max(schlimmsteSchulter, Math.abs(w.schulterMin), Math.abs(w.schulterMax));
+    schlimmsterSprung = Math.max(schlimmsterSprung, w.groessterSprung);
+    console.log(
+      `    ${name.padEnd(10)} Schulter ${w.schulterMin.toFixed(0).padStart(5)}..` +
+      `${w.schulterMax.toFixed(0).padEnd(5)} Ellenbogen ${w.beugMin.toFixed(0).padStart(5)}..` +
+      `${w.beugMax.toFixed(0).padEnd(5)} groesster Schritt ${w.groessterSprung.toFixed(1)}°`,
+    );
+  }
+  // Ein Grad Spiel auf die Grenzen: Die Glaettung laeuft ihnen minimal nach.
+  const engste = Math.min(...Object.values(gelenke).map((w) => w.beugMin));
+  pruefe('der Ellenbogen beugt sich nur in eine Richtung und nicht ueber 150°',
+    schlimmsteBeugung <= 151 && engste >= -16,
+    `Beugung ${engste.toFixed(0)}° bis ${schlimmsteBeugung.toFixed(0)}°`);
+  pruefe('der Oberarm dreht nicht hinter den Koerper', schlimmsteSchulter <= 106,
+    `hoechstens ${schlimmsteSchulter.toFixed(0)}° aus der Bindepose`);
+  /*
+   * 15 Grad je Bild sind 900 Grad je Sekunde. Der Zeichner deckelt bei 800;
+   * die Reserve faengt ab, dass ein Bild einmal etwas laenger dauert.
+   */
+  pruefe('kein Gelenk springt von Bild zu Bild', schlimmsterSprung < 15,
+    `groesster Schritt ${schlimmsterSprung.toFixed(1)}° je Bild, das sind ` +
+    `${(schlimmsterSprung * 60).toFixed(0)}° je Sekunde`);
+
   console.log('\nAuch mit erhobenen Armen bleibt es eine Figur:');
   const zusammenhang = await seite.evaluate(() => {
     const { m, stift } = window.__probe;
