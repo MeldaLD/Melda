@@ -831,3 +831,85 @@ header {
 .mandala-liste .kosten.schwer {
   color: var(--akzent);
 }
+
+/* --- Alles weg ausser dem Bild --------------------------------------------
+ *
+ * Nicht dasselbe wie die Steuerung, die sich nach ein paar Sekunden
+ * wegblendet. Die kommt bei jeder Handbewegung zurueck - hier geht es um den
+ * Fall, dass die Leinwand irgendwo haengt, wo *nur* das Bild zaehlt und
+ * niemand etwas bedient. Deshalb bleibt es auch ueber einen Neustart hinweg
+ * gesetzt.
+ *
+ * Der Zeiger geht mit. Ein Mauszeiger, der stundenlang mitten im Bild steht,
+ * ist genauso Bedienoberflaeche wie eine Leiste - und faellt auf einer
+ * Projektion sogar mehr auf, weil er als einziges nicht dazugehoert.
+ */
+body.ui-aus {
+  cursor: none;
+}
+
+body.ui-aus #konsole {
+  display: none;
+}
+
+/*
+ * Die Ecke fuer den Rueckweg.
+ *
+ * Unsichtbar, aber gross: Auf einem iPad ohne Tastatur ist sie der einzige
+ * Weg zurueck, und man trifft sie im Dunkeln. Sie liegt ueber allem, ist aber
+ * nur da, wenn wirklich ausgeblendet ist - sonst faenge sie Tipper ab, die
+ * der Kopfzeile gelten.
+ */
+.ui-ecke {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: max(9rem, 16vmin);
+  height: max(9rem, 16vmin);
+  z-index: 9;
+  cursor: none;
+}
+
+.ui-ecke[hidden] {
+  display: none;
+}
+
+/*
+ * Der Hinweis auf den Rueckweg.
+ *
+ * Unten mittig, klein, und nach ein paar Sekunden weg. Er steht dort, wo
+ * sonst die Steuerung sitzt - wer den Knopf gerade gedrueckt hat, schaut
+ * ohnehin hin.
+ */
+.ui-hinweis {
+  position: fixed;
+  left: 50%;
+  bottom: 1.6rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.7rem;
+  background: rgba(8, 8, 14, 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.62);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.6s;
+}
+
+.ui-hinweis b {
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 600;
+}
+
+.ui-hinweis.sichtbar {
+  opacity: 1;
+}
+
+.ui-hinweis[hidden] {
+  display: none;
+}

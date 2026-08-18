@@ -840,6 +840,88 @@ header {
   color: var(--akzent);
 }
 
+/* --- Alles weg ausser dem Bild --------------------------------------------
+ *
+ * Nicht dasselbe wie die Steuerung, die sich nach ein paar Sekunden
+ * wegblendet. Die kommt bei jeder Handbewegung zurueck - hier geht es um den
+ * Fall, dass die Leinwand irgendwo haengt, wo *nur* das Bild zaehlt und
+ * niemand etwas bedient. Deshalb bleibt es auch ueber einen Neustart hinweg
+ * gesetzt.
+ *
+ * Der Zeiger geht mit. Ein Mauszeiger, der stundenlang mitten im Bild steht,
+ * ist genauso Bedienoberflaeche wie eine Leiste - und faellt auf einer
+ * Projektion sogar mehr auf, weil er als einziges nicht dazugehoert.
+ */
+body.ui-aus {
+  cursor: none;
+}
+
+body.ui-aus #konsole {
+  display: none;
+}
+
+/*
+ * Die Ecke fuer den Rueckweg.
+ *
+ * Unsichtbar, aber gross: Auf einem iPad ohne Tastatur ist sie der einzige
+ * Weg zurueck, und man trifft sie im Dunkeln. Sie liegt ueber allem, ist aber
+ * nur da, wenn wirklich ausgeblendet ist - sonst faenge sie Tipper ab, die
+ * der Kopfzeile gelten.
+ */
+.ui-ecke {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: max(9rem, 16vmin);
+  height: max(9rem, 16vmin);
+  z-index: 9;
+  cursor: none;
+}
+
+.ui-ecke[hidden] {
+  display: none;
+}
+
+/*
+ * Der Hinweis auf den Rueckweg.
+ *
+ * Unten mittig, klein, und nach ein paar Sekunden weg. Er steht dort, wo
+ * sonst die Steuerung sitzt - wer den Knopf gerade gedrueckt hat, schaut
+ * ohnehin hin.
+ */
+.ui-hinweis {
+  position: fixed;
+  left: 50%;
+  bottom: 1.6rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.7rem;
+  background: rgba(8, 8, 14, 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+  color: rgba(255, 255, 255, 0.62);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.6s;
+}
+
+.ui-hinweis b {
+  color: rgba(255, 255, 255, 0.88);
+  font-weight: 600;
+}
+
+.ui-hinweis.sichtbar {
+  opacity: 1;
+}
+
+.ui-hinweis[hidden] {
+  display: none;
+}
+
 </style>
   </head>
   <body>
@@ -1011,6 +1093,13 @@ header {
             <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
             <span id="versatzWert" class="schieber-wert">±0 ms</span>
           </label>
+          <!--
+            Alles weg ausser dem Bild. Bleibt ueber einen Neustart hinweg
+            gesetzt, weil "kurz ausblenden" nicht der Zweck ist: Wenn die
+            Leinwand irgendwo haengt, wo nur das Bild zaehlt, soll sie nach
+            einem Stromausfall genauso wieder hochkommen.
+          -->
+          <button id="uiAus" title="Alles ausser dem Bild ausblenden – bleibt gesetzt, auch nach einem Neustart (Taste U)">UI ausblenden</button>
         </div>
 
         <div class="gruppe leise">
@@ -1094,6 +1183,30 @@ header {
         <div id="mandalaListe" class="mandala-liste"></div>
       </div>
     </main>
+
+    <!--
+      Der Rueckweg aus dem ausgeblendeten Zustand.
+
+      Er liegt ausserhalb von <main>, weil <main> genau das ist, was
+      ausgeblendet wird. Eine Ecke und kein Knopf: Ein sichtbarer Knopf waere
+      wieder Bedienoberflaeche, und die soll ja gerade weg sein.
+
+      Drei Tipper und nicht einer - auf einem Tisch stoesst irgendwann jemand
+      dagegen, und dann steht die Leiste wieder mitten im Bild.
+    -->
+    <div class="ui-ecke" id="uiEcke" hidden aria-hidden="true"></div>
+
+    <!--
+      Der Hinweis, wie man zurueckkommt. Er erscheint beim Ausblenden und beim
+      Start, ein paar Sekunden lang.
+
+      Ohne ihn waere das hier eine Falle: Wer den Knopf drueckt, hat danach
+      keine Oberflaeche mehr, mit der er ihn zuruecknehmen koennte - und die
+      Einstellung ueberlebt den Neustart, der sonst immer hilft.
+    -->
+    <div class="ui-hinweis" id="uiHinweis" hidden>
+      Oberfläche ausgeblendet · Taste <b>U</b> oder dreimal oben links tippen
+    </div>
 
     <script type="module">
 // ===== public/gemeinsam/takt.js =====
@@ -13509,6 +13622,9 @@ async function starten(demo) {
 
     $('startschirm').hidden = true;
     $('konsole').hidden = false;
+    // Erst jetzt gibt es etwas auszublenden - vorher stand der Startschirm da,
+    // und der bleibt sichtbar, weil ohne ihn kein Ton laeuft.
+    uiAusAnwenden(true);
     bild = new Visualisierung($('visual'));
     // Auch das Bild offenlegen: Am Abend laesst sich damit in der Konsole der
     // Modus umstellen, wenn einer gerade nicht zum Raum passt.
@@ -13934,6 +14050,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 't' || e.key === 'T') technikUmschalten();
   if (e.key === 'm' || e.key === 'M') mandalaUmschalten();
   if (e.key === 'd' || e.key === 'D') schattenUmschalten(!$('schattenWahl').checked);
+  if (e.key === 'u' || e.key === 'U') uiAusSetzen(!uiAus);
+  // Escape holt die Oberflaeche immer zurueck, egal wie sie verschwunden ist.
+  // Eine Taste, die nur in eine Richtung wirkt, ist der verlaesslichere
+  // Notausgang - man muss sich nicht merken, in welchem Zustand man ist.
+  if (e.key === 'Escape' && uiAus) uiAusSetzen(false);
   if (e.key === 'Escape' && !$('technik').hidden) technikUmschalten();
   if (e.key === 'Escape' && !$('mandalas').hidden) mandalaUmschalten();
   geheimPruefen(e.key);
@@ -14613,6 +14734,115 @@ function zeichneVerlauf() {
   }
 }
 
+/* --- Alles ausblenden ausser dem Bild --------------------------------------
+ *
+ * Die Steuerung blendet sich schon von allein weg, aber das ist etwas
+ * anderes: Sie kommt bei jeder Handbewegung zurueck, und Kopfzeile, Titel und
+ * Fortschritt stehen ohnehin dauernd da. Fuer eine Leinwand, an der niemand
+ * etwas bedient, soll wirklich nur das Bild uebrig bleiben.
+ *
+ * Es bleibt gesetzt, auch nach einem Neustart. Das ist ausdruecklich gewollt -
+ * wenn das Bild irgendwo laeuft, wo es nur als Bild taugt, waere ein
+ * Stromausfall sonst genug, um die ganze Oberflaeche zurueckzuholen.
+ *
+ * --- Der Rueckweg ----------------------------------------------------------
+ *
+ * Genau daraus wird eine Falle, wenn man nicht aufpasst: Der Knopf zum
+ * Zuruecknehmen liegt in der Oberflaeche, die er selbst ausblendet, und ein
+ * Neustart hilft nicht mehr. Es gibt deshalb drei Wege zurueck, und zwei
+ * davon brauchen keine Tastatur:
+ *
+ *   Taste U      schaltet um
+ *   Escape       holt zurueck, in jedem Zustand
+ *   Ecke oben links, dreimal tippen
+ *
+ * Die Ecke ist fuer das iPad, auf dem keine Tastatur haengt. Dreimal und
+ * nicht einmal, weil an einem Geraet, das irgendwo steht, frueher oder
+ * spaeter jemand dagegenkommt.
+ *
+ * Und weil man sich einen ungeschriebenen Rueckweg nicht merkt, steht er beim
+ * Ausblenden und bei jedem Start ein paar Sekunden lang im Bild.
+ */
+/*
+ * Der Stand kommt aus dem Speicher - oder aus der Adresse.
+ *
+ * `?ui=aus` blendet aus, `?ui=an` holt zurueck, und beides schreibt den Stand
+ * mit. Das ist der Teil "man weiss noch nicht, wie es eingesetzt wird": Wer
+ * die Buehne aus einer Verknuepfung, einem Kioskmodus oder einem Startskript
+ * heraus aufruft, muss dann nichts am Geraet einstellen - die Adresse sagt
+ * alles. Und `?ui=an` ist der Rueckweg, der selbst dann noch funktioniert,
+ * wenn Tastatur und Beruehrung ausfallen.
+ */
+const uiWunsch = new URLSearchParams(location.search).get('ui');
+let uiAus = localStorage.getItem('djUiAus') === 'ja';
+if (uiWunsch === 'aus' || uiWunsch === 'an') {
+  uiAus = uiWunsch === 'aus';
+  localStorage.setItem('djUiAus', uiAus ? 'ja' : 'nein');
+}
+let hinweisZaehler = null;
+let eckeTipper = [];
+
+/** Den gemerkten Stand auf die Seite anwenden. */
+function uiAusAnwenden(mitHinweis) {
+  document.body.classList.toggle('ui-aus', uiAus);
+  // Die Ecke nur, wenn es auch etwas zurueckzuholen gibt. Vor dem Start liegt
+  // der Startschirm oben, und die Ecke wuerde ihm Tipper wegnehmen.
+  $('uiEcke').hidden = !(uiAus && !$('konsole').hidden);
+  if (uiAus) {
+    // Sonst haengt die Leiste sichtbar hinter dem Ausgeblendeten und ist beim
+    // Zurueckholen sofort wieder da, ohne dass jemand die Maus bewegt hat.
+    $('steuerung').classList.remove('sichtbar');
+    if (mitHinweis) hinweisZeigen();
+  } else {
+    hinweisVerstecken();
+  }
+}
+
+function uiAusSetzen(an) {
+  uiAus = !!an;
+  localStorage.setItem('djUiAus', uiAus ? 'ja' : 'nein');
+  uiAusAnwenden(true);
+  if (!uiAus) steuerungZeigen();
+}
+
+function hinweisZeigen() {
+  const h = $('uiHinweis');
+  h.hidden = false;
+  // Zwei Bilder warten: Ein Element, das im selben Bild aus display:none kommt
+  // und die Klasse bekommt, ueberblendet nicht - der Browser hat keinen
+  // Ausgangswert, von dem aus er rechnen koennte.
+  requestAnimationFrame(() => requestAnimationFrame(() => h.classList.add('sichtbar')));
+  clearTimeout(hinweisZaehler);
+  hinweisZaehler = setTimeout(hinweisVerstecken, 6000);
+}
+
+function hinweisVerstecken() {
+  clearTimeout(hinweisZaehler);
+  const h = $('uiHinweis');
+  h.classList.remove('sichtbar');
+  hinweisZaehler = setTimeout(() => { h.hidden = true; }, 700);
+}
+
+$('uiAus').addEventListener('click', () => uiAusSetzen(true));
+
+/*
+ * Drei Tipper in der Ecke, innerhalb von zwei Sekunden. Gezaehlt wird ueber
+ * die Zeitstempel und nicht ueber einen Zaehler mit Ruecksetzer: Damit zaehlen
+ * immer die letzten drei, und ein vierter Tipper eine Minute spaeter faengt
+ * nicht bei null an, sondern schiebt das Fenster weiter.
+ */
+$('uiEcke').addEventListener('pointerdown', () => {
+  const jetzt = performance.now();
+  eckeTipper = eckeTipper.filter((t) => jetzt - t < 2000);
+  eckeTipper.push(jetzt);
+  if (eckeTipper.length >= 3) {
+    eckeTipper = [];
+    uiAusSetzen(false);
+  }
+});
+
+uiAusAnwenden(false);
+
 // --- Steuerung zeigen und verstecken --------------------------------------
 //
 // Auf einem Monitor im Raum soll nichts herumstehen, was niemand bedient.
@@ -14620,6 +14850,9 @@ function zeichneVerlauf() {
 // sie wieder.
 let ruheZaehler = null;
 function steuerungZeigen() {
+  // Im ausgeblendeten Zustand nicht. Sonst hiesse "dauerhaft ausblenden" in
+  // Wahrheit "bis jemand die Maus bewegt".
+  if (uiAus) return;
   $('steuerung').classList.add('sichtbar');
   clearTimeout(ruheZaehler);
   ruheZaehler = setTimeout(() => {

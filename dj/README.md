@@ -162,6 +162,36 @@ Datei, damit du am Abend nicht im Code suchst:
 - **Wie oft ein Gaestewunsch drankommt** (Standard: hoechstens jeder dritte
   Track). Ohne diese Bremse zerlegt der erste Gast mit Handy den Abend.
 
+## Nur das Bild: die Oberflaeche ausblenden
+
+Der Knopf **„UI ausblenden"** unter *Bild* nimmt alles weg ausser der
+Visualisierung – Kopfzeile, Tracknamen, Fortschritt, Steuerung und den
+Mauszeiger. Er bleibt gesetzt, **auch nach einem Neustart**: Wenn die Leinwand
+irgendwo haengt, wo nur das Bild zaehlt, soll ein Stromausfall nicht die ganze
+Oberflaeche zurueckholen.
+
+Genau deshalb gibt es drei Rueckwege, und zwei davon brauchen keine Tastatur:
+
+| Weg | Wofuer |
+| --- | --- |
+| Taste **U** | schaltet um |
+| Taste **Escape** | holt zurueck, in jedem Zustand |
+| Dreimal **oben links** tippen | fuers iPad, auf dem keine Tastatur haengt |
+| `?ui=an` an die Adresse | wenn gar nichts mehr geht |
+
+Dreimal und nicht einmal, weil an einem Geraet, das irgendwo steht, frueher
+oder spaeter jemand dagegenkommt. Beim Ausblenden und bei jedem Start steht
+der Rueckweg ein paar Sekunden lang im Bild.
+
+Fuer eine Verknuepfung, ein Startskript oder einen Kioskmodus geht es auch
+ueber die Adresse: **`/buehne?ui=aus`** blendet aus, **`?ui=an`** holt zurueck.
+Beides schreibt den Stand mit, das Geraet muss also nur einmal so
+aufgerufen werden.
+
+Abgenommen wird das in `pruefungen/uiaus.mjs` (`npm run dj:uipruefen`) – und
+zwar vor allem die Rueckwege, denn ein Schalter, der die Oberflaeche
+ausblendet, in der er selbst liegt, ist sonst eine Falle.
+
 ## Verzeichnisse
 
 | Ort | Inhalt |

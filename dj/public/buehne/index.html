@@ -176,6 +176,13 @@
             <input type="range" id="versatzRegler" min="-120" max="120" step="5" value="0" />
             <span id="versatzWert" class="schieber-wert">±0 ms</span>
           </label>
+          <!--
+            Alles weg ausser dem Bild. Bleibt ueber einen Neustart hinweg
+            gesetzt, weil "kurz ausblenden" nicht der Zweck ist: Wenn die
+            Leinwand irgendwo haengt, wo nur das Bild zaehlt, soll sie nach
+            einem Stromausfall genauso wieder hochkommen.
+          -->
+          <button id="uiAus" title="Alles ausser dem Bild ausblenden – bleibt gesetzt, auch nach einem Neustart (Taste U)">UI ausblenden</button>
         </div>
 
         <div class="gruppe leise">
@@ -259,6 +266,30 @@
         <div id="mandalaListe" class="mandala-liste"></div>
       </div>
     </main>
+
+    <!--
+      Der Rueckweg aus dem ausgeblendeten Zustand.
+
+      Er liegt ausserhalb von <main>, weil <main> genau das ist, was
+      ausgeblendet wird. Eine Ecke und kein Knopf: Ein sichtbarer Knopf waere
+      wieder Bedienoberflaeche, und die soll ja gerade weg sein.
+
+      Drei Tipper und nicht einer - auf einem Tisch stoesst irgendwann jemand
+      dagegen, und dann steht die Leiste wieder mitten im Bild.
+    -->
+    <div class="ui-ecke" id="uiEcke" hidden aria-hidden="true"></div>
+
+    <!--
+      Der Hinweis, wie man zurueckkommt. Er erscheint beim Ausblenden und beim
+      Start, ein paar Sekunden lang.
+
+      Ohne ihn waere das hier eine Falle: Wer den Knopf drueckt, hat danach
+      keine Oberflaeche mehr, mit der er ihn zuruecknehmen koennte - und die
+      Einstellung ueberlebt den Neustart, der sonst immer hilft.
+    -->
+    <div class="ui-hinweis" id="uiHinweis" hidden>
+      Oberfläche ausgeblendet · Taste <b>U</b> oder dreimal oben links tippen
+    </div>
 
     <script type="module" src="/buehne/buehne.js"></script>
   </body>
