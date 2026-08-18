@@ -12,7 +12,7 @@
 // nichts - was von einer Bewegungserfassung kommt, zittert immer.
 
 import fs from 'node:fs/promises';
-import { einlesen, umrechnen, tipperFinden, abtasten, nahtFehler, nahtSchliessen,
+import { einlesen, umrechnen, tipperFinden, abtasten, nahtFehler, nahtSchliessen, glaetten,
   packen, auspacken, KNOCHEN, PROBEN_JE_SCHLAG } from '../werkzeuge/bewegung.mjs';
 import { bvhLesen, vorwaerts, gelenkeZuordnen } from '../werkzeuge/bvh.mjs';
 import { taenzerBauen, SOLL, SCHLAG, BILDRATE } from '../werkzeuge/prueftaenzer.mjs';
@@ -266,6 +266,59 @@ console.log('\nAuch verrauschte Daten ergeben eine brauchbare Schleife:');
   }
   pruefe('und die Haltung weicht nur wenig ab', summe / zahl < 4,
     `im Mittel ${(summe / zahl).toFixed(2)} Grad Unterschied zur sauberen Aufnahme`);
+}
+
+console.log('\nReicht die Abtastrate fuer schnelle Bewegungen?');
+{
+  /*
+   * Die eine Zahl, die ich bisher nur *angenommen* hatte.
+   *
+   * Gespeichert werden 16 Proben je Schlag. Bei 124 Schlaegen je Minute sind
+   * das 33 Abtastungen je Sekunde - aus einer Aufnahme mit 60. Die Haelfte
+   * faellt also weg, und die Frage ist, ob dabei etwas verlorengeht, das man
+   * sieht.
+   *
+   * Geprueft am haerteste Fall im Pruefstand: dem Tipper. Er ist die
+   * schnellste Bewegung darin - die Hand faellt in 200 ms um zwanzig
+   * Zentimeter und wird schlagartig gestoppt. Wenn 16 Proben je Schlag *den*
+   * tragen, tragen sie auch alles andere.
+   *
+   * Verglichen wird die abgetastete Schleife, wieder auf 60 Bilder je
+   * Sekunde hochgerechnet, gegen die urspruengliche Spur.
+   */
+  const s = bvhLesen(sauber);
+  const zu = gelenkeZuordnen(s);
+  const spur = glaetten(umrechnen(s, zu), s.bildDauer, 0.04);
+  const schrittBilder = SCHLAG / s.bildDauer;
+  const nullBild = SOLL.ersterTipper / s.bildDauer;
+
+  // Vier Schlaege ab dem ersten Tipper - da liegen alle vier Tipper drin.
+  const stueck = abtasten(spur, nullBild, schrittBilder, 4);
+  let schlimmster = 0;
+  let wo = 0;
+  for (let bild = 0; bild < 4 * schrittBilder; bild++) {
+    const probe = (bild / schrittBilder) * PROBEN_JE_SCHLAG;
+    const i = Math.floor(probe);
+    const f = probe - i;
+    for (const [name] of KNOCHEN) {
+      const a = spur.richtungen[name][Math.round(nullBild + bild)];
+      const p = stueck.richtungen[name][Math.min(i, stueck.richtungen[name].length - 1)];
+      const q = stueck.richtungen[name][Math.min(i + 1, stueck.richtungen[name].length - 1)];
+      const v = [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f, p[2] + (q[2] - p[2]) * f];
+      const l = Math.hypot(v[0], v[1], v[2]) || 1;
+      const grad = (Math.acos(Math.max(-1, Math.min(1,
+        (a[0] * v[0] + a[1] * v[1] + a[2] * v[2]) / l))) * 180) / Math.PI;
+      if (grad > schlimmster) { schlimmster = grad; wo = bild / 60; }
+    }
+  }
+  /*
+   * Zwei Grad an der Schulter sind bei einem halben Meter Arm knapp zwei
+   * Zentimeter an der Hand. Auf einer Leinwand mit 230 Bildpunkten
+   * Figurenhoehe sind das gut zwei Bildpunkte - an der schnellsten Stelle
+   * einer Bewegung, an der ohnehin niemand hinsieht.
+   */
+  pruefe(`${PROBEN_JE_SCHLAG} Proben je Schlag tragen auch den Tipper`,
+    schlimmster < 2, `groesster Fehler ${schlimmster.toFixed(2)} Grad bei Sekunde ${wo.toFixed(2)}`);
 }
 
 console.log('\nEin wirklich falsch laufendes Video faellt auf:');
