@@ -56,3 +56,7 @@ dj-bilder/
 # Standbilder vom Schatten-DJ: erzeugt zum Ansehen, nicht zum Aufheben.
 # node dj/werkzeuge/schattenbilder.mjs legt sie neu an.
 /dj/werkzeuge/schattenbilder/
+
+# Die Referenzmusik zum Vortanzen wird erzeugt, nicht versioniert.
+# npm run dj:vortanzmusik
+dj/vortanz/

@@ -39,6 +39,8 @@
     "dj:musikpruefen": "node dj/pruefungen/musikimbild.mjs",
     "dj:schattenpruefen": "node dj/pruefungen/schattendj.mjs",
     "dj:uipruefen": "node dj/pruefungen/uiaus.mjs",
+    "dj:vortanzmusik": "node dj/werkzeuge/vortanzmusik.mjs",
+    "dj:vortanzpruefen": "node dj/pruefungen/vortanzmusik.mjs",
     "dj:wirkungpruefen": "node dj/pruefungen/bildwirkung.mjs"
   },
   "dependencies": {
