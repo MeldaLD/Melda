@@ -170,6 +170,22 @@ function rauschen(startwert) {
  *      die in den Daten nicht stehen (Kovesi zu Farbskalen). Deshalb Oklab
  *      und ein Kosinus ueber ganze Perioden.
  *
+ * Nachgeprueft, und die Prueffung steht in FARBWIRKUNG.md: Alle sechzehn
+ * Toene der acht Paletten liegen in dem Bereich, den Valdez und Mehrabian als
+ * angenehm gemessen haben (Blau, Blaugruen, Gruen, Purpur und ihre Nachbarn);
+ * Gelb und Gruengelb, die unangenehmsten, kommen nirgends als Flaeche vor.
+ * Dass alles dunkel und maessig gesaettigt ist, passt zu ihrer Regression
+ * Erregung = -0,31*Helligkeit + 0,60*Saettigung: wach, ohne den Raum zu
+ * ueberstrahlen.
+ *
+ * Und es hat eine Nebenwirkung, die wichtiger ist als die Farbe: Das hellste
+ * gemessene Bild erreicht nur ein Zehntel der moeglichen Leuchtdichte. Ein
+ * Blitz im Sinne der Photosensibilitaets-Schwelle braucht eine Aenderung um
+ * ein Zehntel auf einem Viertel der Flaeche - er ist mit dieser Palette gar
+ * nicht darstellbar. Die Projektion ist durch ihre Bauart sicher, nicht durch
+ * eine Bremse. Wer die Helligkeit anhebt, laesst pruefungen/bildwirkung.mjs
+ * noch einmal laufen.
+ *
  * Die Tonwerte sind Oklab-Winkel, nicht HSL-Grade - sie sehen anders aus als
  * die gewohnten Zahlen und meinen auch etwas anderes.
  *
