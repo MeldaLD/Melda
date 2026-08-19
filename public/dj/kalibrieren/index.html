@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" />
+    <title>resident-dj · Beamer einmessen</title>
+    <link rel="stylesheet" href="/kalibrieren/kalibrieren.css" />
+  </head>
+  <body>
+    <header class="kopf">
+      <strong>Beamer einmessen</strong>
+      <nav>
+        <button id="tabTestbild" class="tab an">1 · Testbild werfen</button>
+        <button id="tabVermessen" class="tab">2 · Foto vermessen</button>
+        <button id="tabFertig" class="tab">3 · Ergebnis</button>
+      </nav>
+      <span class="stand" id="stand"></span>
+    </header>
+
+    <!-- ------------------------------------------------------------------ -->
+    <section id="seiteTestbild" class="seite">
+      <div class="spalten">
+        <div class="text">
+          <h2>Das Testbild auf die Wand werfen</h2>
+          <ol>
+            <li>Diesen Bildschirm auf den <strong>Beamer</strong> legen und
+              <strong>Vollbild</strong> drücken.</li>
+            <li>Den Beamer so ausrichten, wie er am Abend stehen soll. Er muss
+              nicht gerade stehen – schief ist ausdrücklich erlaubt, genau dafür
+              ist das hier.</li>
+            <li>Von dort, <strong>wo später die Gäste stehen</strong>, ein Foto
+              machen. Auf dem Foto müssen die
+              <strong>vier nummerierten Ecken</strong> und die
+              <strong>Fassade</strong> zugleich zu sehen sein.</li>
+          </ol>
+          <p class="hinweis">
+            Die Kameraposition muss <em>nicht</em> vermessen sein. Solange die
+            Wand eben ist, steckt in einem einzigen Foto alles, was gebraucht
+            wird – wo die Kamera stand, kürzt sich heraus.
+          </p>
+          <p class="hinweis">
+            Mit der Hauptkamera fotografieren, nicht mit dem Ultraweitwinkel:
+            Der biegt gerade Linien am Bildrand, und das verfälscht die Messung.
+          </p>
+
+          <div class="knopfreihe">
+            <button id="vollbild" class="gross">Testbild im Vollbild</button>
+          </div>
+
+          <label class="feld">
+            <span>Auflösung des Beamers</span>
+            <select id="aufloesung">
+              <option value="1920x1080" selected>1920 × 1080</option>
+              <option value="1280x800">1280 × 800</option>
+              <option value="1024x768">1024 × 768</option>
+              <option value="3840x2160">3840 × 2160</option>
+              <option value="eigen">Bildschirmgröße übernehmen</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="vorschau">
+          <canvas id="testVorschau" width="480" height="270"></canvas>
+          <p class="fussnote">So sieht das Testbild aus.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <section id="seiteVermessen" class="seite" hidden>
+      <div class="werkzeugleiste">
+        <label class="datei">
+          <input type="file" id="fotoWahl" accept="image/*" />
+          <span>Foto laden …</span>
+        </label>
+        <span class="trenner"></span>
+        <button id="modusMarken" class="werkzeug an">Ecken setzen <b id="markenZahl">0/4</b></button>
+        <button id="modusBereich" class="werkzeug">Bereich zeichnen</button>
+        <select id="bereichsart" title="Was ist das für ein Bereich?">
+          <option value="fenster">Fenster – Inhalt darf hinein</option>
+          <option value="tuer">Tür – hier kommt etwas heraus</option>
+          <option value="kante">Kante / Sims – Linie zum Nachzeichnen</option>
+          <option value="flaeche">Fläche – gute Projektionsfläche</option>
+          <option value="tot">Totzone – hier nichts hinwerfen</option>
+        </select>
+        <button id="bereichFertig" disabled>Bereich schließen</button>
+        <span class="trenner"></span>
+        <label class="schalter"><input type="checkbox" id="rasterZeigen" checked /> Prüfraster</label>
+        <button id="rueckgaengig">Zurück</button>
+        <button id="allesLoeschen" class="warn">Alles löschen</button>
+      </div>
+
+      <div class="buehne">
+        <div class="leinwandhalter" id="halter">
+          <img id="foto" alt="" hidden />
+          <canvas id="markierung"></canvas>
+        </div>
+        <aside class="liste">
+          <h3>Bereiche</h3>
+          <ol id="bereichsliste"></ol>
+          <p class="fussnote" id="listeLeer">Noch keine Bereiche gezeichnet.</p>
+        </aside>
+      </div>
+
+      <p class="melde" id="melde"></p>
+    </section>
+
+    <!-- ------------------------------------------------------------------ -->
+    <section id="seiteFertig" class="seite" hidden>
+      <div class="spalten">
+        <div class="text">
+          <h2>Ergebnis</h2>
+          <div id="bericht" class="bericht"></div>
+          <div class="knopfreihe">
+            <button id="speichern" class="gross">Auf diesem Gerät speichern</button>
+            <button id="herunterladen">Als Datei herunterladen</button>
+            <label class="datei klein">
+              <input type="file" id="ladenWahl" accept="application/json" />
+              <span>Datei laden …</span>
+            </label>
+          </div>
+          <p class="hinweis">
+            Gespeichert wird im Browser des Party-Rechners. Die Bühne liest es
+            beim Start und verzieht ihr Bild entsprechend. Die Datei ist der
+            Sicherungsweg – und der Weg, es von einem Gerät aufs andere zu
+            bringen.
+          </p>
+        </div>
+        <div class="vorschau">
+          <canvas id="ergebnisVorschau" width="480" height="270"></canvas>
+          <p class="fussnote">
+            Was der Beamer werfen muss, damit es im Foto gerade aussieht.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Das Vollbild-Testbild liegt ausserhalb, damit es wirklich alles
+         ueberdeckt und keine Kopfzeile mitwandert. -->
+    <div class="vollbild" id="vollbildschirm" hidden>
+      <canvas id="testbild"></canvas>
+      <p class="raus">Escape beendet das Vollbild</p>
+    </div>
+
+    <script type="module" src="/kalibrieren/kalibrieren.js"></script>
+  </body>
+</html>

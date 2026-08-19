@@ -31,6 +31,8 @@ import {
 import { beatBei } from './takt.js';
 import { spektrumSchaerfen, spektrumZuruecksetzen } from './spektrum.js';
 import { schattenZeichnen } from './schattendj.js';
+import { buehnenbildLaden, verzerrungAnlegen } from './buehnenbild.js';
+import { Architektur } from './architektur.js';
 
 // Die Reihenfolge, in der die Modi durchgewechselt werden. Nicht zufaellig
 // gezogen, sondern reihum: So sieht man zwei gleiche nie hintereinander, und
@@ -311,8 +313,27 @@ export class Visualisierung {
   masseSetzen() {
     const stufe = GUETESTUFEN[this.guetestufe] ?? GUETESTUFEN.hoch;
     const dichte = Math.min(window.devicePixelRatio || 1, stufe.dichte);
-    this.breite = this.leinwand.clientWidth;
-    this.hoehe = this.leinwand.clientHeight;
+
+    /*
+     * Ist der Beamer eingemessen, rechnet die Visualisierung nicht mehr in
+     * der Groesse des Fensters, sondern in der des *Entwurfs* - also des
+     * Fotos, auf dem die Fassade steht. Das Verziehen auf die schiefe Wand
+     * macht danach eine CSS-Matrix auf der Grafikkarte.
+     *
+     * Der Gewinn dabei: Alles, was hier drin gezeichnet wird, weiss nichts
+     * von der Wand. Ein Mandala rechnet in einem glatten Rechteck, so wie
+     * bisher, und landet trotzdem genau im Fenster.
+     *
+     * Ohne Einmessung bleibt es Punkt fuer Punkt beim Alten.
+     */
+    // Die Anzeigegroesse ist das, was der Beamer wirft - also das Fenster,
+    // im Vollbild also der ganze Bildschirm.
+    this.buehnenbild = buehnenbildLaden(window.innerWidth, window.innerHeight);
+    this.architektur = new Architektur(this.buehnenbild);
+    verzerrungAnlegen(this.leinwand, this.buehnenbild);
+
+    this.breite = this.buehnenbild.an ? this.buehnenbild.breite : this.leinwand.clientWidth;
+    this.hoehe = this.buehnenbild.an ? this.buehnenbild.hoehe : this.leinwand.clientHeight;
     this.leinwand.width = Math.max(1, Math.round(this.breite * dichte));
     this.leinwand.height = Math.max(1, Math.round(this.hoehe * dichte));
     this.stift.setTransform(dichte, 0, 0, dichte, 0, 0);
@@ -502,6 +523,27 @@ export class Visualisierung {
       anteilB: uebergang ? uebergang.fortschritt : 0,
       palette: this.paletteFuer(aktiv?.track),
       guetestufe: this.guetestufe,
+    });
+
+    /*
+     * Und darueber das Haus.
+     *
+     * Die Stelle ist bewusst *nach* dem Schatten-DJ: Fensterrahmen und
+     * Lichtlinien gehoeren zur Wand, und die Wand liegt hinter niemandem.
+     * Der DJ steht davor, die Rahmen leuchten um ihn herum.
+     *
+     * Sie bekommt dieselben Zahlen wie alles andere - und wenn nichts
+     * eingemessen ist, tut sie nichts.
+     */
+    this.architektur?.zeichnen(stift, breite, hoehe, {
+      sekunden,
+      takt,
+      wucht,
+      spannung,
+      abbau,
+      drop: dropJetzt,
+      palette: this.paletteFuer(aktiv?.track),
+      spektrum: this.spektrumScharf,
     });
 
     // Ringe, Funken, Spannungsbogen und das Aufblitzen nach dem Drop gehoeren

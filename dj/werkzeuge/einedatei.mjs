@@ -118,6 +118,7 @@ const fertig = html
 const IM_BROWSER = new Set([
   'AudioContext', 'webkitAudioContext', 'OfflineAudioContext', 'EventSource',
   'XMLHttpRequest', 'Image', 'Audio', 'FileReader', 'Worker', 'ResizeObserver',
+  'Path2D',
 ]);
 
 for (const treffer of fertig.matchAll(/new\s+([A-Z][\w$]*)\s*\(/g)) {

@@ -80,6 +80,7 @@ server.listen(PORT, () => {
   console.log('');
   console.log(`  Buehne (Monitor)   http://localhost:${PORT}/buehne`);
   console.log(`  Messstand          http://localhost:${PORT}/messstand`);
+  console.log(`  Beamer einmessen   http://localhost:${PORT}/kalibrieren`);
   console.log('');
   console.log('  Notfall-Abstimmung im lokalen WLAN (normal laeuft das ueber Supabase):');
   for (const adresse of adressen) {
@@ -121,6 +122,18 @@ async function behandeln(anfrage, antwort) {
    * "messstand.css" daneben landete bei "/messstand.css" - vierhundertvier.
    * Deshalb umgeleitet statt ausgeliefert.
    */
+  /*
+   * Die Einmessseite. Mit Schraegstrich, aus demselben Grund wie beim
+   * Messstand: Ohne ihn haelt der Browser "/kalibrieren" fuer eine Datei und
+   * sucht das Stilblatt danebenliegend unter "/kalibrieren.css".
+   */
+  if (weg === '/kalibrieren') {
+    antwort.writeHead(302, { Location: '/kalibrieren/' });
+    return antwort.end();
+  }
+  if (weg === '/kalibrieren/') {
+    return datei(antwort, path.join(OEFFENTLICH, 'kalibrieren/index.html'));
+  }
   if (weg === '/messstand') {
     antwort.writeHead(302, { Location: '/messstand/' });
     return antwort.end();
