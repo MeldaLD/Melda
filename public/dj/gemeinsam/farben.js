@@ -64,11 +64,66 @@ export function mitAlpha(farbe, alpha) {
     }
     return t;
   }
-  if (t.startsWith('rgb')) {
-    // Alles zwischen den Klammern nehmen und ein vorhandenes Alpha abschneiden.
+  /*
+   * rgb() und hsl() gleich behandelt.
+   *
+   * hsl stand hier zuerst *nicht* drin, und der Fehler war im Bild sofort zu
+   * sehen: Der Lichtpark baut seine Farben als hsl(), die Zeichenkette fiel
+   * unten durch und kam *deckend* zurueck - also waren alle "durchsichtigen"
+   * Farbstopps undurchsichtig, und aus jedem weichen Leuchtfleck wurde ein
+   * hartes Quadrat.
+   *
+   * Genau die Fehlerklasse, fuer die es diese Datei gibt. Sie wiederholt sich,
+   * sobald irgendwo eine neue Farbschreibweise dazukommt - deshalb faellt der
+   * Rest jetzt nicht mehr stillschweigend durch, sondern wird gemeldet.
+   */
+  if (t.startsWith('rgb') || t.startsWith('hsl')) {
+    const kopf = t.slice(0, t.indexOf('('));
     const inhalt = t.slice(t.indexOf('(') + 1, t.lastIndexOf(')'));
     const kern = inhalt.split('/')[0].trim();
-    return `rgb(${kern} / ${a})`;
+    return `${kopf.replace(/a$/, '')}(${kern} / ${a})`;
+  }
+  if (typeof console !== 'undefined') {
+    console.warn(`mitAlpha kennt die Schreibweise "${t}" nicht - sie kommt deckend zurueck.`);
   }
   return t;
+}
+
+/**
+ * Helle, gesaettigte Farben fuer den Lichtpark.
+ *
+ * Der Lichtpark darf *nicht* die Farbtoene der Palette benutzen, und das ist
+ * kein Geschmack, sondern folgt aus dem, was er darstellt.
+ *
+ * Die Palette ist absichtlich dunkel: Ein Mandala fuellt die ganze Leinwand,
+ * und eine helle Flaeche dieser Groesse ueberstrahlt den Raum - nachgerechnet
+ * in FARBWIRKUNG.md, wo das hellste Bild des ganzen Laufs nur ein Zehntel der
+ * moeglichen Leuchtdichte erreicht.
+ *
+ * Ein Lichtpark ist das Gegenteil: fast alles bleibt schwarz, und was leuchtet,
+ * sind schmale Kegel und kleine Punkte. Die *mittlere* Helligkeit bleibt damit
+ * niedrig, auch wenn die Kegel hell sind - und ein Kegel, der nicht hell ist,
+ * ist kein Licht, sondern ein grauer Fleck. Der erste Anlauf hat genau so
+ * ausgesehen.
+ *
+ * Genommen werden deshalb die Farb*winkel* der Palette - die Identitaet des
+ * Stuecks bleibt also erhalten - und daraus neue Farben mit hoher Saettigung
+ * gebaut.
+ */
+export function lichtToene(palette) {
+  const grund = typeof palette?.grundton === 'number' ? palette.grundton : 250;
+  const akzent = typeof palette?.akzent === 'number' ? palette.akzent : 200;
+  /*
+   * 62 Prozent Helligkeit und 92 Prozent Saettigung. Darueber laufen die
+   * Kanaele in die Saettigung und die Farbe kippt nach Weiss - was auf einer
+   * Wand nach Baustellenlampe aussieht statt nach Buehnenlicht.
+   */
+  const t = (winkel, hell = 62, satt = 92) => `hsl(${((winkel % 360) + 360) % 360} ${satt}% ${hell}%)`;
+  return [
+    t(grund),
+    t(grund + 18),
+    t(akzent),
+    // Der vierte ist der helle Akzent - der Blinder und die Duesen nehmen ihn.
+    t(akzent, 86, 70),
+  ];
 }

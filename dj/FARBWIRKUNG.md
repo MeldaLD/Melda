@@ -105,6 +105,26 @@ sicher, nicht durch eine Bremse.
 Das gilt für die gemessenen Modi. Wer die Helligkeit später anhebt, sollte
 `pruefungen/bildwirkung.mjs` erneut laufen lassen; sie hängt in `dj:alles`.
 
+### Nachtrag: Lichtpark und Bühnenshow
+
+Genau dieser Fall ist eingetreten. Der Lichtpark und die Bühnenshow sind
+ausdrücklich als *helle* Modi gebaut, und für sie trägt die Begründung „die
+dunkle Grundierung macht 0,10 gar nicht darstellbar" nicht mehr. Sie haben
+deshalb eigene Abnahmen mit denselben Maßstäben:
+
+```
+Lichtpark    hellstes Bild 0,072   Blitze 0,0 je Sekunde
+Bühnenshow   hellstes Bild 0,068   Blitze 0,0 je Sekunde
+             größter Bildsprung 18,6 % der Fläche  (Grenze 25 %)
+             Blitze allein       0,7 % der Fläche  (Grenze 25 %)
+```
+
+Beide bleiben unter der Schwelle, aber nicht mehr durch ihre Bauart, sondern
+weil es nachgemessen ist. Die Bühnenshow ist außerdem der erste Modus mit
+einem echten Stroboskop; dass es das geben darf, hängt allein an der
+Viertel-Klausel — die Einzelheiten stehen in
+[BUEHNENSHOW.md](./BUEHNENSHOW.md).
+
 ## Was nicht geprüft ist
 
 - **Trance im engeren Sinn** — also Entrainment durch periodische Reize — ist

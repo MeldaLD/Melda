@@ -108,6 +108,25 @@ export class Partylicht {
     this.farbbild = 0;
     this.blinder = 0;
     this.blinderSperre = 0;
+    /*
+     * Der Blinder laesst sich abgeben.
+     *
+     * Laeuft der Lichtpark fuer sich, ist er sein eigener Hoehepunkt und
+     * braucht ihn. Laeuft er als Grundlicht *innerhalb* der Buehnenshow, hat
+     * die einen eigenen - und dann feuern beim selben Drop zwei Blinder
+     * uebereinander. Gemessen: 0,125 mittlere Leuchtdichte im hellsten Bild
+     * gegen eine Blitzschwelle von 0,10, waehrend jeder der beiden einzeln
+     * bei rund 0,076 bleibt.
+     *
+     * Die Sucherei danach ist lehrreich gewesen. Der Verdacht lag zuerst auf
+     * dem Blinder der Show, dann auf dem Grundlicht; gemessen hat sich beides
+     * als harmlos erwiesen - der Lichtpark allein kommt ohne Drop auf 0,017.
+     * Sichtbar wurde es erst, als der Blinder der Show gedeckelt wurde und
+     * das hellste Bild *trotzdem* stehen blieb. Zwei Gewerke, die einzeln
+     * jede Grenze halten und zusammen keine: genau der Fall, den eine
+     * Abnahme je Bauteil nicht findet.
+     */
+    this.blinderAus = false;
     this.letzterBeat = -1;
     this.letztePhrase = -1;
     this.kette = 0;
@@ -215,7 +234,7 @@ export class Partylicht {
       }
     }
 
-    if (drop && this.blinderSperre <= 0) {
+    if (drop && !this.blinderAus && this.blinderSperre <= 0) {
       this.blinder = 1;
       this.blinderSperre = BLINDER_SPERRE;
     }
@@ -259,7 +278,20 @@ export class Partylicht {
       breite, hoehe, sekunden = 1 / 60, takt = null, wucht = 0.5,
       spannung = 0, abbau = 0, drop = false, spektrum = null,
       palette = null,
+      /*
+       * Wie stark die Punktreihen laufen duerfen. Die Regie in
+       * buehnenshow.js stellt das je Bild ein - im Bild "Kette" sind sie die
+       * Hauptsache, im Bild "Beams" waeren sie Unruhe.
+       */
+      streifen = 1,
+      /*
+       * Die Buehnenshow setzt das: Sie bringt ihren eigenen Blinder mit,
+       * und zwei uebereinander sind einer zu viel. Siehe `blinderAus` im
+       * Konstruktor.
+       */
+      blinderAus = false,
     } = lage;
+    this.blinderAus = blinderAus;
 
     /*
      * Wie viele Lampen wirklich gezeichnet werden, haengt an der Guetestufe.
@@ -363,7 +395,7 @@ export class Partylicht {
     stift.globalAlpha = 1;
 
     // --- Die Punktreihen ---
-    for (const reihe of this.reihen) {
+    if (streifen > 0.02) for (const reihe of this.reihen) {
       const y = reihe.y * hoehe;
       for (let k = 0; k < reihe.zahl; k++) {
         const t = reihe.zahl > 1 ? k / (reihe.zahl - 1) : 0.5;
@@ -383,7 +415,7 @@ export class Partylicht {
         const fleck = this._fleckHolen(farbe);
         if (!fleck) continue;
         const gr = breite * (0.012 + hell * 0.012 + this.helligkeit * 0.004);
-        stift.globalAlpha = klammer(kraft * 0.8, 0, 1);
+        stift.globalAlpha = klammer(kraft * 0.8 * Math.min(1.4, streifen), 0, 1);
         stift.drawImage(fleck, x - gr, y - gr, gr * 2, gr * 2);
       }
     }

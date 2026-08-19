@@ -20,6 +20,7 @@ import {
 import { dolceZeichnen, dolceZuruecksetzen } from './dolce.js';
 import { nutzbareBins } from './spektrum.js';
 import { partylichtZeichnen } from './partylicht.js';
+import { buehnenshowZeichnen } from './buehnenshow.js';
 
 export { dolceZuruecksetzen };
 
@@ -3242,6 +3243,15 @@ export const MODI = {
    * Bildes und haetten mit einer Lampe am Boden nichts zu tun.
    */
   licht: { name: 'Lichtpark', zeichne: partylichtZeichnen, schmuck: false },
+  /*
+   * Die grosse Fassung: dieselben Lampen, dazu Beams, Spiegelkugel, Flammen,
+   * Publikumsblinder, kleinflaechige Blitze, CO2 und Funken - und darueber
+   * eine Regie, die entscheidet, was wann laeuft.
+   *
+   * Der Lichtpark daneben bleibt bestehen. Er ist die ruhige Fassung fuer
+   * eine Stelle, an der eine ganze Show zu viel waere.
+   */
+  show: { name: 'Buehnenshow', zeichne: buehnenshowZeichnen, schmuck: false },
   iris: { name: 'Iris', zeichne: irisZeichnen, schmuck: true },
   tunnel: { name: 'Tunnel', zeichne: tunnelZeichnen, schmuck: true },
   strahlen: { name: 'Strahlen', zeichne: strahlenZeichnen, schmuck: true },

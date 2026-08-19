@@ -35,7 +35,7 @@
 // sondern die Ruecknahme einer Zusage. Der Blinder ist deshalb gedeckelt:
 // hoechstens zweimal je Sekunde, und nie auf voller Flaeche zugleich.
 
-import { toeneAus, mitAlpha } from './farben.js';
+import { lichtToene, mitAlpha } from './farben.js';
 
 const klammer = (x, a, b) => (x < a ? a : x > b ? b : x);
 
@@ -69,6 +69,19 @@ const KEGEL_HOEHE = 0.72;
 const BLINDER_SPERRE = 0.5;
 
 /*
+ * Wie hell die Kegel hoechstens werden.
+ *
+ * 0,5 und nicht mehr, und die Zahl ist gemessen: Bei 0,6 kam das hellste Bild
+ * eines Laufs mit Drops alle zwei Sekunden auf eine relative Leuchtdichte von
+ * 0,099. Die Blitzschwelle liegt bei 0,10 - das waere ein Prozent Abstand
+ * gewesen, und ein Prozent Abstand ist bei einer Sicherheitszusage kein
+ * Abstand, sondern Glueck. Mit 0,5 sind es 0,081, also gut ein Fuenftel Luft.
+ *
+ * Wer hier hochdreht, muss `npm run dj:lichtpruefen` erneut laufen lassen.
+ */
+const KEGEL_DECKUNG = 0.5;
+
+/*
  * Farbbilder - was ein Lichtpult "Look" nennt.
  *
  * Ein echter Lichtpark stellt nicht jede Lampe einzeln, sondern schaltet
@@ -95,6 +108,25 @@ export class Partylicht {
     this.farbbild = 0;
     this.blinder = 0;
     this.blinderSperre = 0;
+    /*
+     * Der Blinder laesst sich abgeben.
+     *
+     * Laeuft der Lichtpark fuer sich, ist er sein eigener Hoehepunkt und
+     * braucht ihn. Laeuft er als Grundlicht *innerhalb* der Buehnenshow, hat
+     * die einen eigenen - und dann feuern beim selben Drop zwei Blinder
+     * uebereinander. Gemessen: 0,125 mittlere Leuchtdichte im hellsten Bild
+     * gegen eine Blitzschwelle von 0,10, waehrend jeder der beiden einzeln
+     * bei rund 0,076 bleibt.
+     *
+     * Die Sucherei danach ist lehrreich gewesen. Der Verdacht lag zuerst auf
+     * dem Blinder der Show, dann auf dem Grundlicht; gemessen hat sich beides
+     * als harmlos erwiesen - der Lichtpark allein kommt ohne Drop auf 0,017.
+     * Sichtbar wurde es erst, als der Blinder der Show gedeckelt wurde und
+     * das hellste Bild *trotzdem* stehen blieb. Zwei Gewerke, die einzeln
+     * jede Grenze halten und zusammen keine: genau der Fall, den eine
+     * Abnahme je Bauteil nicht findet.
+     */
+    this.blinderAus = false;
     this.letzterBeat = -1;
     this.letztePhrase = -1;
     this.kette = 0;
@@ -202,7 +234,7 @@ export class Partylicht {
       }
     }
 
-    if (drop && this.blinderSperre <= 0) {
+    if (drop && !this.blinderAus && this.blinderSperre <= 0) {
       this.blinder = 1;
       this.blinderSperre = BLINDER_SPERRE;
     }
@@ -246,11 +278,35 @@ export class Partylicht {
       breite, hoehe, sekunden = 1 / 60, takt = null, wucht = 0.5,
       spannung = 0, abbau = 0, drop = false, spektrum = null,
       palette = null,
+      /*
+       * Wie stark die Punktreihen laufen duerfen. Die Regie in
+       * buehnenshow.js stellt das je Bild ein - im Bild "Kette" sind sie die
+       * Hauptsache, im Bild "Beams" waeren sie Unruhe.
+       */
+      streifen = 1,
+      /*
+       * Die Buehnenshow setzt das: Sie bringt ihren eigenen Blinder mit,
+       * und zwei uebereinander sind einer zu viel. Siehe `blinderAus` im
+       * Konstruktor.
+       */
+      blinderAus = false,
     } = lage;
+    this.blinderAus = blinderAus;
+
+    /*
+     * Wie viele Lampen wirklich gezeichnet werden, haengt an der Guetestufe.
+     *
+     * Ein Kegel ist teuer, weil er viel Flaeche bedeckt - und das ist die
+     * einzige Stellschraube, die linear wirkt. Auf einer schwachen Maschine
+     * bleiben jede zweite oder jede dritte Lampe aus; das Bild wird duenner,
+     * aber es bleibt ein Lichtpark. Auf dem Party-Rechner mit Grafikkarte
+     * greift die Bremse nie.
+     */
+    const jede = lage.guetestufe === 'niedrig' ? 3 : lage.guetestufe === 'mittel' ? 2 : 1;
 
     this.fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
-    // Die Palette der Buehne ist ein Objekt, kein Feld - siehe farben.js.
-    const toene = toeneAus(palette);
+    // Eigene, helle Farben aus den Farbwinkeln der Palette - siehe farben.js.
+    const toene = lichtToene(palette);
     const bild = FARBBILDER[this.farbbild];
     const n = this.lampen.length;
 
@@ -268,12 +324,13 @@ export class Partylicht {
     dunst.addColorStop(0, mitAlpha(toene[1], 0.13));
     dunst.addColorStop(1, mitAlpha(toene[1], 0));
     stift.fillStyle = dunst;
-    stift.globalAlpha = 0.35 + this.helligkeit * 0.35;
+    stift.globalAlpha = 0.14 + this.helligkeit * 0.16;
     stift.fillRect(0, 0, breite, hoehe);
     stift.globalAlpha = 1;
 
     // --- Die Kegel ---
     for (let i = 0; i < n; i++) {
+      if (jede > 1 && i % jede !== 0) continue;
       const l = this.lampen[i];
       const farbe = bild.farbe(i, n, toene);
       /*
@@ -294,21 +351,36 @@ export class Partylicht {
       const halb = breite * l.breite * (0.7 + kraft * 0.6);
       const kippen = l.neigung + (i - (n - 1) / 2) * 0.012;
 
+      /*
+       * Ein Durchgang je Kegel, nicht zwei.
+       *
+       * Gemessen: Zwei Durchgaenge kosteten bei 960 mal 540 gut 4,7 ms je
+       * Bild, und der Engpass ist nicht die Verlaufsrechnung, sondern die
+       * schiere Zahl der gemischten Bildpunkte - ein Kegel bedeckt einen
+       * grossen Teil der Leinwand. Ein Versuch, den Kegel als fertiges Bild
+       * vorzurechnen, war sogar *langsamer* (5,9 ms): Ein `drawImage` mit
+       * Scherung muss genauso jeden Bildpunkt anfassen, nur zusaetzlich mit
+       * Abtastung.
+       *
+       * Die weiche Querkante kommt jetzt aus dem Verlauf selbst plus dem
+       * Leuchtfleck an der Duese. Das ist ein Kompromiss, und es ist der
+       * richtige: Die Haelfte der Bildpunkte gespart, und aus zehn Metern
+       * sieht man den Unterschied nicht.
+       */
       const v = stift.createLinearGradient(fx, fy, fx + kippen * reich, fy - reich);
       v.addColorStop(0, farbe);
-      v.addColorStop(0.12, mitAlpha(farbe, 0.8));
-      v.addColorStop(0.55, mitAlpha(farbe, 0.27));
+      v.addColorStop(0.10, mitAlpha(farbe, 0.55));
+      v.addColorStop(0.5, mitAlpha(farbe, 0.16));
       v.addColorStop(1, mitAlpha(farbe, 0));
       stift.fillStyle = v;
-      stift.globalAlpha = klammer(kraft * 0.75, 0, 1);
+      stift.globalAlpha = klammer(kraft * KEGEL_DECKUNG, 0, 1);
       stift.beginPath();
-      // Ein Kegel: schmal an der Duese, weit oben. Genau andersherum als ein
-      // Scheinwerfer, der von oben kommt - und genau richtig fuer eine Lampe
-      // im Boden.
+      // Schmal an der Duese, weit oben - andersherum als ein Scheinwerfer von
+      // der Decke, und genau richtig fuer eine Lampe im Boden.
       stift.moveTo(fx - halb * 0.16, fy);
       stift.lineTo(fx + halb * 0.16, fy);
-      stift.lineTo(fx + kippen * reich + halb, fy - reich);
-      stift.lineTo(fx + kippen * reich - halb, fy - reich);
+      stift.lineTo(fx + kippen * reich + halb * 1.25, fy - reich);
+      stift.lineTo(fx + kippen * reich - halb * 1.25, fy - reich);
       stift.closePath();
       stift.fill();
 
@@ -323,7 +395,7 @@ export class Partylicht {
     stift.globalAlpha = 1;
 
     // --- Die Punktreihen ---
-    for (const reihe of this.reihen) {
+    if (streifen > 0.02) for (const reihe of this.reihen) {
       const y = reihe.y * hoehe;
       for (let k = 0; k < reihe.zahl; k++) {
         const t = reihe.zahl > 1 ? k / (reihe.zahl - 1) : 0.5;
@@ -343,7 +415,7 @@ export class Partylicht {
         const fleck = this._fleckHolen(farbe);
         if (!fleck) continue;
         const gr = breite * (0.012 + hell * 0.012 + this.helligkeit * 0.004);
-        stift.globalAlpha = klammer(kraft * 0.85, 0, 1);
+        stift.globalAlpha = klammer(kraft * 0.8 * Math.min(1.4, streifen), 0, 1);
         stift.drawImage(fleck, x - gr, y - gr, gr * 2, gr * 2);
       }
     }

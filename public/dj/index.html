@@ -7377,13 +7377,68 @@ function mitAlpha(farbe, alpha) {
     }
     return t;
   }
-  if (t.startsWith('rgb')) {
-    // Alles zwischen den Klammern nehmen und ein vorhandenes Alpha abschneiden.
+  /*
+   * rgb() und hsl() gleich behandelt.
+   *
+   * hsl stand hier zuerst *nicht* drin, und der Fehler war im Bild sofort zu
+   * sehen: Der Lichtpark baut seine Farben als hsl(), die Zeichenkette fiel
+   * unten durch und kam *deckend* zurueck - also waren alle "durchsichtigen"
+   * Farbstopps undurchsichtig, und aus jedem weichen Leuchtfleck wurde ein
+   * hartes Quadrat.
+   *
+   * Genau die Fehlerklasse, fuer die es diese Datei gibt. Sie wiederholt sich,
+   * sobald irgendwo eine neue Farbschreibweise dazukommt - deshalb faellt der
+   * Rest jetzt nicht mehr stillschweigend durch, sondern wird gemeldet.
+   */
+  if (t.startsWith('rgb') || t.startsWith('hsl')) {
+    const kopf = t.slice(0, t.indexOf('('));
     const inhalt = t.slice(t.indexOf('(') + 1, t.lastIndexOf(')'));
     const kern = inhalt.split('/')[0].trim();
-    return `rgb(${kern} / ${a})`;
+    return `${kopf.replace(/a$/, '')}(${kern} / ${a})`;
+  }
+  if (typeof console !== 'undefined') {
+    console.warn(`mitAlpha kennt die Schreibweise "${t}" nicht - sie kommt deckend zurueck.`);
   }
   return t;
+}
+
+/**
+ * Helle, gesaettigte Farben fuer den Lichtpark.
+ *
+ * Der Lichtpark darf *nicht* die Farbtoene der Palette benutzen, und das ist
+ * kein Geschmack, sondern folgt aus dem, was er darstellt.
+ *
+ * Die Palette ist absichtlich dunkel: Ein Mandala fuellt die ganze Leinwand,
+ * und eine helle Flaeche dieser Groesse ueberstrahlt den Raum - nachgerechnet
+ * in FARBWIRKUNG.md, wo das hellste Bild des ganzen Laufs nur ein Zehntel der
+ * moeglichen Leuchtdichte erreicht.
+ *
+ * Ein Lichtpark ist das Gegenteil: fast alles bleibt schwarz, und was leuchtet,
+ * sind schmale Kegel und kleine Punkte. Die *mittlere* Helligkeit bleibt damit
+ * niedrig, auch wenn die Kegel hell sind - und ein Kegel, der nicht hell ist,
+ * ist kein Licht, sondern ein grauer Fleck. Der erste Anlauf hat genau so
+ * ausgesehen.
+ *
+ * Genommen werden deshalb die Farb*winkel* der Palette - die Identitaet des
+ * Stuecks bleibt also erhalten - und daraus neue Farben mit hoher Saettigung
+ * gebaut.
+ */
+function lichtToene(palette) {
+  const grund = typeof palette?.grundton === 'number' ? palette.grundton : 250;
+  const akzent = typeof palette?.akzent === 'number' ? palette.akzent : 200;
+  /*
+   * 62 Prozent Helligkeit und 92 Prozent Saettigung. Darueber laufen die
+   * Kanaele in die Saettigung und die Farbe kippt nach Weiss - was auf einer
+   * Wand nach Baustellenlampe aussieht statt nach Buehnenlicht.
+   */
+  const t = (winkel, hell = 62, satt = 92) => `hsl(${((winkel % 360) + 360) % 360} ${satt}% ${hell}%)`;
+  return [
+    t(grund),
+    t(grund + 18),
+    t(akzent),
+    // Der vierte ist der helle Akzent - der Blinder und die Duesen nehmen ihn.
+    t(akzent, 86, 70),
+  ];
 }
 
 
@@ -7458,6 +7513,19 @@ const KEGEL_HOEHE = 0.72;
 const BLINDER_SPERRE = 0.5;
 
 /*
+ * Wie hell die Kegel hoechstens werden.
+ *
+ * 0,5 und nicht mehr, und die Zahl ist gemessen: Bei 0,6 kam das hellste Bild
+ * eines Laufs mit Drops alle zwei Sekunden auf eine relative Leuchtdichte von
+ * 0,099. Die Blitzschwelle liegt bei 0,10 - das waere ein Prozent Abstand
+ * gewesen, und ein Prozent Abstand ist bei einer Sicherheitszusage kein
+ * Abstand, sondern Glueck. Mit 0,5 sind es 0,081, also gut ein Fuenftel Luft.
+ *
+ * Wer hier hochdreht, muss `npm run dj:lichtpruefen` erneut laufen lassen.
+ */
+const KEGEL_DECKUNG = 0.5;
+
+/*
  * Farbbilder - was ein Lichtpult "Look" nennt.
  *
  * Ein echter Lichtpark stellt nicht jede Lampe einzeln, sondern schaltet
@@ -7484,6 +7552,25 @@ class Partylicht {
     this.farbbild = 0;
     this.blinder = 0;
     this.blinderSperre = 0;
+    /*
+     * Der Blinder laesst sich abgeben.
+     *
+     * Laeuft der Lichtpark fuer sich, ist er sein eigener Hoehepunkt und
+     * braucht ihn. Laeuft er als Grundlicht *innerhalb* der Buehnenshow, hat
+     * die einen eigenen - und dann feuern beim selben Drop zwei Blinder
+     * uebereinander. Gemessen: 0,125 mittlere Leuchtdichte im hellsten Bild
+     * gegen eine Blitzschwelle von 0,10, waehrend jeder der beiden einzeln
+     * bei rund 0,076 bleibt.
+     *
+     * Die Sucherei danach ist lehrreich gewesen. Der Verdacht lag zuerst auf
+     * dem Blinder der Show, dann auf dem Grundlicht; gemessen hat sich beides
+     * als harmlos erwiesen - der Lichtpark allein kommt ohne Drop auf 0,017.
+     * Sichtbar wurde es erst, als der Blinder der Show gedeckelt wurde und
+     * das hellste Bild *trotzdem* stehen blieb. Zwei Gewerke, die einzeln
+     * jede Grenze halten und zusammen keine: genau der Fall, den eine
+     * Abnahme je Bauteil nicht findet.
+     */
+    this.blinderAus = false;
     this.letzterBeat = -1;
     this.letztePhrase = -1;
     this.kette = 0;
@@ -7591,7 +7678,7 @@ class Partylicht {
       }
     }
 
-    if (drop && this.blinderSperre <= 0) {
+    if (drop && !this.blinderAus && this.blinderSperre <= 0) {
       this.blinder = 1;
       this.blinderSperre = BLINDER_SPERRE;
     }
@@ -7635,11 +7722,35 @@ class Partylicht {
       breite, hoehe, sekunden = 1 / 60, takt = null, wucht = 0.5,
       spannung = 0, abbau = 0, drop = false, spektrum = null,
       palette = null,
+      /*
+       * Wie stark die Punktreihen laufen duerfen. Die Regie in
+       * buehnenshow.js stellt das je Bild ein - im Bild "Kette" sind sie die
+       * Hauptsache, im Bild "Beams" waeren sie Unruhe.
+       */
+      streifen = 1,
+      /*
+       * Die Buehnenshow setzt das: Sie bringt ihren eigenen Blinder mit,
+       * und zwei uebereinander sind einer zu viel. Siehe `blinderAus` im
+       * Konstruktor.
+       */
+      blinderAus = false,
     } = lage;
+    this.blinderAus = blinderAus;
+
+    /*
+     * Wie viele Lampen wirklich gezeichnet werden, haengt an der Guetestufe.
+     *
+     * Ein Kegel ist teuer, weil er viel Flaeche bedeckt - und das ist die
+     * einzige Stellschraube, die linear wirkt. Auf einer schwachen Maschine
+     * bleiben jede zweite oder jede dritte Lampe aus; das Bild wird duenner,
+     * aber es bleibt ein Lichtpark. Auf dem Party-Rechner mit Grafikkarte
+     * greift die Bremse nie.
+     */
+    const jede = lage.guetestufe === 'niedrig' ? 3 : lage.guetestufe === 'mittel' ? 2 : 1;
 
     this.fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
-    // Die Palette der Buehne ist ein Objekt, kein Feld - siehe farben.js.
-    const toene = toeneAus(palette);
+    // Eigene, helle Farben aus den Farbwinkeln der Palette - siehe farben.js.
+    const toene = lichtToene(palette);
     const bild = FARBBILDER[this.farbbild];
     const n = this.lampen.length;
 
@@ -7657,12 +7768,13 @@ class Partylicht {
     dunst.addColorStop(0, mitAlpha(toene[1], 0.13));
     dunst.addColorStop(1, mitAlpha(toene[1], 0));
     stift.fillStyle = dunst;
-    stift.globalAlpha = 0.35 + this.helligkeit * 0.35;
+    stift.globalAlpha = 0.14 + this.helligkeit * 0.16;
     stift.fillRect(0, 0, breite, hoehe);
     stift.globalAlpha = 1;
 
     // --- Die Kegel ---
     for (let i = 0; i < n; i++) {
+      if (jede > 1 && i % jede !== 0) continue;
       const l = this.lampen[i];
       const farbe = bild.farbe(i, n, toene);
       /*
@@ -7683,21 +7795,36 @@ class Partylicht {
       const halb = breite * l.breite * (0.7 + kraft * 0.6);
       const kippen = l.neigung + (i - (n - 1) / 2) * 0.012;
 
+      /*
+       * Ein Durchgang je Kegel, nicht zwei.
+       *
+       * Gemessen: Zwei Durchgaenge kosteten bei 960 mal 540 gut 4,7 ms je
+       * Bild, und der Engpass ist nicht die Verlaufsrechnung, sondern die
+       * schiere Zahl der gemischten Bildpunkte - ein Kegel bedeckt einen
+       * grossen Teil der Leinwand. Ein Versuch, den Kegel als fertiges Bild
+       * vorzurechnen, war sogar *langsamer* (5,9 ms): Ein `drawImage` mit
+       * Scherung muss genauso jeden Bildpunkt anfassen, nur zusaetzlich mit
+       * Abtastung.
+       *
+       * Die weiche Querkante kommt jetzt aus dem Verlauf selbst plus dem
+       * Leuchtfleck an der Duese. Das ist ein Kompromiss, und es ist der
+       * richtige: Die Haelfte der Bildpunkte gespart, und aus zehn Metern
+       * sieht man den Unterschied nicht.
+       */
       const v = stift.createLinearGradient(fx, fy, fx + kippen * reich, fy - reich);
       v.addColorStop(0, farbe);
-      v.addColorStop(0.12, mitAlpha(farbe, 0.8));
-      v.addColorStop(0.55, mitAlpha(farbe, 0.27));
+      v.addColorStop(0.10, mitAlpha(farbe, 0.55));
+      v.addColorStop(0.5, mitAlpha(farbe, 0.16));
       v.addColorStop(1, mitAlpha(farbe, 0));
       stift.fillStyle = v;
-      stift.globalAlpha = klammer(kraft * 0.75, 0, 1);
+      stift.globalAlpha = klammer(kraft * KEGEL_DECKUNG, 0, 1);
       stift.beginPath();
-      // Ein Kegel: schmal an der Duese, weit oben. Genau andersherum als ein
-      // Scheinwerfer, der von oben kommt - und genau richtig fuer eine Lampe
-      // im Boden.
+      // Schmal an der Duese, weit oben - andersherum als ein Scheinwerfer von
+      // der Decke, und genau richtig fuer eine Lampe im Boden.
       stift.moveTo(fx - halb * 0.16, fy);
       stift.lineTo(fx + halb * 0.16, fy);
-      stift.lineTo(fx + kippen * reich + halb, fy - reich);
-      stift.lineTo(fx + kippen * reich - halb, fy - reich);
+      stift.lineTo(fx + kippen * reich + halb * 1.25, fy - reich);
+      stift.lineTo(fx + kippen * reich - halb * 1.25, fy - reich);
       stift.closePath();
       stift.fill();
 
@@ -7712,7 +7839,7 @@ class Partylicht {
     stift.globalAlpha = 1;
 
     // --- Die Punktreihen ---
-    for (const reihe of this.reihen) {
+    if (streifen > 0.02) for (const reihe of this.reihen) {
       const y = reihe.y * hoehe;
       for (let k = 0; k < reihe.zahl; k++) {
         const t = reihe.zahl > 1 ? k / (reihe.zahl - 1) : 0.5;
@@ -7732,7 +7859,7 @@ class Partylicht {
         const fleck = this._fleckHolen(farbe);
         if (!fleck) continue;
         const gr = breite * (0.012 + hell * 0.012 + this.helligkeit * 0.004);
-        stift.globalAlpha = klammer(kraft * 0.85, 0, 1);
+        stift.globalAlpha = klammer(kraft * 0.8 * Math.min(1.4, streifen), 0, 1);
         stift.drawImage(fleck, x - gr, y - gr, gr * 2, gr * 2);
       }
     }
@@ -7825,6 +7952,1019 @@ function partylichtZeichnen(stift, lage) {
 function partylichtZuruecksetzen() {
   park = null;
   parkFuer = null;
+}
+
+
+// ===== public/gemeinsam/gewerke.js =====
+// Die Gewerke einer Buehnenshow.
+//
+// Was hier steht, sind die *Bausteine*: einzelne Lichtgewerke, jedes fuer
+// sich, jedes ohne Meinung darueber, wann es laufen soll. Diese Entscheidung
+// trifft die Regie in buehnenshow.js.
+//
+// Die Trennung ist keine Formsache, sondern das, was ein Lichtpult auch
+// macht - und der Satz, der die ganze Zunft zusammenfasst, lautet:
+//
+//   "Busking is not winging it from scratch; it's more like live remixing of
+//    well-prepared building blocks."
+//
+// Genau das ist der Aufbau hier. Die Bausteine sind vorbereitet und tun immer
+// dasselbe; was eine Show daraus macht, ist die Auswahl.
+//
+// --- Die Gewerke einer echten Anlage ---------------------------------------
+//
+// Aus der Fachliteratur, und in dieser Reihenfolge aufgebaut:
+//
+//   Wash        macht die Farbstimmung. Die Grundlage, laeuft fast immer.
+//   Beam        baut die Architektur in der Luft. Schmale Strahlen von oben.
+//   Spot        setzt Flecken und Muster.
+//   Blinder     leuchtet ins *Publikum*. Nur zu Hoehepunkten.
+//   Strobe      Blitze. Bei uns klein, siehe unten.
+//   Sunstrip    eine Leiste aus Lampen, die im Lauflicht arbeitet.
+//   Kugel       die Spiegelkugel. Braucht die Buehne fuer sich allein.
+//   Flamme      Flammenwerfer. Der teuerste Akzent, also der seltenste.
+//   CO2         weisse Saeulen, kurz und hart.
+//   Funken      Kaltfunken, die aufsteigen und fallen.
+//   Dunst       macht Strahlen ueberhaupt erst sichtbar.
+//
+// --- Und was wir *nicht* machen ---------------------------------------------
+//
+// Ein echtes Stroboskop laeuft mit zehn bis fuenfundzwanzig Blitzen je
+// Sekunde. Die allgemeine Blitzschwelle erlaubt drei - und zwar nur, wenn die
+// Aenderung mindestens ein Viertel der Bildflaeche betrifft.
+//
+// Genau daran haengt die Loesung: Ein Blitz auf *weniger* als einem Viertel
+// der Flaeche faellt nicht unter die Schwelle. Die Blitze hier sind deshalb
+// klein und sitzen an einzelnen Lampen, nicht auf der ganzen Wand. Damit gibt
+// es den Effekt, ohne dass die Zusage aus FARBWIRKUNG.md faellt - und die
+// Abnahme misst beides: die Blitzrate *und* den Flaechenanteil.
+
+
+const kl = (x, a, b) => (x < a ? a : x > b ? b : x);
+
+/** Ein weicher Leuchtfleck als vorgerechnetes Bild, je Farbe einmal. */
+const fleckVorrat = new Map();
+function fleck(farbe) {
+  if (!fleckVorrat.has(farbe)) {
+    const r = 64;
+    const c = document.createElement('canvas');
+    c.width = r * 2;
+    c.height = r * 2;
+    const s = c.getContext('2d');
+    const v = s.createRadialGradient(r, r, 0, r, r, r);
+    v.addColorStop(0, '#ffffff');
+    v.addColorStop(0.16, farbe);
+    v.addColorStop(0.45, mitAlpha(farbe, 0.4));
+    v.addColorStop(1, mitAlpha(farbe, 0));
+    s.fillStyle = v;
+    s.fillRect(0, 0, r * 2, r * 2);
+    fleckVorrat.set(farbe, c);
+    if (fleckVorrat.size > 40) fleckVorrat.clear();
+  }
+  return fleckVorrat.get(farbe);
+}
+
+/* --- Beams: die Architektur in der Luft ------------------------------------
+ *
+ * Das Gewerk, das eine Projektion am staerksten nach Konzert aussehen laesst.
+ * Schmale Strahlen, die von oben herunterkommen, sich faechern, und auf
+ * Schlaegen ihre Stellung wechseln.
+ *
+ * Zwei Regeln aus der Praxis stecken darin:
+ *
+ *   Sie fahren *gemeinsam*, nicht einzeln. Ein Faecher, der sich oeffnet und
+ *   schliesst, ist ein Bild; zwoelf Strahlen, die einzeln herumsuchen, sind
+ *   Unruhe.
+ *
+ *   Sie schalten hart auf den Schlag und fahren weich dazwischen. Ein Strahl,
+ *   der immer nur weich faehrt, verliert den Bezug zur Musik; einer, der nur
+ *   springt, sieht kaputt aus.
+ */
+class Beams {
+  constructor(anzahl = 8) {
+    this.anzahl = anzahl;
+    this.faecher = 0.5;
+    this.faecherZiel = 0.5;
+    this.neigung = 0.5;
+    this.neigungZiel = 0.5;
+    this.schwenk = 0;
+    this.schwenkZiel = 0;
+    this.letzterBeat = -1;
+  }
+
+  fortschreiben(sekunden, takt, wucht, kraft) {
+    const t = kl(sekunden * 6, 0, 1);
+    this.faecher += (this.faecherZiel - this.faecher) * t;
+    this.neigung += (this.neigungZiel - this.neigung) * t;
+    this.schwenk += (this.schwenkZiel - this.schwenk) * t;
+    if (takt && takt.nummer !== this.letzterBeat) {
+      this.letzterBeat = takt.nummer;
+      // Alle zwei Schlaege eine neue Stellung, auf der Eins eine groessere.
+      if (takt.nummer % 2 === 0) {
+        this.faecherZiel = 0.25 + Math.random() * 0.75 * kraft;
+        this.schwenkZiel = (Math.random() - 0.5) * 0.7 * kraft;
+      }
+      if (takt.aufEins) this.neigungZiel = 0.3 + Math.random() * 0.6;
+    }
+  }
+
+  zeichnen(stift, breite, hoehe, farbe, kraft) {
+    if (kraft < 0.02) return;
+    const n = this.anzahl;
+    for (let i = 0; i < n; i++) {
+      // Die Quelle: gleichmaessig ueber die Oberkante verteilt.
+      const qx = ((i + 0.5) / n) * breite;
+      const qy = -hoehe * 0.02;
+      // Das Ziel faechert um die Mitte - genau das macht einen Faecher aus.
+      const mitte = breite * 0.5;
+      const spreizung = (qx - mitte) * (0.6 + this.faecher * 2.6);
+      const zx = mitte + spreizung + this.schwenk * breite * 0.35;
+      const zy = hoehe * (0.35 + this.neigung * 0.75);
+
+      const laenge = Math.hypot(zx - qx, zy - qy);
+      const w = breite * 0.006 * (0.7 + kraft * 0.6);
+      const v = stift.createLinearGradient(qx, qy, zx, zy);
+      v.addColorStop(0, farbe);
+      v.addColorStop(0.15, mitAlpha(farbe, 0.55));
+      v.addColorStop(1, mitAlpha(farbe, 0));
+      stift.fillStyle = v;
+      stift.globalAlpha = kl(kraft * 0.75, 0, 1);
+      // Ein Strahl wird zur Spitze hin breiter - er faechert im Dunst auf.
+      const nx = -(zy - qy) / laenge;
+      const ny = (zx - qx) / laenge;
+      stift.beginPath();
+      stift.moveTo(qx - nx * w * 0.5, qy - ny * w * 0.5);
+      stift.lineTo(qx + nx * w * 0.5, qy + ny * w * 0.5);
+      stift.lineTo(zx + nx * w * 2.2, zy + ny * w * 2.2);
+      stift.lineTo(zx - nx * w * 2.2, zy - ny * w * 2.2);
+      stift.closePath();
+      stift.fill();
+    }
+    stift.globalAlpha = 1;
+  }
+}
+
+/* --- Publikumsblinder -------------------------------------------------------
+ *
+ * Die Lampen, die *nicht* die Wand anleuchten, sondern nach vorn ins
+ * Publikum. In der Fachliteratur ausdruecklich fuer "musical climaxes,
+ * transitions, or call-and-response" - also nicht fuer nebenbei.
+ *
+ * Dargestellt als warme Scheiben am oberen Rand, die aufbluehen. Warmweiss
+ * und nicht in der Palettenfarbe: Ein Blinder ist eine Halogenlampe, und der
+ * Unterschied zum bunten Rest ist genau das, was ihn wirken laesst.
+ */
+class Blinder {
+  constructor(anzahl = 6, deckel = 1) {
+    this.anzahl = anzahl;
+    this.staerke = 0;
+    /*
+     * Ein Deckel auf die Helligkeit. Steht auf 1 und wird nicht gebraucht -
+     * er ist die Stellschraube fuer den Aufbau vor Ort.
+     *
+     * Der Blinder ist mit weitem Abstand das hellste Gewerk: allein
+     * gemessen 0,0756 mittlere Leuchtdichte, wo die Flamme bei 0,0140 und
+     * die Blitze bei 0,0032 liegen. In der fertigen Show kommt das hellste
+     * Bild damit auf 0,068 gegen eine Blitzschwelle von 0,10 - genug Luft,
+     * also bleibt er ungedeckelt.
+     *
+     * Gemessen wird das aber auf einer gerechneten Leinwand. Wie hell eine
+     * echte Wand wird, haengt am Beamer, am Abstand und daran, wie dunkel
+     * der Hof ist. Faellt beim Aufbau auf, dass es blendet, ist das hier
+     * die eine Zahl, an der man dreht, ohne sonst etwas anzufassen.
+     *
+     * Warum ein Faktor und nicht einfach kleinere Zahlen darunter: Die
+     * Leinwand addiert in sRGB-Bytes, die Leuchtdichte rechnet mit dem
+     * Exponenten 2,4 dagegen. Beides zusammen ist konvex, und deshalb
+     * addieren sich Anteile nicht - Punkte allein 0,0393, Glut allein
+     * 0,0069, beide zusammen 0,0756 statt 0,0462. Was ein Bild am Ende
+     * wiegt, laesst sich darum nicht ausrechnen, nur messen.
+     */
+    this.deckel = deckel;
+  }
+
+  zuenden(wieviel = 1) {
+    this.staerke = Math.min(1, this.staerke + wieviel);
+  }
+
+  fortschreiben(sekunden) {
+    // Halogen glueht nach - ein Blinder geht nie hart aus.
+    if (this.staerke > 0) this.staerke = Math.max(0, this.staerke - sekunden * 2.2);
+  }
+
+  zeichnen(stift, breite, hoehe) {
+    if (this.staerke < 0.02) return;
+    const warm = 'hsl(38 85% 66%)';
+    const b = fleck(warm);
+    const y = hoehe * 0.07;
+    for (let i = 0; i < this.anzahl; i++) {
+      const x = ((i + 0.5) / this.anzahl) * breite;
+      const gr = breite * (0.05 + this.staerke * 0.09);
+      stift.globalAlpha = kl(this.staerke * 0.9 * this.deckel, 0, 1);
+      stift.drawImage(b, x - gr, y - gr, gr * 2, gr * 2);
+    }
+    // Und der Schein, den sie in den Raum werfen.
+    const v = stift.createLinearGradient(0, 0, 0, hoehe * 0.6);
+    v.addColorStop(0, mitAlpha(warm, 0.5));
+    v.addColorStop(1, mitAlpha(warm, 0));
+    stift.fillStyle = v;
+    stift.globalAlpha = this.staerke * 0.5 * this.deckel;
+    stift.fillRect(0, 0, breite, hoehe * 0.6);
+    stift.globalAlpha = 1;
+  }
+}
+
+/* --- Blitze, klein gehalten -------------------------------------------------
+ *
+ * Ein echtes Stroboskop blitzt zehn- bis fuenfundzwanzigmal je Sekunde. Das
+ * geht hier nicht, und der Ausweg steckt im Wortlaut der Blitzschwelle
+ * selbst: Sie greift erst, wenn die Aenderung *mindestens ein Viertel* der
+ * Bildflaeche betrifft.
+ *
+ * Also blitzen hier einzelne kleine Lampen und nicht die Wand. Der Effekt ist
+ * da - das Auge liest eine Reihe zuckender Punkte sofort als Stroboskop -,
+ * und die Flaeche bleibt weit unter einem Viertel. Die Abnahme misst genau
+ * das nach.
+ */
+class Blitze {
+  constructor(anzahl = 10) {
+    this.anzahl = anzahl;
+    this.phase = 0;
+    this.an = false;
+    this.muster = 0;
+  }
+
+  fortschreiben(sekunden, tempo) {
+    this.phase += sekunden * tempo;
+  }
+
+  zeichnen(stift, breite, hoehe, kraft) {
+    if (!this.an || kraft < 0.05) return;
+    const schritt = Math.floor(this.phase);
+    const weiss = 'hsl(210 30% 92%)';
+    const b = fleck(weiss);
+    const y = hoehe * 0.14;
+    for (let i = 0; i < this.anzahl; i++) {
+      /*
+       * Nicht alle zugleich. Vier Muster - alle, jede zweite, von aussen
+       * nach innen, zufaellig - und sie wechseln mit dem Schritt. Alle
+       * zugleich waere sowohl langweilig als auch am naechsten an der
+       * Flaechengrenze.
+       */
+      const m = (schritt + this.muster) % 4;
+      const dran = m === 0 ? true
+        : m === 1 ? i % 2 === (schritt % 2)
+          : m === 2 ? Math.abs(i - (this.anzahl - 1) / 2) > (schritt % 3)
+            : ((i * 2654435761 + schritt * 40503) >>> 8) % 3 === 0;
+      if (!dran) continue;
+      const x = ((i + 0.5) / this.anzahl) * breite;
+      // Innerhalb eines Schritts kurz an, lang aus - das macht den Blitz.
+      const u = this.phase - schritt;
+      const hell = u < 0.35 ? 1 - u / 0.35 : 0;
+      if (hell <= 0) continue;
+      const gr = breite * 0.022;
+      stift.globalAlpha = kl(hell * kraft, 0, 1);
+      stift.drawImage(b, x - gr, y - gr, gr * 2, gr * 2);
+    }
+    stift.globalAlpha = 1;
+  }
+}
+
+/* --- Die Spiegelkugel -------------------------------------------------------
+ *
+ * Das einzige Gewerk, das die Buehne fuer sich allein braucht - und zwar aus
+ * einem sachlichen Grund und nicht aus Geschmack: Eine Spiegelkugel *ist*
+ * nichts weiter als ein Feld wandernder Lichtpunkte. Laeuft daneben ein Wash,
+ * verschwinden die Punkte im Grundlicht, und uebrig bleibt eine leicht
+ * fleckige Wand.
+ *
+ * Deshalb schaltet die Regie beim Bild "Kugel" alles andere ab. Das ist
+ * zugleich der wertvollste Baustein fuer einen langen Abend: Er ist ruhig,
+ * er wiederholt sich nie genau, und er traegt minutenlang.
+ */
+class Kugel {
+  constructor(punkte = 90) {
+    this.winkel = 0;
+    this.punkte = Array.from({ length: punkte }, (_, i) => {
+      /*
+       * Gleichmaessig ueber eine Kugel verteilt, nicht ueber Laengen- und
+       * Breitengrade: Sonst draengen sich die Punkte an den Polen, und man
+       * sieht der Kugel an, dass sie gerechnet ist. Die Fibonacci-Spirale ist
+       * das uebliche Mittel dagegen.
+       */
+      const y = 1 - (i / (punkte - 1)) * 2;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const phi = i * Math.PI * (3 - Math.sqrt(5));
+      return { x: Math.cos(phi) * r, y, z: Math.sin(phi) * r };
+    });
+  }
+
+  fortschreiben(sekunden, tempo) {
+    this.winkel += sekunden * tempo;
+  }
+
+  zeichnen(stift, breite, hoehe, farbe, kraft) {
+    if (kraft < 0.02) return;
+    const b = fleck(farbe);
+    const c = Math.cos(this.winkel);
+    const s = Math.sin(this.winkel);
+    for (const p of this.punkte) {
+      // Um die senkrechte Achse drehen.
+      const x = p.x * c - p.z * s;
+      const z = p.x * s + p.z * c;
+      /*
+       * Nur die dem Betrachter *abgewandte* Haelfte wirft Punkte nach vorn -
+       * die zugewandten Spiegel werfen sie nach hinten. Das ist der Grund,
+       * warum die Punkte einer echten Kugel immer von einer Seite kommen und
+       * zur anderen verschwinden.
+       */
+      if (z < 0) continue;
+      /*
+       * Die Punkte laufen ueber die *ganze* Wand, nicht nur um die Kugel:
+       * Der Strahl geht von der Kugel weg und trifft die Wand weit
+       * ausserhalb. Der Faktor streckt genau das.
+       */
+      const px = 0.5 + x * 0.85;
+      const py = 0.42 + p.y * 0.62;
+      if (px < -0.05 || px > 1.05 || py < -0.05 || py > 1.05) continue;
+      // Weiter aussen laenger und schwaecher - der Strahl trifft schraeg auf.
+      const schraeg = 1 + Math.abs(x) * 1.6;
+      const gr = breite * 0.011 * schraeg;
+      stift.globalAlpha = kl(kraft * (0.35 + z * 0.65) / schraeg, 0, 1);
+      stift.drawImage(b, px * breite - gr, py * hoehe - gr / schraeg,
+        gr * 2, (gr * 2) / schraeg);
+    }
+    stift.globalAlpha = 1;
+  }
+}
+
+/* --- Flammen ----------------------------------------------------------------
+ *
+ * Der teuerste Akzent einer echten Show, und deshalb der seltenste: Ein
+ * Flammenprojektor kostet Gas, Genehmigung und Sicherheitsabstand. Genau
+ * dieses Verhaeltnis wird hier nachgebaut - die Regie zuendet sie mit langer
+ * Sperrzeit, und dadurch bleibt der Effekt ein Ereignis.
+ *
+ * Gezeichnet als aufsteigende, flackernde Saeule: unten hell und weiss, oben
+ * rot und ausfransend. Genau in dieser Reihenfolge - eine Flamme, die unten
+ * rot ist, sieht aus wie Farbe und nicht wie Feuer.
+ */
+class Flammen {
+  constructor(stellen = [0.2, 0.5, 0.8]) {
+    this.stellen = stellen;
+    this.leben = stellen.map(() => 0);
+  }
+
+  zuenden(welche = null) {
+    if (welche === null) this.leben = this.leben.map(() => 1);
+    else this.leben[welche % this.leben.length] = 1;
+  }
+
+  fortschreiben(sekunden) {
+    this.leben = this.leben.map((l) => Math.max(0, l - sekunden * 1.15));
+  }
+
+  zeichnen(stift, breite, hoehe, zeit) {
+    for (let i = 0; i < this.stellen.length; i++) {
+      const l = this.leben[i];
+      if (l < 0.02) continue;
+      // Anschwellen und abfallen - eine Flamme kommt nicht sofort auf voll.
+      const u = 1 - l;
+      const stark = Math.min(1, u * 5) * l;
+      const x = this.stellen[i] * breite;
+      const fuss = hoehe * 0.97;
+      const hoch = hoehe * 0.55 * stark;
+
+      for (let k = 0; k < 3; k++) {
+        // Drei Zungen mit eigenem Flackern - eine einzelne Form sieht steif aus.
+        const flacker = Math.sin(zeit * (11 + k * 3.7) + i * 2.1) * 0.5 + 0.5;
+        const h = hoch * (0.6 + flacker * 0.55);
+        const w = breite * 0.022 * (0.7 + flacker * 0.5);
+        const neigung = Math.sin(zeit * (4 + k) + i) * breite * 0.02;
+        const v = stift.createLinearGradient(x, fuss, x + neigung, fuss - h);
+        v.addColorStop(0, 'hsl(48 100% 88%)');
+        v.addColorStop(0.2, 'hsl(38 100% 62%)');
+        v.addColorStop(0.6, mitAlpha('hsl(20 100% 52%)', 0.55));
+        v.addColorStop(1, mitAlpha('hsl(8 100% 45%)', 0));
+        stift.fillStyle = v;
+        stift.globalAlpha = kl(stark * (0.85 - k * 0.2), 0, 1);
+        stift.beginPath();
+        stift.moveTo(x - w, fuss);
+        stift.quadraticCurveTo(x - w * 0.8, fuss - h * 0.5, x + neigung, fuss - h);
+        stift.quadraticCurveTo(x + w * 0.8, fuss - h * 0.5, x + w, fuss);
+        stift.closePath();
+        stift.fill();
+      }
+      // Der Lichtschein am Boden.
+      const b = fleck('hsl(30 100% 60%)');
+      const gr = breite * 0.09 * stark;
+      stift.globalAlpha = stark * 0.7;
+      stift.drawImage(b, x - gr, fuss - gr * 0.6, gr * 2, gr * 1.2);
+    }
+    stift.globalAlpha = 1;
+  }
+}
+
+/* --- CO2-Saeulen ------------------------------------------------------------
+ *
+ * Kurz, weiss, hart. Anders als eine Flamme steigt eine CO2-Saeule nicht auf,
+ * sondern *schiesst* - sie ist in einem Sekundenbruchteil oben und loest sich
+ * dann auf. Genau dieser Unterschied macht sie zu einem anderen Akzent.
+ */
+class Nebelstoss {
+  constructor(stellen = [0.12, 0.88]) {
+    this.stellen = stellen;
+    this.leben = stellen.map(() => 0);
+  }
+
+  zuenden() { this.leben = this.leben.map(() => 1); }
+
+  fortschreiben(sekunden) {
+    this.leben = this.leben.map((l) => Math.max(0, l - sekunden * 0.9));
+  }
+
+  zeichnen(stift, breite, hoehe) {
+    for (let i = 0; i < this.stellen.length; i++) {
+      const l = this.leben[i];
+      if (l < 0.02) continue;
+      const u = 1 - l;
+      // Die Saeule ist nach einem Fuenftel der Zeit auf voller Hoehe.
+      const hoch = hoehe * 0.8 * Math.min(1, u * 5);
+      const x = this.stellen[i] * breite;
+      const fuss = hoehe * 0.95;
+      const w = breite * (0.018 + u * 0.05);
+      const v = stift.createLinearGradient(x, fuss, x, fuss - hoch);
+      v.addColorStop(0, mitAlpha('hsl(200 20% 96%)', 0.85 * l));
+      v.addColorStop(0.5, mitAlpha('hsl(200 20% 96%)', 0.45 * l));
+      v.addColorStop(1, mitAlpha('hsl(200 20% 96%)', 0));
+      stift.fillStyle = v;
+      stift.globalAlpha = 1;
+      stift.beginPath();
+      stift.moveTo(x - w * 0.4, fuss);
+      stift.lineTo(x + w * 0.4, fuss);
+      stift.lineTo(x + w * 1.8, fuss - hoch);
+      stift.lineTo(x - w * 1.8, fuss - hoch);
+      stift.closePath();
+      stift.fill();
+    }
+  }
+}
+
+/* --- Kaltfunken -------------------------------------------------------------
+ *
+ * Funkenfontaenen, wie sie auf jeder Buehne stehen. Anders als alles andere
+ * hier haben sie *Schwerkraft* - und genau daran erkennt man sie: Ein
+ * Lichtpunkt, der einen Bogen fliegt und faellt, ist ein Funke; einer, der
+ * schwebt, ist Staub.
+ */
+class Funken {
+  constructor(stellen = [0.3, 0.7]) {
+    this.stellen = stellen;
+    this.teilchen = [];
+  }
+
+  zuenden(wieviele = 70) {
+    for (const s of this.stellen) {
+      for (let i = 0; i < wieviele / this.stellen.length; i++) {
+        if (this.teilchen.length > 260) break;
+        const streu = (Math.random() - 0.5) * 0.5;
+        this.teilchen.push({
+          x: s + streu * 0.02,
+          y: 0.96,
+          vx: streu * 0.25,
+          vy: -(0.75 + Math.random() * 0.55),
+          alter: 0,
+          leben: 0.9 + Math.random() * 0.9,
+        });
+      }
+    }
+  }
+
+  fortschreiben(sekunden) {
+    const uebrig = [];
+    for (const p of this.teilchen) {
+      p.alter += sekunden;
+      if (p.alter >= p.leben) continue;
+      p.vy += sekunden * 1.5; // Schwerkraft
+      p.x += p.vx * sekunden;
+      p.y += p.vy * sekunden;
+      if (p.y > 1.02) continue;
+      uebrig.push(p);
+    }
+    this.teilchen = uebrig;
+  }
+
+  zeichnen(stift, breite, hoehe) {
+    if (!this.teilchen.length) return;
+    stift.fillStyle = 'hsl(45 100% 85%)';
+    for (const p of this.teilchen) {
+      const u = p.alter / p.leben;
+      stift.globalAlpha = kl((1 - u) * 0.95, 0, 1);
+      const gr = breite * 0.0022 * (1 - u * 0.5);
+      // Ein kurzer Strich in Flugrichtung, kein Punkt - das ist die
+      // Bewegungsunschaerfe, die ein Funke im Auge hinterlaesst.
+      stift.fillRect(p.x * breite - gr, p.y * hoehe - gr, gr * 2, gr * 2 + Math.abs(p.vy) * hoehe * 0.012);
+    }
+    stift.globalAlpha = 1;
+  }
+}
+
+
+// ===== public/gemeinsam/buehnenshow.js =====
+// Die Regie.
+//
+// Die Gewerke in gewerke.js koennen jedes fuer sich etwas. Was daraus eine
+// Show macht, ist die Entscheidung, *was wann laeuft* - und die faellt hier.
+//
+// --- Warum das der eigentliche Teil ist -------------------------------------
+//
+// Alles gleichzeitig anzuschalten ist die naheliegende Versuchung und der
+// sicherste Weg zu etwas, das nach zwei Minuten langweilt. Die Fachliteratur
+// ist an dieser Stelle bemerkenswert einig, und zwar quer durch Genres:
+//
+//   "The important thing is restraint; an LED bar does not need to display a
+//    nonstop rainbow chase."
+//
+// Ein Hoehepunkt wirkt nur, wenn davor etwas Ruhigeres war. Ein Blinder, der
+// dauernd an ist, ist eine Lampe; einer, der zweimal im Set kommt, ist ein
+// Ereignis. Die Regie hier ist deshalb vor allem eine Maschine, die Dinge
+// *weglaesst*.
+//
+// --- Wie sie arbeitet -------------------------------------------------------
+//
+// Drei Ebenen, von langsam nach schnell:
+//
+//   Bild      Welche Gewerke ueberhaupt laufen duerfen. Wechselt selten -
+//             fruehestens nach zwei Phrasen, und nur an Phrasengrenzen.
+//   Lage      Was die Musik gerade tut: Ruhe, Groove, Aufbau, Drop, Ausklang.
+//             Kommt aus der Analyse und ueberstimmt das Bild bei Bedarf.
+//   Akzent    Einzelne Ereignisse mit Sperrzeit: Flamme, CO2, Funken.
+//
+// --- Der Trick mit dem Loch -------------------------------------------------
+//
+// Das Wirksamste an einer Lichtshow kostet nichts und ist das Gegenteil von
+// Licht: die Sekunde Dunkelheit unmittelbar vor dem Drop. Ein Aufbau, der
+// immer heller wird und dann *ausgeht*, macht den Einschlag doppelt so gross.
+// Genau das macht `dunkelVorDrop` - und es ist der einzige Effekt hier, der
+// aus Nichtstun besteht.
+//
+// --- Damit es Stunden traegt ------------------------------------------------
+//
+// Ein Abend hat fuenf Stundenmixe. Die Bilder werden deshalb nicht gewuerfelt,
+// sondern *rotiert*: Jedes kommt dran, bevor eines zum zweiten Mal kommt.
+// Wuerfeln fuehlt sich kurzfristig abwechslungsreich an und wiederholt sich
+// nach dem Gesetz der kleinen Zahlen viel zu oft.
+
+
+/*
+ * Heisst `grenze` und nicht `kl`: Der Buendler legt alle Module in eine
+ * Datei, und gewerke.js hat schon ein `kl`. Er meldet solche Zusammenstoesse
+ * beim Bauen - das dritte Mal in diesem Projekt, dass er damit einen Fehler
+ * verhindert hat, bevor er entstehen konnte.
+ */
+const grenze = (x, a, b) => (x < a ? a : x > b ? b : x);
+
+/*
+ * Die Bilder.
+ *
+ * Jedes sagt nur, *welche* Gewerke laufen duerfen und wie stark - nicht, was
+ * sie tun. Genau so ist ein Lichtpult aufgebaut, und genau deshalb lassen
+ * sich neue Bilder hinzufuegen, ohne ein Gewerk anzufassen.
+ *
+ * `ruhig` heisst: taugt fuer lange Strecken und fuer den Breakdown.
+ * `laut` heisst: braucht Energie, sonst wirkt es aufgesetzt.
+ */
+const BILDER = [
+  {
+    name: 'Wash', ruhig: true,
+    wash: 1, beams: 0, kugel: 0, blitze: false, sunstrip: 1,
+    hinweis: 'Die Grundstimmung. Laeuft immer, wenn nichts anderes dran ist.',
+  },
+  {
+    name: 'Beams', laut: true,
+    wash: 0.35, beams: 1, kugel: 0, blitze: false, sunstrip: 0.5,
+    hinweis: 'Strahlen in der Luft, Wash zurueckgenommen - sonst frisst er sie.',
+  },
+  {
+    name: 'Kugel', ruhig: true, allein: true,
+    wash: 0, beams: 0, kugel: 1, blitze: false, sunstrip: 0,
+    hinweis: 'Die Spiegelkugel braucht die Wand fuer sich. Punkte im Grundlicht sind keine Punkte.',
+  },
+  {
+    name: 'Kette', ruhig: true,
+    wash: 0.55, beams: 0, kugel: 0, blitze: false, sunstrip: 1.4,
+    hinweis: 'Nur die Lauflichter auf den Gesimsen. Ruhig, aber nicht still.',
+  },
+  {
+    name: 'Halbdunkel', ruhig: true,
+    wash: 0.3, beams: 0.35, kugel: 0, blitze: false, sunstrip: 0.3,
+    hinweis: 'Alles zurueckgenommen. Der Platz, aus dem ein Aufbau kommen kann.',
+  },
+  {
+    name: 'Vollgas', laut: true,
+    wash: 0.8, beams: 1, kugel: 0, blitze: true, sunstrip: 1,
+    hinweis: 'Alles ausser der Kugel. Hoechstens ein paar Phrasen am Stueck.',
+  },
+];
+
+/*
+ * Wie lange ein Bild mindestens steht, in Phrasen.
+ *
+ * Zwei. Bei 124 Schlaegen je Minute und 32 Schlaegen je Phrase sind das gut
+ * dreissig Sekunden. Kuerzer und die Show wird hektisch, ohne abwechslungs-
+ * reicher zu werden - das Auge braucht Zeit, ein Bild ueberhaupt als Bild zu
+ * lesen.
+ */
+const BILD_MINDESTENS = 2;
+
+/*
+ * Sperrzeiten der grossen Akzente, in Sekunden.
+ *
+ * Die Zahlen bilden nach, was die Dinger in Wirklichkeit kosten. Eine Flamme
+ * braucht Gas und Genehmigung, also kommt sie selten; Funken sind billiger;
+ * CO2 liegt dazwischen. Dass ein Effekt teuer ist, ist genau der Grund,
+ * warum er wirkt - wer ihn verschenkt, verschenkt die Wirkung mit.
+ */
+const SPERREN = { flamme: 95, co2: 55, funken: 40, blinder: 12 };
+
+/*
+ * Ein Laufzeitkonto fuer die Blitze, in Sekunden.
+ *
+ * Die Sperrzeiten oben regeln Ereignisse - etwas zuendet, und danach ist
+ * eine Weile Ruhe. Die Blitze sind kein Ereignis, sondern ein Zustand, und
+ * fuer Zustaende taugt eine Sperre nicht: Ein Aufbau kann in echter Musik
+ * eine Minute dauern, und Blitze, die eine Minute am Stueck laufen, sind
+ * kein Akzent mehr, sondern Beleuchtung.
+ *
+ * Also ein Konto. Es leert sich, solange sie laufen, und fuellt sich
+ * langsamer wieder auf - damit sind sie auch bei dauerhafter Nachfrage
+ * hoechstens ein knappes Drittel der Zeit an, und nie laenger als acht
+ * Sekunden am Stueck.
+ */
+const BLITZ_HOECHSTENS = 8;
+const BLITZ_ERHOLUNG = 0.3;
+
+/*
+ * Ein kleiner, saebarer Zufall.
+ *
+ * Die Regie wuerfelt an zwei Stellen: beim Mischen der Bilderfolge und
+ * beim Ueberspringen eines Bildes, das gerade nicht zur Energie passt.
+ * Mit `Math.random` ist damit jeder Prueflauf ein anderer - und das ist
+ * beim Messen fatal. Der erste Versuch, den Blinder zu deckeln, ergab bei
+ * kleinerer Blende ein *helleres* Bild als bei groesserer; die Ursache war
+ * nicht der Blinder, sondern eine andere Bilderfolge in jedem Lauf.
+ *
+ * Auf der Party laeuft er weiter mit `Math.random`, in der Abnahme mit
+ * einer Saat. Xorshift32, weil er in fuenf Zeilen passt und fuer die Frage
+ * "welches Bild kommt als naechstes" mehr als genug ist.
+ *
+ * Heisst `saatWuerfel` und nicht `wuerfel`: demomusik.js hat schon einen.
+ * Der Buendler hat es beim Bauen gemeldet - das vierte Mal in diesem
+ * Projekt, dass er einen Zusammenstoss abgefangen hat, bevor er im Browser
+ * zu einem stillen Fehler geworden waere.
+ */
+function saatWuerfel(saat) {
+  if (saat === null || saat === undefined) return Math.random;
+  let z = saat | 0 || 0x9e3779b9;
+  return () => {
+    z ^= z << 13; z ^= z >>> 17; z ^= z << 5;
+    return ((z >>> 0) % 1000000) / 1000000;
+  };
+}
+
+class Buehnenshow {
+  constructor(bild, saat = null) {
+    this.zufall = saatWuerfel(saat);
+    this.bild = bild;
+    this.grund = new Partylicht(bild);
+    this.beams = new Beams(bild.an ? Math.min(10, Math.max(6, this.grund.lampen.length + 2)) : 8);
+    this.blinder = new Blinder(6);
+    this.blitze = new Blitze(11);
+    this.kugel = new Kugel(96);
+    this.flammen = new Flammen(this._flammenStellen(bild));
+    this.co2 = new Nebelstoss([0.1, 0.9]);
+    this.funken = new Funken([0.3, 0.7]);
+
+    // Die Bilderfolge. Rotiert statt gewuerfelt - siehe oben.
+    this.reihe = this._reiheMischen();
+    this.reiheZeiger = 0;
+    this.aktuell = BILDER[0];
+    this.seitPhrasen = 0;
+
+    // Ueberblendung zwischen zwei Bildern, damit nichts hart umspringt.
+    this.staerke = {};
+    for (const b of BILDER) this.staerke[b.name] = b === this.aktuell ? 1 : 0;
+
+    this.letzterBeat = -1;
+    this.letztePhrase = -1;
+    this.zeit = 0;
+    this.sperre = { flamme: 0, co2: 0, funken: 0, blinder: 0 };
+    this.dunkel = 0;
+    this.dropHall = 0;
+    this.blitzKonto = BLITZ_HOECHSTENS;
+    /*
+     * Beim ersten Phrasenanfang wird nur mitgeschrieben, nicht mitgezaehlt:
+     * Die Show faengt irgendwo mitten in einer Phrase an, und wie lange das
+     * erste Bild da schon steht, weiss niemand. Ohne das hier waere der
+     * allererste Wechsel nach einer statt nach zwei Phrasen gekommen - der
+     * einzige hektische Wechsel des ganzen Abends, gleich am Anfang.
+     */
+    this.phraseGesehen = false;
+    this.lage = 'groove';
+  }
+
+  /*
+   * Wo die Flammen stehen.
+   *
+   * Vor den Pfeilern, nicht vor den Fenstern - dieselbe Ueberlegung wie bei
+   * den Uplightern, nur mit mehr Nachdruck: Eine Flamme vor einer Scheibe
+   * waere auch in Wirklichkeit keine gute Idee. Genommen werden die
+   * aeusseren und die mittlere Lampenposition.
+   */
+  _flammenStellen(bild) {
+    if (!bild.an) return [0.18, 0.5, 0.82];
+    const fenster = bild.bereiche.filter((b) => b.art === 'fenster');
+    if (fenster.length < 2) return [0.18, 0.5, 0.82];
+    const x = fenster.map((f) => f.mitte[0]).sort((a, b) => a - b);
+    const luecken = [];
+    for (let i = 1; i < x.length; i++) luecken.push((x[i - 1] + x[i]) / 2);
+    if (luecken.length <= 3) return luecken;
+    return [luecken[0], luecken[Math.floor(luecken.length / 2)], luecken[luecken.length - 1]];
+  }
+
+  _reiheMischen() {
+    const r = BILDER.map((b) => b.name);
+    for (let i = r.length - 1; i > 0; i--) {
+      const j = Math.floor(this.zufall() * (i + 1));
+      [r[i], r[j]] = [r[j], r[i]];
+    }
+    return r;
+  }
+
+  /**
+   * Das naechste Bild aus der Rotation - passend zur Energie.
+   *
+   * Ein lautes Bild im Breakdown waere genauso falsch wie ein ruhiges im
+   * Hoehepunkt. Deshalb wird die Rotation *gefiltert* und nicht ersetzt: Was
+   * gerade nicht passt, wird uebersprungen und kommt beim naechsten Mal.
+   */
+  _naechstesBild(wucht, abbau) {
+    const ruhig = abbau > 0.35 || wucht < 0.35;
+    for (let versuch = 0; versuch < BILDER.length * 2; versuch++) {
+      const name = this.reihe[this.reiheZeiger % this.reihe.length];
+      this.reiheZeiger++;
+      if (this.reiheZeiger >= this.reihe.length * 2) {
+        this.reihe = this._reiheMischen();
+        this.reiheZeiger = 0;
+      }
+      const b = BILDER.find((x) => x.name === name);
+      if (!b || b === this.aktuell) continue;
+      if (ruhig && b.laut) continue;
+      if (!ruhig && b.ruhig && this.zufall() < 0.6) continue;
+      return b;
+    }
+    return BILDER[0];
+  }
+
+  /* --- Der Ablauf ---------------------------------------------------------- */
+
+  fortschreiben(sekunden, takt, wucht, spannung, abbau, drop) {
+    this.zeit += sekunden;
+    for (const k of Object.keys(this.sperre)) {
+      if (this.sperre[k] > 0) this.sperre[k] = Math.max(0, this.sperre[k] - sekunden);
+    }
+    if (this.dropHall > 0) this.dropHall = Math.max(0, this.dropHall - sekunden * 0.7);
+
+    /*
+     * Die Lage. Sie ueberstimmt das Bild - was die Musik gerade tut, ist
+     * wichtiger als das, was gerade an der Reihe waere.
+     */
+    this.lage = drop || this.dropHall > 0.6 ? 'drop'
+      : spannung > 0.62 ? 'aufbau'
+        : abbau > 0.45 ? 'ruhe'
+          : wucht > 0.72 ? 'hoehepunkt' : 'groove';
+
+    /*
+     * Das Loch vor dem Drop.
+     *
+     * Nur die letzte Zaehlzeit eines Aufbaus, und nur wenn der Aufbau weit
+     * genug ist. Es ist der billigste und wirksamste Effekt der ganzen Show,
+     * und er besteht darin, alles auszuschalten.
+     */
+    const kurzVorDrop = spannung > 0.86 && !drop;
+    this.dunkel += ((kurzVorDrop ? 1 : 0) - this.dunkel) * grenze(sekunden * (kurzVorDrop ? 9 : 5), 0, 1);
+
+    if (takt && takt.nummer !== this.letzterBeat) {
+      this.letzterBeat = takt.nummer;
+
+      if (takt.aufPhrase && takt.nummer !== this.letztePhrase) {
+        this.letztePhrase = takt.nummer;
+        if (!this.phraseGesehen) this.phraseGesehen = true;
+        else this.seitPhrasen++;
+        if (this.seitPhrasen >= BILD_MINDESTENS) {
+          this.aktuell = this._naechstesBild(wucht, abbau);
+          this.seitPhrasen = 0;
+        }
+      }
+    }
+
+    if (drop) {
+      this.dropHall = 1;
+      /*
+       * Der Drop feuert *nicht* alles. Ausgewaehlt wird nach Sperrzeit und
+       * nach Energie - und selbst dann nie mehr als zwei grosse Akzente
+       * zugleich. Drei gleichzeitig sieht man als einen.
+       */
+      let grosse = 0;
+      if (this.sperre.blinder <= 0) {
+        this.blinder.zuenden(1);
+        this.sperre.blinder = SPERREN.blinder;
+      }
+      if (wucht > 0.55 && this.sperre.flamme <= 0 && grosse < 2) {
+        this.flammen.zuenden();
+        this.sperre.flamme = SPERREN.flamme;
+        grosse++;
+      }
+      if (wucht > 0.45 && this.sperre.co2 <= 0 && grosse < 2) {
+        this.co2.zuenden();
+        this.sperre.co2 = SPERREN.co2;
+        grosse++;
+      }
+      if (this.sperre.funken <= 0 && grosse < 2) {
+        this.funken.zuenden(70);
+        this.sperre.funken = SPERREN.funken;
+        grosse++;
+      }
+    }
+
+    // Die Bildstaerken nachziehen - zwei Sekunden Blende, damit nichts springt.
+    for (const b of BILDER) {
+      const ziel = b === this.aktuell ? 1 : 0;
+      this.staerke[b.name] += (ziel - this.staerke[b.name]) * grenze(sekunden * 0.9, 0, 1);
+    }
+
+    // Die Gewerke selbst.
+    const beamKraft = this._mischung('beams');
+    this.beams.fortschreiben(sekunden, takt, wucht, grenze(wucht + spannung * 0.5, 0, 1));
+    this.blinder.fortschreiben(sekunden);
+    this.kugel.fortschreiben(sekunden, 0.16 + wucht * 0.12);
+    this.flammen.fortschreiben(sekunden);
+    this.co2.fortschreiben(sekunden);
+    this.funken.fortschreiben(sekunden);
+    /*
+     * Die Blitze laufen im Aufbau mit und werden dabei schneller. Das ist
+     * das klassische Mittel, um auf einen Drop zuzulaufen - und es ist der
+     * einzige Ort, an dem sie ueberhaupt vorkommen.
+     *
+     * Frueher stand hier `this.aktuell.blitze && wucht > 0.7`, und das war
+     * falsch: Damit blitzte es, sobald das Bild "Vollgas" dran war und die
+     * Musik Druck hatte - also gut die halbe Zeit, ohne dass irgendetwas
+     * passiert waere. Die Abnahme hat 52 Prozent gemessen. Blitze gehoeren
+     * an eine *Bewegung* - an den Aufbau oder an das Nachhallen eines Drops
+     * -, nicht an einen Energiepegel.
+     */
+    const blitzWunsch = this.lage === 'aufbau'
+      || (this.aktuell.blitze && this.dropHall > 0.25);
+    this.blitzKonto = grenze(
+      this.blitzKonto + sekunden * (this.blitze.an ? -1 : BLITZ_ERHOLUNG),
+      0, BLITZ_HOECHSTENS,
+    );
+    // Anspringen erst bei halbvollem Konto, weiterlaufen bis es leer ist -
+    // sonst flattert die Schwelle und die Blitze stottern im Sekundentakt.
+    this.blitze.an = blitzWunsch
+      && this.blitzKonto > (this.blitze.an ? 0 : BLITZ_HOECHSTENS * 0.5);
+    this.blitze.fortschreiben(sekunden, 3 + spannung * 7 + wucht * 2);
+    return beamKraft;
+  }
+
+  /** Wie stark ein Gewerk gerade laufen darf, ueber alle Bilder gemischt. */
+  _mischung(gewerk) {
+    let summe = 0;
+    for (const b of BILDER) summe += (b[gewerk] ?? 0) * this.staerke[b.name];
+    return summe;
+  }
+
+  /* --- Zeichnen ------------------------------------------------------------ */
+
+  zeichnen(stift, lage) {
+    const {
+      breite, hoehe, sekunden = 1 / 60, takt = null, wucht = 0.5,
+      spannung = 0, abbau = 0, drop = false, palette = null,
+    } = lage;
+
+    this.fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
+    const toene = lichtToene(palette);
+
+    /*
+     * Der Dunkelfaktor. Alles wird damit multipliziert - so wirkt das Loch
+     * vor dem Drop auf die ganze Show und nicht nur auf ein Gewerk.
+     */
+    const hell = 1 - this.dunkel * 0.93;
+
+    const washKraft = this._mischung('wash') * hell;
+    const beamKraft = this._mischung('beams') * hell;
+    const kugelKraft = this._mischung('kugel') * hell;
+    const strichKraft = this._mischung('sunstrip') * hell;
+
+    stift.save();
+    stift.globalCompositeOperation = 'lighter';
+
+    /*
+     * Die Kugel zuerst und allein.
+     *
+     * Laeuft sie stark, wird alles andere heruntergezogen - nicht weil es
+     * stoerte, sondern weil ein Punktfeld im Grundlicht schlicht verschwindet.
+     * Das ist der eine Fall, in dem ein Gewerk die Buehne beansprucht.
+     */
+    if (kugelKraft > 0.02) {
+      this.kugel.zeichnen(stift, breite, hoehe, toene[2], kugelKraft);
+    }
+    /*
+     * Was uebrig bleibt fuer alles andere - und zwei Gewerke nehmen sich
+     * davon etwas weg.
+     *
+     * Die Kugel, weil ein Punktfeld im Grundlicht kein Punktfeld ist. Der
+     * Blinder, weil er auf einer echten Buehne denselben Platz nimmt:
+     * Waehrend er feuert, *ist* er das Bild, und alles andere tritt
+     * zurueck. Ein Blinder, neben dem der Wash unveraendert weiterlaeuft,
+     * sieht nach heller Wand aus statt nach Schlag.
+     *
+     * Das ist eine Entscheidung ueber die Wirkung, keine ueber die
+     * Sicherheit - auch ohne sie bleibt die Show unter der Blitzschwelle.
+     * Es war hier zeitweise andersherum aufgeschrieben: Als das hellste
+     * Bild bei 0,128 lag, sah es nach der Rettung aus. War es nicht. Die
+     * Ursache war, dass der Grundlichtpark seinen *eigenen* Blinder auf
+     * denselben Drop gefeuert hat - siehe `blinderAus` in partylicht.js.
+     * Diese Zeile hat daran fast nichts geaendert, und dass sie es nicht
+     * getan hat, war der Hinweis, der zur wirklichen Ursache gefuehrt hat.
+     */
+    const rest = (1 - kugelKraft * 0.92) * (1 - this.blinder.staerke * 0.75);
+
+    if (washKraft * rest > 0.02) {
+      this.grund.zeichnen(stift, {
+        ...lage,
+        // Der Grundlichtpark bekommt seine eigene Staerke ueber die Wucht -
+        // so bleibt seine innere Musikbindung erhalten.
+        wucht: grenze(wucht * washKraft * rest, 0, 1),
+        streifen: strichKraft,
+        // Der Blinder gehoert hier der Regie - siehe partylicht.js.
+        blinderAus: true,
+      });
+    }
+
+    if (beamKraft * rest > 0.02) {
+      this.beams.zeichnen(stift, breite, hoehe, toene[0], beamKraft * rest * (0.5 + wucht * 0.6));
+    }
+
+    this.blitze.zeichnen(stift, breite, hoehe, rest);
+    this.co2.zeichnen(stift, breite, hoehe);
+    this.flammen.zeichnen(stift, breite, hoehe, this.zeit);
+    this.funken.zeichnen(stift, breite, hoehe);
+    // Der Blinder ganz zuletzt: Er ueberstrahlt alles, und genau das ist sein Sinn.
+    this.blinder.zeichnen(stift, breite, hoehe);
+
+    stift.restore();
+  }
+
+  /** Fuer die Abnahme. */
+  stand() {
+    return {
+      bild: this.aktuell.name,
+      lage: this.lage,
+      dunkel: this.dunkel,
+      seitPhrasen: this.seitPhrasen,
+      staerke: { ...this.staerke },
+      sperre: { ...this.sperre },
+      blinder: this.blinder.staerke,
+      blitzeAn: this.blitze.an,
+      flammen: Math.max(...this.flammen.leben),
+      co2: Math.max(...this.co2.leben),
+      funken: this.funken.teilchen.length,
+      lampen: this.grund.lampen.length,
+      flammenStellen: this.flammen.stellen,
+    };
+  }
+}
+
+/*
+ * Wie beim Lichtpark: eine Show je Buehnenbild, weil ein Modus zustandslos
+ * aufgerufen wird, eine Show aber Gedaechtnis hat.
+ */
+let show = null;
+let showFuer = null;
+
+function buehnenshowZeichnen(stift, lage) {
+  const bild = lage.buehnenbild ?? { an: false, bereiche: [] };
+  if (show === null || showFuer !== bild) {
+    show = new Buehnenshow(bild);
+    showFuer = bild;
+  }
+  show.zeichnen(stift, lage);
+}
+
+function buehnenshowZuruecksetzen() {
+  show = null;
+  showFuer = null;
 }
 
 
@@ -11066,6 +12206,15 @@ const MODI = {
    * Bildes und haetten mit einer Lampe am Boden nichts zu tun.
    */
   licht: { name: 'Lichtpark', zeichne: partylichtZeichnen, schmuck: false },
+  /*
+   * Die grosse Fassung: dieselben Lampen, dazu Beams, Spiegelkugel, Flammen,
+   * Publikumsblinder, kleinflaechige Blitze, CO2 und Funken - und darueber
+   * eine Regie, die entscheidet, was wann laeuft.
+   *
+   * Der Lichtpark daneben bleibt bestehen. Er ist die ruhige Fassung fuer
+   * eine Stelle, an der eine ganze Show zu viel waere.
+   */
+  show: { name: 'Buehnenshow', zeichne: buehnenshowZeichnen, schmuck: false },
   iris: { name: 'Iris', zeichne: irisZeichnen, schmuck: true },
   tunnel: { name: 'Tunnel', zeichne: tunnelZeichnen, schmuck: true },
   strahlen: { name: 'Strahlen', zeichne: strahlenZeichnen, schmuck: true },
