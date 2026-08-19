@@ -497,6 +497,13 @@ export class Visualisierung {
       guetestufe: this.guetestufe,
       palette: this.paletteFuer(aktiv?.track),
       paletteB: zweit ? this.paletteFuer(zweit.track) : null,
+      /*
+       * Die eingemessene Wand geht an den Modus mit. Nur der Lichtpark
+       * benutzt sie bisher - er stellt seine Lampen in die Pfeiler zwischen
+       * den Fenstern -, aber der Weg steht damit fuer jeden weiteren Modus
+       * offen, der etwas ueber die Fassade wissen will.
+       */
+      buehnenbild: this.buehnenbild,
       anteilB: uebergang ? uebergang.fortschritt : 0,
     });
 

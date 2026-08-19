@@ -19,6 +19,7 @@ import {
 } from './mandelgpu.js';
 import { dolceZeichnen, dolceZuruecksetzen } from './dolce.js';
 import { nutzbareBins } from './spektrum.js';
+import { partylichtZeichnen } from './partylicht.js';
 
 export { dolceZuruecksetzen };
 
@@ -3224,7 +3225,23 @@ function mandelAufsBild(stift, quelle, qb, qh, breite, hoehe, wucht, sekunden) {
 
 // --- Der Vertrag --------------------------------------------------------------
 
+/*
+ * Der Lichtpark liegt in einem eigenen Modul.
+ *
+ * Er ist als einziger Modus kein Bild *auf* der Wand, sondern Licht *an* der
+ * Wand - mit Lampen, Richtungen und Abfall. Das ist genug Eigenleben fuer
+ * eine eigene Datei.
+ */
 export const MODI = {
+  /*
+   * Der Lichtpark. Uplighter-Kegel von unten, Punktreihen auf den Gesimsen,
+   * ein wandernder Strahl, Blinder beim Drop - und alles an den Stellen, die
+   * die Beamer-Einmessung kennt.
+   *
+   * Kein Schmuck: Ringe und Funken der Grundschicht kaemen aus der Mitte des
+   * Bildes und haetten mit einer Lampe am Boden nichts zu tun.
+   */
+  licht: { name: 'Lichtpark', zeichne: partylichtZeichnen, schmuck: false },
   iris: { name: 'Iris', zeichne: irisZeichnen, schmuck: true },
   tunnel: { name: 'Tunnel', zeichne: tunnelZeichnen, schmuck: true },
   strahlen: { name: 'Strahlen', zeichne: strahlenZeichnen, schmuck: true },

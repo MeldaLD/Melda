@@ -84,7 +84,19 @@ try {
               aufEins: Math.floor(beat) % 4 === 0, aufPhrase: Math.floor(beat) % 32 === 0,
             },
             wucht: 0.7, spannung: 0, abbau: 0, drop: false,
-            palette: ['#8ad7ff', '#4fa3ff', '#c48bff', '#ffffff'],
+            /*
+             * Die *echte* Form der Palette: ein Objekt mit `toene` und
+             * `hell`, und Farben als rgb(r g b). Der erste Anlauf gab ein
+             * Feld aus Hexfarben - dieselbe falsche Annahme, die auch im
+             * Zeichner steckte, und deshalb hat die Abnahme sie bestaetigt
+             * statt sie zu finden. Am Ende hat es erst der laufende Browser
+             * gezeigt: hundert unlesbare Farben je Sekunde.
+             */
+            palette: {
+              name: 'Pruefpalette', grundton: 250, akzent: 200, baender: 5,
+              toene: ['rgb(70 80 200)', 'rgb(90 60 210)', 'rgb(60 180 220)', 'rgb(40 60 160)'],
+              hell: 'rgb(220 235 255)',
+            },
             ...grund,
           };
           if (bei) bei(lage, i, beat);
@@ -256,7 +268,19 @@ try {
       const lage = {
         sekunden: 1 / 60, wucht: 0.9, spannung: 0.5, abbau: 0, drop: false,
         takt: { beat: 8, bpm: 124, imBeat: 0, nummer: 8, aufEins: true, aufPhrase: false },
-        palette: ['#8ad7ff', '#4fa3ff', '#c48bff', '#ffffff'],
+        /*
+             * Die *echte* Form der Palette: ein Objekt mit `toene` und
+             * `hell`, und Farben als rgb(r g b). Der erste Anlauf gab ein
+             * Feld aus Hexfarben - dieselbe falsche Annahme, die auch im
+             * Zeichner steckte, und deshalb hat die Abnahme sie bestaetigt
+             * statt sie zu finden. Am Ende hat es erst der laufende Browser
+             * gezeigt: hundert unlesbare Farben je Sekunde.
+             */
+            palette: {
+              name: 'Pruefpalette', grundton: 250, akzent: 200, baender: 5,
+              toene: ['rgb(70 80 200)', 'rgb(90 60 210)', 'rgb(60 180 220)', 'rgb(40 60 160)'],
+              hell: 'rgb(220 235 255)',
+            },
       };
       // Erst einschwingen lassen, damit Teilchen unterwegs sind.
       for (let i = 0; i < 300; i++) a.zeichnen(window.__probe.stift, 640, 360, lage);

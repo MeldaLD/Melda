@@ -51,6 +51,8 @@
  * koennen nicht zwei Funktionen gleich heissen. Er hat den Konflikt mit
  * schattendj.js beim Bauen gemeldet, bevor er Schaden anrichten konnte.
  */
+import { toeneAus, mitAlpha } from './farben.js';
+
 const zwischen = (x, a, b) => (x < a ? a : x > b ? b : x);
 
 /*
@@ -153,8 +155,10 @@ export class Architektur {
     if (!this.taetig) return;
     const {
       sekunden = 1 / 60, takt = null, wucht = 0.5, spannung = 0, abbau = 0,
-      drop = false, palette = ['#8ad7ff', '#4fa3ff', '#c48bff', '#ffffff'],
+      drop = false, palette = null,
     } = lage;
+    // Die Palette der Buehne ist ein Objekt, kein Feld - siehe farben.js.
+    const toene = toeneAus(palette);
 
     this._fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
 
@@ -167,10 +171,10 @@ export class Architektur {
      * ausstechen.
      */
     stift.globalCompositeOperation = 'lighter';
-    this._fuellungen(stift, breite, hoehe, palette, wucht, lage.spektrum);
-    this._rahmen(stift, breite, hoehe, palette, wucht);
-    this._teilchen(stift, breite, hoehe, palette);
-    this._laeufer(stift, breite, hoehe, palette);
+    this._fuellungen(stift, breite, hoehe, toene, wucht, lage.spektrum);
+    this._rahmen(stift, breite, hoehe, toene, wucht);
+    this._teilchen(stift, breite, hoehe, toene);
+    this._laeufer(stift, breite, hoehe, toene);
     stift.restore();
 
     // Die Totzonen zuletzt und *nicht* additiv: Sie nehmen weg.
@@ -303,7 +307,7 @@ export class Architektur {
 
   /* --- Zeichnen ------------------------------------------------------------ */
 
-  _rahmen(stift, breite, hoehe, palette, wucht) {
+  _rahmen(stift, breite, hoehe, toene, wucht) {
     const grund = 0.10 + wucht * 0.12;
     for (const b of [...this.oeffnungen, ...this.kanten]) {
       const l = zwischen(grund + (this.licht.get(b) ?? 0), 0, 1);
@@ -314,7 +318,7 @@ export class Architektur {
        * das Licht ueberquellen - und genau das macht auf einer Wand den
        * Unterschied zwischen "eine Linie" und "es brennt".
        */
-      stift.strokeStyle = palette[3] ?? '#fff';
+      stift.strokeStyle = toene[3];
       stift.globalAlpha = l * 0.85;
       stift.lineWidth = Math.max(1, (0.0012 + l * 0.0035) * breite);
       stift.lineJoin = 'round';
@@ -324,7 +328,7 @@ export class Architektur {
       stift.stroke();
 
       // Ein zweiter, breiter und schwacher Zug darunter: der Hof um die Linie.
-      stift.strokeStyle = palette[1] ?? palette[0];
+      stift.strokeStyle = toene[1];
       stift.globalAlpha = l * 0.28;
       stift.lineWidth = Math.max(2, (0.004 + l * 0.012) * breite);
       stift.stroke();
@@ -332,7 +336,7 @@ export class Architektur {
     stift.globalAlpha = 1;
   }
 
-  _fuellungen(stift, breite, hoehe, palette, wucht, spektrum) {
+  _fuellungen(stift, breite, hoehe, toene, wucht, spektrum) {
     for (const b of this.oeffnungen) {
       const l = this.licht.get(b) ?? 0;
       if (l < 0.05 && this.dropHall < 0.1) continue;
@@ -357,7 +361,7 @@ export class Architektur {
         const anteil = (k + 1) / ringe;
         const bin = spektrum ? spektrum[Math.floor(anteil * anteil * (spektrum.length - 1) * 0.4)] / 255 : wucht;
         const gr = r * anteil * (0.65 + bin * 0.5);
-        stift.fillStyle = palette[k % palette.length];
+        stift.fillStyle = toene[k % toene.length];
         stift.globalAlpha = zwischen(l * 0.5 + this.dropHall * 0.35, 0, 1) * (0.16 + bin * 0.3) / (k * 0.5 + 1);
         stift.beginPath();
         stift.arc(mx, my, gr, 0, Math.PI * 2);
@@ -368,7 +372,7 @@ export class Architektur {
     stift.globalAlpha = 1;
   }
 
-  _teilchen(stift, breite, hoehe, palette) {
+  _teilchen(stift, breite, hoehe, toene) {
     for (const p of this.teilchen) {
       const u = p.alter / p.leben;
       // Aufblenden, lange stehen, ausblenden - ein Teilchen, das sofort da
@@ -380,7 +384,7 @@ export class Architektur {
       stift.translate(p.x * breite, p.y * hoehe);
       stift.rotate(p.dreh);
       stift.globalAlpha = sicht * 0.85;
-      stift.fillStyle = palette[p.zacken % palette.length];
+      stift.fillStyle = toene[p.zacken % toene.length];
       /*
        * Ein kleiner Stern und kein Kreis. Ein Kreis auf einer Fassade sieht
        * aus wie ein Fleck; eine Form mit Zacken liest das Auge als Bluete
@@ -397,7 +401,7 @@ export class Architektur {
     stift.globalAlpha = 1;
   }
 
-  _laeufer(stift, breite, hoehe, palette) {
+  _laeufer(stift, breite, hoehe, toene) {
     if (!this.laeufer) return;
     const b = this.laeufer.bereich;
     /*
@@ -410,7 +414,7 @@ export class Architektur {
       const t = this.laeufer.wo - k * 0.02;
       if (t < 0) break;
       const [x, y] = b.aufDemRand(t);
-      stift.fillStyle = palette[3] ?? '#fff';
+      stift.fillStyle = toene[3];
       stift.globalAlpha = (1 - k / 8) ** 2;
       stift.beginPath();
       stift.arc(x * breite, y * hoehe, (0.004 - k * 0.0003) * breite, 0, Math.PI * 2);
