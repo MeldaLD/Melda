@@ -110,6 +110,21 @@ export function buehnenbildBauen(roh, breite, hoehe) {
     seitenverhaeltnis: seiten,
     breite: entwurfBreite,
     hoehe: entwurfHoehe,
+    /*
+     * Die gemessene Farbe der Hauptflaeche geht mit durch.
+     *
+     * Sie hat hier zuerst gefehlt, und der Ausfall war lautlos: Die
+     * Einmessseite hat gemessen und gespeichert, `flaechenLesen` hat
+     * nachgesehen, nichts gefunden und die neutrale Vorgabe geliefert - also
+     * genau das Verhalten von vorher. Die ganze Farbanpassung an die Wand
+     * war damit zur Laufzeit wirkungslos, ohne dass irgendwo etwas
+     * schiefging.
+     *
+     * Die Abnahme hat es auch nicht gefunden, weil sie `oberflaecheLesen`
+     * direkt gefuettert hat statt ueber diese Kette. Ein Test, der das
+     * Bauteil prueft und nicht den Einbau, findet einen fehlenden Draht nie.
+     */
+    grundfarbe: roh.grundfarbe ?? null,
     css: alsCss(H),
     bereiche,
     sichtbar,

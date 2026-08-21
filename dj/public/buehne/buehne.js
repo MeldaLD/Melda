@@ -994,9 +994,8 @@ $('pcModus').addEventListener('click', () => {
 /*
  * Der Schatten-DJ.
  *
- * An als Vorgabe - er ist eine Ansicht und keine Einstellung, und wer ihn
- * nicht will, sieht den Haken sofort. Taste D schaltet ihn um, damit man auf
- * der Leinwand vergleichen kann, ohne das Menue zu oeffnen.
+ * Aus als Vorgabe. Taste D schaltet ihn um, damit man auf der Leinwand
+ * vergleichen kann, ohne das Menue zu oeffnen.
  */
 function schattenUmschalten(an) {
   $('schattenWahl').checked = an;
@@ -1006,24 +1005,18 @@ function schattenUmschalten(an) {
 }
 {
   /*
-   * Vorgabe ist wieder *an*.
+   * Vorgabe ist *aus*.
    *
-   * Sie war eine Weile aus, und der Grund war ehrlich: Die Figur bestand aus
-   * fuenf einzeln gezeichneten Teilen, und das sah man ihr an - zwei
-   * Schultern uebereinander, harte Naehte an den Gelenken, nichts verformte
-   * sich. Der erste Mensch, der sie gesehen hat, fand sie unheimlich, und
-   * eine Figur, die Leuten Angst macht, gehoert nicht ungefragt auf eine
-   * Geburtstagsleinwand.
+   * Nicht wegen der Figur selbst, sondern wegen des Raumes: Im Lagerraum
+   * steht die Leinwand nicht hinter einem Pult, sondern auf Gitterkaesten
+   * und einer Holzwand. Eine DJ-Silhouette hat dort keinen Platz, an dem
+   * sie richtig steht - und Rechenzeit, die sie kostet, fehlt der
+   * Flaschenwand.
    *
-   * Jetzt kommt sie aus *einer* Zeichnung und wird als Umriss an einem
-   * Skelett verformt (siehe SCHATTENDJ.md). Damit ist der Grund weg - und die
-   * Bewegung stimmte ohnehin schon: Nicken auf den Schlag, Arm hoch beim
-   * Aufbau, Kopfhoerer im Breakdown, Hand am Regler.
-   *
-   * Wer sie einmal abgeschaltet hat, bekommt sie nicht wieder aufgedraengt;
-   * nur das Fehlen des Eintrags heisst "an".
+   * Der Code bleibt vollstaendig da. Wer sie sehen will, drueckt D oder
+   * setzt den Haken; die Wahl wird gemerkt.
    */
-  const gemerkt = localStorage.getItem('djSchatten') !== 'nein';
+  const gemerkt = localStorage.getItem('djSchatten') === 'ja';
   $('schattenWahl').checked = gemerkt;
   schattenSetzen(gemerkt);
   $('schattenWahl').addEventListener('change', (e) => schattenUmschalten(e.target.checked));

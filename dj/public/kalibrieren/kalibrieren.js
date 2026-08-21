@@ -774,6 +774,9 @@ $('ladenWahl').addEventListener('change', async (e) => {
     stand.fotoBreite = B;
     stand.fotoHoehe = Hh;
     stand.marken = k.marken.map(([x, y]) => [x * B, y * Hh]);
+    // Die gemessenen Farben kommen aus der Datei mit - ohne Foto liessen
+    // sie sich hier auch gar nicht neu messen.
+    stand.grundfarbe = k.grundfarbe ?? null;
     stand.bereiche = k.bereiche.map((b) => ({ ...b, punkte: b.punkte.map(([x, y]) => [x * B, y * Hh]) }));
     listeBauen();
     neuZeichnen();

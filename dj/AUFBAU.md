@@ -1,10 +1,16 @@
 # Aufbau vor Ort — Schritt für Schritt
 
-Für den ersten Test mit dem Beamer. Alles hier ist durchgespielt, nicht
-ausgedacht: Server, Testbild, Einmessen, Bühne — die Kette ist einmal
-komplett durchlaufen, bevor diese Anleitung geschrieben wurde.
+Für den Test im Lagerraum. Alles hier ist durchgespielt, nicht ausgedacht:
+Server, Testbild, Einmessen, Bühne — die Kette ist mit einer nachgestellten
+Lagerraum-Messung komplett durchlaufen worden, bevor diese Anleitung
+geschrieben wurde. Zuletzt geprüft mit 4 Gitterkästen, 322 Zellen, Wandfarbe
+rgb(200 155 95).
 
 **Zeitbedarf:** rund 25 Minuten, davon 10 fürs Einmessen.
+
+> **Nur schnell was sehen?** Schritte 1, 2 und 9 reichen — die Bühne läuft
+> auch ohne Einmessung, dann eben ohne Bezug zum Raum. Das Einmessen ist
+> das, was aus „läuft" ein „passt" macht.
 
 ---
 
@@ -183,11 +189,25 @@ und „alles noch mal messen".
 2. **Prüfstand starten** (oder **Eigene Bibliothek**, wenn Musik in `musik/`
    liegt). Der Prüfstand braucht ein paar Sekunden, um seine Tracks zu bauen.
 3. `F11` für Vollbild.
-4. Unter **Bild** im Menü: **Bild: Bühnenshow** wählen.
 
 Dass die Einmessung greift, siehst du sofort: Das Bild ist zur Wand hin
-verzogen, die Punktreihen liegen auf deinen Kanten, Fensterrahmen stehen an
-den Fenstern.
+verzogen, und in den Gitterkästen leuchten einzelne Flaschen auf.
+
+### Die zwei Sachen, die du sehen willst
+
+Unter **Bild** im Menü:
+
+| Wählen | Was passieren soll |
+|---|---|
+| **Bild: Bühnenshow** | Die Kästen werden zur Anzeigetafel: Pegel, Lauflicht, Funkeln — Wechsel alle paar Phrasen. Dazu Uplighter zwischen den Kästen, Licht auf den Deckenbalken. |
+| **Bild: Iris** (oder automatisch) | Ein Mandala läuft, und die Flaschen unter den hellen Stellen leuchten mit. Die Ringe ziehen eine Spur aus echten Flaschen. |
+
+Gemessen im Testlauf: Ein Iris-Mandala regt **229 von 322 Flaschen** an. Wenn
+du das an der Wand *nicht* siehst, sind die Kästen falsch markiert — nicht
+die Software.
+
+Der **Schatten-DJ ist ab jetzt aus** (Vorgabe geändert). Mit **D** kommt er
+zurück, falls du ihn doch mal sehen willst.
 
 ## 10 · Bedienoberfläche weg
 
@@ -212,6 +232,10 @@ Zurück: **Escape**, oder dreimal in die linke obere Ecke tippen.
 | Alles ruckelt | zu schwache Grafik | Bildgüte runterstellen; **PC-Modus** nur bei eigener Grafikkarte |
 | Zu hell / blendet | echte Wand heller als gerechnet | `deckel` am `Blinder` in `gemeinsam/gewerke.js` von `1` auf `0.6` |
 | Nach dem Umstecken alles schief | andere Auflösung als beim Messen | Auflösung zurückstellen **oder** neu einmessen |
+| Kästen bleiben dunkel | keine als **Gitterkasten** markiert | Art prüfen, vier Ecken, Spalten/Reihen gesetzt? |
+| Punkte sitzen neben den Flaschen | Spalten/Reihen falsch gezählt | Zahlen korrigieren, Bereich neu zeichnen |
+| Punkte sitzen unten daneben | Ecken nicht im Uhrzeigersinn ab oben links | Bereich löschen, neu setzen |
+| Farben wirken alle gleich | genau so soll es auf Holz sein | Farbe gehört auf die Kästen – siehe LAGERRAUM.md |
 
 **Modus per Tastatur festhalten**, wenn das Menü weg ist — `F12` für die
 Konsole:
@@ -229,8 +253,11 @@ welt.bild.modusZwang = null;     // wieder automatisch
   Information, die sich nicht rekonstruieren lässt.
 - **Verlängerungskabel.** Der Beamer steht nie da, wo die Steckdose ist.
 
-## Was heute noch nicht dran ist
+## Was noch offen ist
 
-Der **Schatten-DJ** ist noch die alte, gerechnete Figur — die guten
-Bewegungen aus den DeepMotion-Aufnahmen sind noch nicht eingebaut. Für den
-Aufbautest stört das nicht; wenn er dich ärgert, schalt ihn mit **D** aus.
+- Die **Wandfarbe** rechnet bis zu deinem Messfoto mit einer Schätzung aus
+  dem Handyfoto: rgb(200 155 95). Sobald das Foto durch die Einmessseite
+  läuft, ersetzt sie der gemessene Median — je Bereich einzeln, automatisch.
+- Wie viele **Fächer** deine Kästen wirklich haben, weiß nur du. Die Abnahme
+  rechnet mit 11 × 7 und 12 × 7.
+- Der **Schatten-DJ** ist abgeschaltet und bleibt es.

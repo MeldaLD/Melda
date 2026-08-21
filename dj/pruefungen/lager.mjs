@@ -163,10 +163,23 @@ try {
   console.log('\nDie Oberflaechen werden richtig eingeschaetzt:');
   {
     const r = await seite.evaluate(async () => {
-      const { oberflaecheLesen, GESCHAETZT } = await import('/gemeinsam/oberflaeche.js');
+      const { oberflaecheLesen, flaechenLesen, GESCHAETZT } = await import('/gemeinsam/oberflaeche.js');
+      const { buehnenbildBauen } = await import('/gemeinsam/buehnenbild.js');
       const osb = oberflaecheLesen(GESCHAETZT.osb);
       const stahl = oberflaecheLesen(GESCHAETZT.stahl);
+      /*
+       * Und dasselbe noch einmal ueber die *ganze Kette*: Messung ->
+       * buehnenbildBauen -> flaechenLesen. Genau dieser Weg war einmal
+       * unterbrochen - `buehnenbildBauen` hat die gemessene Farbe nicht
+       * durchgereicht, und weil die Ersatzvorgabe neutral ist, hat niemand
+       * etwas gemerkt. Die Pruefung oben hat es nicht gefunden, weil sie
+       * `oberflaecheLesen` direkt fuettert.
+       */
+      const durchKette = flaechenLesen(buehnenbildBauen(window.__LAGER, 1920, 1080));
       return {
+        ketteNeutral: durchKette.grund.neutral,
+        ketteFarbe: durchKette.grund.traegtFarbe,
+        kasten: durchKette.fuer({ name: 'Gitterkasten 1' }).traegtFarbe,
         osbNeutral: osb.neutral, osbFarbe: osb.traegtFarbe,
         osbKosten: osb.kompensationsKosten,
         blau: osb.taugt(220), rot: osb.taugt(20), gelb: osb.taugt(55),
@@ -176,6 +189,15 @@ try {
     });
     pruefe('die Holzwand traegt keine Farbe', r.osbFarbe === false,
       `Neutralitaet ${r.osbNeutral.toFixed(2)}`);
+    /*
+     * Die wichtigere Frage als die davor: Kommt die Messung ueberhaupt bis
+     * zur Laufzeit? Ein neutrales Ergebnis hiesse hier nicht "die Wand ist
+     * grau", sondern "die Farbe ist unterwegs verlorengegangen".
+     */
+    pruefe('und das kommt auch durch die ganze Kette an',
+      r.ketteFarbe === false && Math.abs(r.ketteNeutral - r.osbNeutral) < 0.01,
+      `Neutralitaet ${r.ketteNeutral.toFixed(2)} nach buehnenbildBauen`);
+    pruefe('und der Kasten wird dabei eigenstaendig gelesen', r.kasten === true);
     pruefe('der Stahl traegt Farbe', r.stahlFarbe === true,
       `Neutralitaet ${r.stahlNeutral.toFixed(2)}`);
     /*
@@ -246,15 +268,37 @@ try {
       };
       // Mit erzwungenem Rasterlauf - siehe die Begruendung in buehnenshow.mjs.
       const messen = (tun) => {
-        for (let i = 0; i < 30; i++) { tun(); s.getImageData(0, 0, 1, 1); }
+        for (let i = 0; i < 20; i++) { tun(); s.getImageData(0, 0, 1, 1); }
         const start = performance.now();
-        for (let i = 0; i < 120; i++) { tun(); s.getImageData(0, 0, 1, 1); }
-        return (performance.now() - start) / 120;
+        for (let i = 0; i < 80; i++) { tun(); s.getImageData(0, 0, 1, 1); }
+        return (performance.now() - start) / 80;
       };
-      const leer = messen(() => {});
+      /*
+       * Dreimal abwechselnd messen und den mittleren Wert nehmen.
+       *
+       * Ein einzelner Durchgang je Seite hat ueber drei Laeufe 1,04, 1,08 und
+       * 1,17 als Verhaeltnis geliefert - bei einer Grenze von 1,15 heisst
+       * das: Die Pruefung wuerde wuerfeln. Dieser Behaelter hat keine
+       * Grafikkarte und teilt sich die Maschine, die Streuung ist also
+       * nicht wegzubekommen.
+       *
+       * Abwechselnd, damit ein langsamer Abschnitt beide Seiten trifft und
+       * nicht nur die, die gerade dran ist; der Median, weil ein einzelner
+       * Ausreisser einen Mittelwert verzieht und einen Median nicht.
+       */
+      const mitte = (a) => a.sort((x, y) => x - y)[1];
+      const leerL = [];
+      const wandL = [];
+      const lichtL = [];
+      for (let runde = 0; runde < 3; runde++) {
+        leerL.push(messen(() => {}));
+        wandL.push(messen(() => p.zeichnen(s, lage)));
+        lichtL.push(messen(() => licht.zeichnen(s, lage)));
+      }
+      const leer = mitte(leerL);
       return {
-        wand: messen(() => p.zeichnen(s, lage)) - leer,
-        licht: messen(() => licht.zeichnen(s, lage)) - leer,
+        wand: mitte(wandL) - leer,
+        licht: mitte(lichtL) - leer,
         zellen: bild.bereiche.filter((b) => b.art === 'gitterbox')
           .reduce((a, b) => a + b.zellen.mitten.length, 0),
       };
