@@ -10,6 +10,9 @@ Erster Einsatz: ein 30. Geburtstag. Ein PC, ein Display, eine Anlage.
 > Die Mixing-Engine, der Analyselauf und die Supabase-Bruecke werden diese Woche
 > gebaut. Der Fahrplan steht in **[PLAN.md](./PLAN.md)** – dort steht auch, warum
 > welche Entscheidung so gefallen ist.
+>
+> **Aufbau vor Ort:** Schritt fuer Schritt in **[AUFBAU.md](./AUFBAU.md)** –
+> Server, Testbild, Einmessen, Buehne, in dieser Reihenfolge.
 
 ## Der Aufbau in einem Bild
 

@@ -16304,9 +16304,20 @@ async function starten(demo) {
     // und der bleibt sichtbar, weil ohne ihn kein Ton laeuft.
     uiAusAnwenden(true);
     bild = new Visualisierung($('visual'));
-    // Auch das Bild offenlegen: Am Abend laesst sich damit in der Konsole der
-    // Modus umstellen, wenn einer gerade nicht zum Raum passt.
+    /*
+     * Auch das Bild offenlegen: Am Abend laesst sich damit in der Konsole der
+     * Modus umstellen, wenn einer gerade nicht zum Raum passt.
+     *
+     * Und zwar wirklich - `welt` steht in diesem Modul und war damit aus der
+     * Konsole gar nicht erreichbar. Der Kommentar hat also etwas versprochen,
+     * was es nicht gab; aufgefallen ist es erst beim Durchgehen des Aufbaus
+     * vor Ort, wo genau das gebraucht wird.
+     *
+     *   welt.bild.modusZwang = 'show'   // Buehnenshow festhalten
+     *   welt.bild.modusZwang = null     // wieder automatisch
+     */
     welt.bild = bild;
+    window.welt = welt;
 
     const erster = await naechstenErfragen();
     const puffer = await pufferFuer(erster);
