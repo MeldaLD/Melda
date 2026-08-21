@@ -7955,6 +7955,244 @@ function partylichtZuruecksetzen() {
 }
 
 
+// ===== public/gemeinsam/oberflaeche.js =====
+// Was die Flaeche mit dem Licht macht, das man auf sie wirft.
+//
+// --- Das Problem ------------------------------------------------------------
+//
+// Ein Beamer addiert Licht zu dem, was eine Flaeche ohnehin zurueckwirft. Auf
+// einer weissen Leinwand ist das folgenlos. Auf einer Grobspanplatte nicht:
+// Die wirft warmes Orange zurueck und schluckt Blau weitgehend. Was dort als
+// blauer Kegel ankommt, sieht kein Mensch als blau - es wird schmutziges Grau.
+//
+// Grob gerechnet gilt je Kanal
+//
+//     gesehen = geworfen * Ruecwurf
+//
+// und der Ruecwurf steht in der Messung: Die Einmessseite nimmt aus dem Foto
+// den Median je Kanal, einmal fuer die Hauptflaeche und einmal je Bereich.
+//
+// --- Warum hier trotzdem nicht kompensiert wird -----------------------------
+//
+// Der Fachbegriff dafuer ist radiometrische Kompensation, und sie funktioniert:
+// Man teilt das Wunschbild durch den Ruecwurf und wirft das Ergebnis. Nur
+// kostet sie genau das, was sie verspricht.
+//
+// Auf der gemessenen Wand hier - rund rgb(200 155 95) - braeuchte reines Blau
+// gegenueber Rot den Faktor 200/95 = 2,1. Der Beamer kann Blau aber nicht
+// verdoppeln; er kann nur Rot und Gruen herunterziehen. Uebrig bleibt ein
+// Bild mit weniger als der Haelfte der Helligkeit, und in den hellen Stellen
+// laeuft die Rechnung aus dem darstellbaren Bereich und clippt sichtbar.
+// Genau das beschreibt auch die Literatur als die Grenze des Verfahrens.
+//
+// Fuer eine Party in einem Lagerraum ist das der falsche Handel. Die viel
+// wirksamere Entscheidung ist nicht "wie zwinge ich Blau auf Orange", sondern
+// "was zeige ich auf Orange ueberhaupt" - und die trifft dieses Modul.
+//
+// --- Die Regel, die dabei herauskommt ---------------------------------------
+//
+// Eine Flaeche kann Farbe tragen oder nicht, und das haengt daran, wie neutral
+// sie ist:
+//
+//   Neutral (Stahl, Beton, weisse Wand)  traegt Farbunterschiede.
+//   Bunt (Holz, Ziegel)                  traegt Helligkeitsunterschiede.
+//
+// Auf einer orangen Wand sehen Blau, Gruen und Violett alle gleich aus -
+// naemlich wie dunkleres Orange. Rot und Gelb sehen aus wie helleres Orange.
+// Der Unterschied, den das Auge dort noch lesen kann, ist *hell gegen dunkel*,
+// nicht *Farbe gegen Farbe*. Wer darauf ein buntes Bild wirft, bekommt kein
+// buntes Bild, sondern ein flaues.
+//
+// Und daraus folgt fuer diesen Raum die ganze Gestaltung: Die Farbe gehoert
+// auf die Gitterkaesten - verzinkter Stahl ist neutralgrau und gibt sie
+// ungefaelscht wieder -, und die Holzwand bekommt warmes Licht mit starkem
+// Hell-Dunkel. Nicht als Notloesung, sondern weil es das ist, was der Raum
+// kann.
+
+/** Der Median-Ruecwurf einer unvermessenen Flaeche: neutral und mittelhell. */
+const NEUTRAL = [180, 180, 180];
+
+/*
+ * Was im Lagerraum gemessen zu erwarten ist, geschaetzt aus dem Foto vom
+ * Aufbautag. Steht hier, damit das Bild schon *vor* der Messung ungefaehr
+ * stimmt - und wird von jeder echten Messung ueberschrieben.
+ *
+ * Die Zahlen sind mit Absicht als Schaetzung gekennzeichnet und nicht als
+ * Messung: Sie stammen aus dem Ansehen eines Handyfotos, nicht aus dem
+ * Median-Lauf der Einmessseite.
+ */
+const GESCHAETZT = {
+  osb: [200, 155, 95],      // Grobspanplatte, warmes Orange
+  stahl: [150, 152, 155],   // verzinktes Gitter, fast neutral
+  glas: [40, 38, 34],       // Flaschenboeden, sehr dunkel
+  balken: [120, 100, 74],   // Deckenbalken, dunkles Holz
+};
+
+/**
+ * Eine gemessene Flaechenfarbe auswerten.
+ *
+ * @param {number[]|null} rgb  Median-Ruecwurf, 0..255 je Kanal
+ */
+function oberflaecheLesen(rgb) {
+  const f = Array.isArray(rgb) && rgb.length === 3 ? rgb : NEUTRAL;
+  const [r, g, b] = f.map((v) => Math.max(1, Math.min(255, v)) / 255);
+  const hoch = Math.max(r, g, b);
+  const tief = Math.min(r, g, b);
+
+  /*
+   * Wie viel von jedem Kanal ueberlebt, bezogen auf den staerksten. Der
+   * staerkste Kanal ist immer 1 - gefragt ist das Verhaeltnis, nicht die
+   * absolute Helligkeit.
+   */
+  const wiedergabe = [r / hoch, g / hoch, b / hoch];
+
+  /*
+   * Neutralitaet: 1 = grau, 0 = knallbunt. Das ist die Saettigung der
+   * Flaeche, andersherum gelesen.
+   */
+  const neutral = 1 - (hoch - tief) / hoch;
+
+  /*
+   * Was eine Kompensation kosten wuerde: Der schwaechste Kanal muesste um
+   * diesen Faktor angehoben werden, und weil das nicht geht, muessen die
+   * anderen entsprechend herunter. Der Kehrwert ist die Helligkeit, die
+   * uebrig bliebe.
+   */
+  const kompensationsKosten = hoch / Math.max(0.02, tief);
+
+  return {
+    rgb: f,
+    wiedergabe,
+    neutral,
+    helligkeit: 0.2126 * r + 0.7152 * g + 0.0722 * b,
+    kompensationsKosten,
+    /*
+     * Traegt diese Flaeche Farbe? Die Schwelle bei 0,6 ist eine
+     * Entscheidung und keine Messung: Darunter liegen Holz und Ziegel,
+     * darueber Stahl, Beton und Putz.
+     */
+    traegtFarbe: neutral >= 0.6,
+    /**
+     * Wie viel Licht ein Farbwinkel auf dieser Flaeche noch zurueckbringt,
+     * 0 bis 1, bezogen auf den besten Winkel.
+     *
+     * Hier stand zuerst die Saettigung des zurueckgeworfenen Lichts, und das
+     * war das falsche Mass: Eine voll gesaettigte Farbe hat immer einen
+     * Kanal auf null, und der bleibt nach der Multiplikation auf null - die
+     * Saettigung kommt also *immer* als 1 heraus. Die Abnahme hat prompt
+     * gemeldet, dass Blau und Rot auf der orangen Wand gleich gut
+     * abschneiden, und das ist offensichtlich Unsinn.
+     *
+     * Was auf einer bunten Flaeche wirklich passiert, ist auch nicht
+     * Entsaettigung, sondern *Verdunkelung*: Blau auf Orange wird nicht zu
+     * blassem Blau, es wird zu fast nichts. Gerechnet wird deshalb die
+     * zurueckkommende Leuchtdichte, verglichen mit dem besten Winkel dieser
+     * Flaeche.
+     *
+     * Fuer die gemessene Holzwand kommt damit heraus: Blau 0,29, Rot 0,52,
+     * Gelb 1,0. Das deckt sich mit dem, was man sieht.
+     */
+    taugt(winkel) {
+      const w = ((winkel % 360) + 360) % 360;
+      const licht = (grad) => {
+        const [wr, wg, wb] = hslNachRgb(grad, 1, 0.5);
+        return 0.2126 * wr * wiedergabe[0]
+          + 0.7152 * wg * wiedergabe[1]
+          + 0.0722 * wb * wiedergabe[2];
+      };
+      let bestes = 0;
+      for (let grad = 0; grad < 360; grad += 10) bestes = Math.max(bestes, licht(grad));
+      return bestes <= 1e-6 ? 0 : Math.min(1, licht(w) / bestes);
+    },
+    /** Der Farbwinkel, der auf dieser Flaeche am meisten Licht zurueckgibt. */
+    besterWinkel() {
+      let bestes = -1;
+      let wo = 0;
+      for (let grad = 0; grad < 360; grad += 5) {
+        const [wr, wg, wb] = hslNachRgb(grad, 1, 0.5);
+        const l = 0.2126 * wr * wiedergabe[0]
+          + 0.7152 * wg * wiedergabe[1] + 0.0722 * wb * wiedergabe[2];
+        if (l > bestes) { bestes = l; wo = grad; }
+      }
+      return wo;
+    },
+  };
+}
+
+/**
+ * Die Farbwinkel einer Palette auf das schieben, was die Flaeche hergibt.
+ *
+ * Kein Umfaerben um jeden Preis: Traegt die Flaeche Farbe, bleibt alles, wie
+ * es ist. Traegt sie keine, werden die Winkel zu dem hin gezogen, was dort
+ * ueberhaupt noch unterscheidbar ist - und das ist die Gegend um die
+ * Flaechenfarbe selbst, weil nur dort noch Saettigung uebrig bleibt.
+ */
+function winkelAnpassen(winkel, flaeche) {
+  if (flaeche.traegtFarbe) return winkel;
+  const eigen = rgbNachWinkel(flaeche.rgb);
+  const w = ((winkel % 360) + 360) % 360;
+  let d = ((w - eigen + 540) % 360) - 180;
+  /*
+   * Die Spreizung zusammenziehen, aber nicht auf null: Ein Bild, in dem
+   * alles genau denselben Farbwinkel hat, ist tot. Der Rest der
+   * Unterscheidung kommt aus der Helligkeit.
+   */
+  const enge = 0.35 + flaeche.neutral * 0.5;
+  d *= enge;
+  return (eigen + d + 360) % 360;
+}
+
+/** Der Farbwinkel einer RGB-Farbe, 0 bis 360. */
+function rgbNachWinkel([r, g, b]) {
+  const R = r / 255;
+  const G = g / 255;
+  const B = b / 255;
+  const hoch = Math.max(R, G, B);
+  const tief = Math.min(R, G, B);
+  const d = hoch - tief;
+  if (d < 1e-6) return 0;
+  let w;
+  if (hoch === R) w = ((G - B) / d) % 6;
+  else if (hoch === G) w = (B - R) / d + 2;
+  else w = (R - G) / d + 4;
+  w *= 60;
+  return (w + 360) % 360;
+}
+
+/** HSL nach RGB, Anteile 0..1. Nur hier gebraucht, deshalb hier. */
+function hslNachRgb(winkel, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((winkel / 60) % 2) - 1));
+  const m = l - c / 2;
+  const [r, g, b] = winkel < 60 ? [c, x, 0]
+    : winkel < 120 ? [x, c, 0]
+      : winkel < 180 ? [0, c, x]
+        : winkel < 240 ? [0, x, c]
+          : winkel < 300 ? [x, 0, c] : [c, 0, x];
+  return [r + m, g + m, b + m];
+}
+
+/**
+ * Die Flaechen einer Messung auslesen.
+ *
+ * Liefert die Hauptflaeche und eine Zuordnung Bereichsname -> Flaeche. Ohne
+ * Messung kommt ueberall die neutrale Vorgabe zurueck, damit nichts
+ * abfragen muss, ob es eine Messung gibt.
+ */
+function flaechenLesen(bild) {
+  const grund = oberflaecheLesen(bild?.grundfarbe ?? null);
+  const jeBereich = new Map();
+  for (const b of bild?.bereiche ?? []) {
+    jeBereich.set(b.name, oberflaecheLesen(b.farbe ?? null));
+  }
+  return {
+    grund,
+    jeBereich,
+    fuer: (bereich) => jeBereich.get(bereich?.name) ?? grund,
+  };
+}
+
+
 // ===== public/gemeinsam/gewerke.js =====
 // Die Gewerke einer Buehnenshow.
 //
@@ -8470,6 +8708,326 @@ class Funken {
 }
 
 
+// ===== public/gemeinsam/lager.js =====
+// Der Lagerraum als Buehnenbild.
+//
+// Dieser Raum ist keine Fassade und soll auch nicht so behandelt werden. Was
+// er hat, hat keine Fassade:
+//
+//   Gitterkaesten voller Flaschen  ein gebautes, regelmaessiges Punktfeld
+//   Verzinkter Stahl               die einzige neutrale Flaeche im Raum
+//   Grobspanplatte                 warm, orange, farbenblind
+//   Deckenbalken                   harte waagerechte Linien ueber Kopf
+//
+// --- Die Idee ---------------------------------------------------------------
+//
+// Ein Stapel Gitterkaesten sieht aus wie eine Lautsprecherwand. Das ist kein
+// Zufall: gleiche Groesse, gleiches Raster, uebereinandergestapelt. Und
+// dahinter stehen hunderte Flaschenboeden in einem regelmaessigen Feld.
+//
+// Zusammen ist das eine *Anzeigetafel*, die schon da ist. Man muss sie nicht
+// bauen, nur ansprechen - Zelle fuer Zelle. Ein Pegel, der auf einer glatten
+// Wand eine gezeichnete Balkengrafik waere, ist hier ein Pegel aus echten
+// Flaschen, die aufleuchten.
+//
+// --- Warum das gerade hier funktioniert -------------------------------------
+//
+// Drei Eigenschaften des Materials, und alle drei helfen:
+//
+//  1. Verzinkter Stahl wirft *gerichtet* zurueck, nicht diffus wie Putz. Ein
+//     kleiner heller Fleck darauf blitzt, wo derselbe Fleck auf der Holzwand
+//     nur ein Fleck waere. Kleine harte Lichtpunkte sind hier also stark -
+//     und kleine harte Lichtpunkte sind billig.
+//
+//  2. Der Stahl ist fast neutralgrau. Er ist die einzige Flaeche im Raum, die
+//     Farbe ueberhaupt richtig wiedergibt - siehe oberflaeche.js. Also gehoert
+//     die Farbe hierher und nicht an die Wand.
+//
+//  3. Das dunkle Flaschenglas dahinter bleibt schwarz. Es liefert den
+//     Kontrast, den die Holzwand nicht hergibt: Ein Punktfeld aus hellen
+//     Zellen vor schwarzem Glas ist ein Punktfeld, kein Grauschleier.
+//
+// Anders gesagt: Die Kaesten koennen alles, was die Wand nicht kann. Die
+// Aufteilung ergibt sich daraus von selbst und ist keine Geschmacksfrage.
+
+
+const zaum = (x, a, b) => (x < a ? a : x > b ? b : x);
+
+/*
+ * Wie schnell eine Zelle wieder dunkel wird, je Sekunde.
+ *
+ * Nicht sofort: Ein Feld, das hart aus- und angeht, flimmert. Ein Feld, das
+ * nachgluecht, liest sich als Bewegung. Der Wert ist an einer Pegelanzeige
+ * geliehen - die faellt auch traeger, als sie steigt.
+ */
+const ABFALL = 3.2;
+
+/*
+ * Der Glanzkern auf einer hellen Zelle: fast weiss, ganz leicht warm.
+ * Konstant, weil verzinkter Stahl keine Farbe hat - was er zurueckwirft, ist
+ * die Farbe der Lampe, und die ist hier hell.
+ */
+const GLANZ = mitAlpha('hsl(45 25% 96%)', 0.9);
+
+/*
+ * Die Muster.
+ *
+ * Jedes schreibt nur *Wunschhelligkeiten* in die Zellen. Wie daraus ein Bild
+ * wird - Nachgluehen, Farbe, Groesse -, entscheidet die Wand einmal fuer
+ * alle. So kostet ein neues Muster acht Zeilen und kein neues Gewerk.
+ */
+const MUSTER = ['pegel', 'lauf', 'welle', 'funkeln', 'atem'];
+
+class Flaschenwand {
+  /**
+   * @param {object} bild  das Buehnenbild aus buehnenbild.js
+   */
+  constructor(bild) {
+    this.kaesten = (bild?.an ? bild.bereiche : []).filter(
+      (b) => b.art === 'gitterbox' && b.zellen,
+    );
+    // Je Kasten ein Helligkeitsfeld, so lang wie er Zellen hat.
+    this.felder = this.kaesten.map((k) => new Float32Array(k.zellen.mitten.length));
+    this.muster = 'pegel';
+    this.phase = 0;
+    this.zeit = 0;
+    this.letzterBeat = -1;
+    this.letztePhrase = -1;
+    this.wuerfelZustand = 0x2545f491;
+  }
+
+  /** Ob es hier ueberhaupt etwas zu tun gibt. */
+  get da() {
+    return this.kaesten.length > 0;
+  }
+
+  /*
+   * Ein eigener Zufall statt Math.random.
+   *
+   * Ein Funkeln, das je Bild neu wuerfelt, flackert unruhig; eines, das je
+   * Zelle *immer denselben* Wert liefert, steht still. Gebraucht wird etwas
+   * dazwischen: reproduzierbar je Zelle und Schritt, aber ohne Muster.
+   */
+  _streu(i, schritt) {
+    let z = (i * 2654435761 + schritt * 40503 + this.wuerfelZustand) >>> 0;
+    z ^= z << 13; z >>>= 0;
+    z ^= z >>> 17;
+    z ^= z << 5; z >>>= 0;
+    return (z % 100000) / 100000;
+  }
+
+  musterWaehlen(name) {
+    if (MUSTER.includes(name)) this.muster = name;
+  }
+
+  fortschreiben(sekunden, takt, wucht, spannung, spektrum, drop) {
+    this.zeit += sekunden;
+    if (!this.da) return;
+
+    // Auf der Phrase das Muster wechseln - dieselbe Regel wie bei der Regie.
+    if (takt && takt.aufPhrase && takt.nummer !== this.letztePhrase) {
+      this.letztePhrase = takt.nummer;
+      const i = MUSTER.indexOf(this.muster);
+      this.muster = MUSTER[(i + 1 + Math.floor(this._streu(i, takt.nummer) * 2)) % MUSTER.length];
+    }
+    const neuerBeat = takt && takt.nummer !== this.letzterBeat;
+    if (neuerBeat) this.letzterBeat = takt.nummer;
+
+    this.phase += sekunden * (1.2 + wucht * 2.4);
+
+    for (let k = 0; k < this.kaesten.length; k++) {
+      const kasten = this.kaesten[k];
+      const feld = this.felder[k];
+      const { spalten, reihen } = kasten.zellen;
+
+      // Erst abklingen lassen, dann das Muster daraufschreiben.
+      for (let i = 0; i < feld.length; i++) {
+        feld[i] = Math.max(0, feld[i] - sekunden * ABFALL);
+      }
+
+      const setzen = (i, wert) => { if (wert > feld[i]) feld[i] = zaum(wert, 0, 1); };
+
+      if (drop) {
+        // Beim Drop leuchtet die ganze Wand einmal auf. Das ist der eine
+        // Moment, in dem das Feld nicht Muster, sondern Flaeche ist.
+        for (let i = 0; i < feld.length; i++) setzen(i, 1);
+        continue;
+      }
+
+      if (this.muster === 'pegel') {
+        /*
+         * Ein Pegel je Spalte, aus dem Spektrum.
+         *
+         * Von unten nach oben gefuellt, weil jede Pegelanzeige der Welt das
+         * so macht und das Auge es sofort liest. Die Spalten decken das
+         * Spektrum von links (Bass) nach rechts (Hoehen) ab.
+         */
+        for (let x = 0; x < spalten; x++) {
+          const anteil = spalten > 1 ? x / (spalten - 1) : 0;
+          const wert = spektrum ? pegelAus(spektrum, anteil) : 0.4 + wucht * 0.4;
+          const hoch = wert * reihen;
+          for (let y = 0; y < reihen; y++) {
+            // Reihe 0 ist oben, also von unten zaehlen.
+            const vonUnten = reihen - 1 - y;
+            if (vonUnten < hoch) {
+              const rand = hoch - vonUnten;
+              setzen(y * spalten + x, zaum(rand, 0.25, 1));
+            }
+          }
+        }
+      } else if (this.muster === 'lauf') {
+        // Eine Spalte wandert. Auf jedem Schlag einen Schritt weiter, damit
+        // sie zur Musik laeuft und nicht daneben.
+        const schritt = Math.floor(this.phase * 2) % spalten;
+        for (let y = 0; y < reihen; y++) {
+          setzen(y * spalten + schritt, 1);
+          setzen(y * spalten + ((schritt + spalten - 1) % spalten), 0.45);
+        }
+      } else if (this.muster === 'welle') {
+        // Eine Diagonale laeuft durch das Feld.
+        const w = this.phase * 0.8 + k * 0.4;
+        for (let y = 0; y < reihen; y++) {
+          for (let x = 0; x < spalten; x++) {
+            const d = (x / Math.max(1, spalten - 1)) + (y / Math.max(1, reihen - 1)) * 0.6;
+            const s = Math.sin((d - w) * Math.PI * 2);
+            if (s > 0.55) setzen(y * spalten + x, (s - 0.55) / 0.45);
+          }
+        }
+      } else if (this.muster === 'funkeln') {
+        /*
+         * Einzelne Zellen blitzen auf. Das Muster, das den verzinkten Stahl
+         * am besten ausnutzt - und das billigste von allen.
+         */
+        const schritt = Math.floor(this.phase * 6);
+        const wieviele = Math.max(2, Math.round(feld.length * (0.04 + wucht * 0.08)));
+        for (let n = 0; n < wieviele; n++) {
+          const i = Math.floor(this._streu(n, schritt) * feld.length);
+          setzen(i, 0.7 + this._streu(n, schritt + 7) * 0.3);
+        }
+      } else {
+        // atem: das ganze Feld hebt und senkt sich, langsam.
+        const s = 0.5 + 0.5 * Math.sin(this.phase * 0.55);
+        const grund = 0.18 + s * (0.3 + spannung * 0.4);
+        for (let i = 0; i < feld.length; i++) setzen(i, grund);
+      }
+    }
+  }
+
+  /**
+   * @param {number} kraft  0 bis 1, wie stark die Wand insgesamt laeuft
+   */
+  zeichnen(stift, breite, hoehe, ton, kraft) {
+    if (!this.da || kraft < 0.02) return;
+    const b = fleck(ton);
+    /*
+     * Die Farbe des Glanzkerns steht fest und wird einmal je Bild gesetzt,
+     * nicht einmal je Zelle.
+     *
+     * Vorher stand `mitAlpha(...)` in der Zellschleife - bei 322 Zellen also
+     * 322 Farbstrings, die je Bild neu zerlegt und zusammengesetzt wurden.
+     * Die Abnahme hat es als Kostenposten gemeldet: 6,95 ms gegen 6,27 ms
+     * beim vollen Lichtpark, obwohl die Flaschenwand das Grundlicht fast
+     * ausfaehrt und eigentlich billiger sein muesste.
+     */
+    stift.fillStyle = GLANZ;
+    for (let k = 0; k < this.kaesten.length; k++) {
+      const kasten = this.kaesten[k];
+      const feld = this.felder[k];
+      const { mitten, zellBreite, zellHoehe } = kasten.zellen;
+      /*
+       * Die Groesse eines Lichtflecks: etwas kleiner als eine Zelle. Groesser
+       * waere bequemer zu treffen, aber dann verschwimmen die Zellen
+       * ineinander - und genau ihre Trennung ist der Effekt.
+       */
+      const gr = Math.max(2, Math.min(zellBreite, zellHoehe) * hoehe * 0.42);
+      for (let i = 0; i < feld.length; i++) {
+        const w = feld[i];
+        if (w < 0.03) continue;
+        const [u, v] = mitten[i];
+        const x = u * breite;
+        const y = v * hoehe;
+        stift.globalAlpha = zaum(w * kraft * 0.85, 0, 1);
+        stift.drawImage(b, x - gr, y - gr, gr * 2, gr * 2);
+        /*
+         * Und der harte Kern. Verzinkter Stahl wirft gerichtet zurueck, also
+         * gibt es auf einer hellen Zelle einen kleinen, fast weissen Punkt -
+         * das ist der Unterschied zwischen "leuchtet" und "blitzt".
+         */
+        if (w > 0.55) {
+          stift.globalAlpha = zaum((w - 0.55) / 0.45 * kraft, 0, 1);
+          stift.beginPath();
+          stift.arc(x, y, Math.max(1, gr * 0.22), 0, Math.PI * 2);
+          stift.fill();
+        }
+      }
+    }
+    stift.globalAlpha = 1;
+  }
+}
+
+/** Ein Pegelwert aus dem Spektrum, `anteil` von 0 (Bass) bis 1 (Hoehen). */
+function pegelAus(spektrum, anteil) {
+  /*
+   * Logarithmisch ueber die Baender, nicht linear: Die untere Haelfte eines
+   * Spektrums enthaelt fast die ganze Musik, und eine lineare Aufteilung
+   * gaebe zehn Spalten Bass und eine Spalte Rest.
+   */
+  const n = spektrum.length;
+  const von = Math.floor((n * 0.5) ** anteil);
+  const bis = Math.min(n, Math.max(von + 1, Math.floor((n * 0.5) ** Math.min(1, anteil + 0.12))));
+  let summe = 0;
+  for (let i = von; i < bis; i++) summe += spektrum[i];
+  return zaum(summe / (bis - von) / 200, 0, 1);
+}
+
+/*
+ * Die Deckenbalken.
+ *
+ * Vier oder fuenf harte waagerechte Linien ueber Kopf, und sie sind das
+ * einzige im Raum, was von sich aus Richtung hat. Ein Licht, das sie der
+ * Reihe nach nimmt, zieht den Blick nach hinten - dorthin, wo die Kaesten
+ * stehen.
+ */
+class Balkenlicht {
+  constructor(bild) {
+    this.balken = (bild?.an ? bild.bereiche : []).filter((b) => b.art === 'balken');
+    this.phase = 0;
+  }
+
+  get da() {
+    return this.balken.length > 0;
+  }
+
+  fortschreiben(sekunden, wucht) {
+    this.phase += sekunden * (0.25 + wucht * 0.5);
+  }
+
+  zeichnen(stift, breite, hoehe, ton, kraft) {
+    if (!this.da || kraft < 0.02) return;
+    stift.save();
+    stift.lineCap = 'round';
+    for (let i = 0; i < this.balken.length; i++) {
+      const b = this.balken[i];
+      // Die Balken der Reihe nach, nicht alle zugleich.
+      const eigen = (this.phase - i * 0.22) % 1;
+      const an = eigen > 0 && eigen < 0.5 ? Math.sin(eigen * Math.PI * 2) : 0;
+      if (an <= 0.02) continue;
+      const a = b.aufDemRand ? b.aufDemRand(0) : b.punkte[0];
+      const c = b.aufDemRand ? b.aufDemRand(0.5) : b.punkte[1];
+      stift.globalAlpha = zaum(an * kraft * 0.55, 0, 1);
+      stift.strokeStyle = ton;
+      stift.lineWidth = Math.max(1.5, hoehe * 0.006);
+      stift.beginPath();
+      stift.moveTo(a[0] * breite, a[1] * hoehe);
+      stift.lineTo(c[0] * breite, c[1] * hoehe);
+      stift.stroke();
+    }
+    stift.restore();
+    stift.globalAlpha = 1;
+  }
+}
+
+
 // ===== public/gemeinsam/buehnenshow.js =====
 // Die Regie.
 //
@@ -8524,6 +9082,20 @@ class Funken {
  */
 const grenze = (x, a, b) => (x < a ? a : x > b ? b : x);
 
+/**
+ * Einen Farbton auf das schieben, was eine Flaeche wiedergeben kann.
+ *
+ * `lichtToene` liefert `hsl(<winkel> <s>% <l>%)`; hier wird nur der Winkel
+ * ersetzt. Passt die Form nicht, bleibt der Ton unveraendert - lieber die
+ * Anpassung verlieren als die Farbe.
+ */
+function tonSchieben(ton, flaeche) {
+  const m = /^hsl\(\s*([-\d.]+)/.exec(ton);
+  if (!m) return ton;
+  const neu = winkelAnpassen(Number(m[1]), flaeche);
+  return ton.replace(m[1], String(Math.round(neu * 10) / 10));
+}
+
 /*
  * Die Bilder.
  *
@@ -8537,33 +9109,51 @@ const grenze = (x, a, b) => (x < a ? a : x > b ? b : x);
 const BILDER = [
   {
     name: 'Wash', ruhig: true,
-    wash: 1, beams: 0, kugel: 0, blitze: false, sunstrip: 1,
+    wash: 1, beams: 0, kugel: 0, blitze: false, sunstrip: 1, flaschen: 0.25, balken: 0.4,
     hinweis: 'Die Grundstimmung. Laeuft immer, wenn nichts anderes dran ist.',
   },
   {
     name: 'Beams', laut: true,
-    wash: 0.35, beams: 1, kugel: 0, blitze: false, sunstrip: 0.5,
+    wash: 0.35, beams: 1, kugel: 0, blitze: false, sunstrip: 0.5, flaschen: 0.5, balken: 0.8,
     hinweis: 'Strahlen in der Luft, Wash zurueckgenommen - sonst frisst er sie.',
   },
   {
     name: 'Kugel', ruhig: true, allein: true,
-    wash: 0, beams: 0, kugel: 1, blitze: false, sunstrip: 0,
+    wash: 0, beams: 0, kugel: 1, blitze: false, sunstrip: 0, flaschen: 0, balken: 0,
     hinweis: 'Die Spiegelkugel braucht die Wand fuer sich. Punkte im Grundlicht sind keine Punkte.',
   },
   {
     name: 'Kette', ruhig: true,
-    wash: 0.55, beams: 0, kugel: 0, blitze: false, sunstrip: 1.4,
+    wash: 0.55, beams: 0, kugel: 0, blitze: false, sunstrip: 1.4, flaschen: 0.35, balken: 1,
     hinweis: 'Nur die Lauflichter auf den Gesimsen. Ruhig, aber nicht still.',
   },
   {
     name: 'Halbdunkel', ruhig: true,
-    wash: 0.3, beams: 0.35, kugel: 0, blitze: false, sunstrip: 0.3,
+    wash: 0.3, beams: 0.35, kugel: 0, blitze: false, sunstrip: 0.3, flaschen: 0.3, balken: 0.3,
     hinweis: 'Alles zurueckgenommen. Der Platz, aus dem ein Aufbau kommen kann.',
   },
   {
     name: 'Vollgas', laut: true,
-    wash: 0.8, beams: 1, kugel: 0, blitze: true, sunstrip: 1,
+    wash: 0.8, beams: 1, kugel: 0, blitze: true, sunstrip: 1, flaschen: 1, balken: 1,
     hinweis: 'Alles ausser der Kugel. Hoechstens ein paar Phrasen am Stueck.',
+  },
+  /*
+   * Das Bild fuer den Lagerraum.
+   *
+   * Die Flaschenwand traegt allein, das Grundlicht geht fast aus. Der Grund
+   * steht in lager.js und ist kein Geschmack: Die Gitterkaesten sind die
+   * einzige Flaeche im Raum, die Farbe richtig wiedergibt und die Kontrast
+   * hat. Wer daneben die orange Holzwand hell faehrt, macht beides kaputt -
+   * die Kaesten verschwinden im Streulicht, und die Wand hat trotzdem keine
+   * Farbe.
+   *
+   * Kein `allein: true` wie bei der Kugel: Ein wenig Wash bleibt, damit der
+   * Raum nicht verschwindet, sondern die Kaesten *aus* ihm heraustreten.
+   */
+  {
+    name: 'Flaschenwand', ruhig: true, braucht: 'gitterbox',
+    wash: 0.12, beams: 0, kugel: 0, blitze: false, sunstrip: 0.2, flaschen: 1, balken: 0.5,
+    hinweis: 'Die Gitterkaesten als Anzeigetafel. Farbe gehoert hierher, nicht an die Wand.',
   },
 ];
 
@@ -8644,6 +9234,36 @@ class Buehnenshow {
     this.flammen = new Flammen(this._flammenStellen(bild));
     this.co2 = new Nebelstoss([0.1, 0.9]);
     this.funken = new Funken([0.3, 0.7]);
+    this.flaschen = new Flaschenwand(bild);
+    this.balken = new Balkenlicht(bild);
+
+    /*
+     * Was die Flaechen mit dem Licht machen - einmal gelesen, nicht je Bild.
+     *
+     * Daraus kommt die eine Entscheidung, die in diesem Raum ueber alles
+     * andere entscheidet: Die Farbwinkel des Grundlichts werden auf das
+     * geschoben, was die Holzwand ueberhaupt wiedergeben kann. Die der
+     * Flaschenwand *nicht* - verzinkter Stahl ist neutral und braucht keine
+     * Hilfe. Siehe oberflaeche.js.
+     */
+    this.flaechen = flaechenLesen(bild);
+
+    /*
+     * Welche Bilder dieser Raum ueberhaupt hergibt.
+     *
+     * Ein Bild, das auf Gitterkaesten baut, ist in einem Raum ohne
+     * Gitterkaesten kein ruhiges Bild, sondern eine schwarze Wand - sein
+     * Grundlicht steht mit Absicht auf 0,12, weil die Kaesten den Rest
+     * machen sollen. Die Abnahme hat das nicht gemeldet, sie hat nur
+     * gemeldet, dass ein Bild in der Rotation fehlt; erst die Frage,
+     * *warum* es fehlt, hat den Fall sichtbar gemacht.
+     *
+     * Deshalb wird die Liste einmal am Anfang gefiltert und nicht bei jeder
+     * Auswahl geprueft: Was der Raum nicht hat, bekommt er auch nicht.
+     */
+    this.moeglich = BILDER.filter(
+      (b) => !b.braucht || (bild?.an && bild.bereiche.some((x) => x.art === b.braucht)),
+    );
 
     // Die Bilderfolge. Rotiert statt gewuerfelt - siehe oben.
     this.reihe = this._reiheMischen();
@@ -8693,7 +9313,7 @@ class Buehnenshow {
   }
 
   _reiheMischen() {
-    const r = BILDER.map((b) => b.name);
+    const r = this.moeglich.map((b) => b.name);
     for (let i = r.length - 1; i > 0; i--) {
       const j = Math.floor(this.zufall() * (i + 1));
       [r[i], r[j]] = [r[j], r[i]];
@@ -8710,20 +9330,20 @@ class Buehnenshow {
    */
   _naechstesBild(wucht, abbau) {
     const ruhig = abbau > 0.35 || wucht < 0.35;
-    for (let versuch = 0; versuch < BILDER.length * 2; versuch++) {
+    for (let versuch = 0; versuch < this.moeglich.length * 2; versuch++) {
       const name = this.reihe[this.reiheZeiger % this.reihe.length];
       this.reiheZeiger++;
       if (this.reiheZeiger >= this.reihe.length * 2) {
         this.reihe = this._reiheMischen();
         this.reiheZeiger = 0;
       }
-      const b = BILDER.find((x) => x.name === name);
+      const b = this.moeglich.find((x) => x.name === name);
       if (!b || b === this.aktuell) continue;
       if (ruhig && b.laut) continue;
       if (!ruhig && b.ruhig && this.zufall() < 0.6) continue;
       return b;
     }
-    return BILDER[0];
+    return this.moeglich[0] ?? BILDER[0];
   }
 
   /* --- Der Ablauf ---------------------------------------------------------- */
@@ -8834,6 +9454,8 @@ class Buehnenshow {
     this.blitze.an = blitzWunsch
       && this.blitzKonto > (this.blitze.an ? 0 : BLITZ_HOECHSTENS * 0.5);
     this.blitze.fortschreiben(sekunden, 3 + spannung * 7 + wucht * 2);
+    this.flaschen.fortschreiben(sekunden, takt, wucht, spannung, this.spektrum, drop);
+    this.balken.fortschreiben(sekunden, wucht);
     return beamKraft;
   }
 
@@ -8852,8 +9474,25 @@ class Buehnenshow {
       spannung = 0, abbau = 0, drop = false, palette = null,
     } = lage;
 
+    // Das Spektrum reicht die Buehne je Bild mit; die Flaschenwand braucht es
+    // fuer ihren Pegel, und `fortschreiben` bekommt es nicht als Parameter.
+    this.spektrum = lage.spektrum ?? null;
     this.fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
     const toene = lichtToene(palette);
+    /*
+     * Zwei Farbsaetze statt einem.
+     *
+     * `toene` gehen auf die Wand und werden an sie angepasst - auf einer
+     * orangen Grobspanplatte ist ein blauer Kegel kein blauer Kegel. `rein`
+     * geht auf die Gitterkaesten und bleibt, wie die Palette es meint.
+     *
+     * Ohne Messung sind beide gleich: `flaechenLesen` liefert dann eine
+     * neutrale Flaeche, und die veraendert nichts.
+     */
+    const rein = toene;
+    const wandToene = this.flaechen.grund.traegtFarbe
+      ? toene
+      : toene.map((t) => tonSchieben(t, this.flaechen.grund));
 
     /*
      * Der Dunkelfaktor. Alles wird damit multipliziert - so wirkt das Loch
@@ -8900,6 +9539,9 @@ class Buehnenshow {
      */
     const rest = (1 - kugelKraft * 0.92) * (1 - this.blinder.staerke * 0.75);
 
+    const flaschenKraft = this._mischung('flaschen') * hell;
+    const balkenKraft = this._mischung('balken') * hell;
+
     if (washKraft * rest > 0.02) {
       this.grund.zeichnen(stift, {
         ...lage,
@@ -8909,11 +9551,24 @@ class Buehnenshow {
         streifen: strichKraft,
         // Der Blinder gehoert hier der Regie - siehe partylicht.js.
         blinderAus: true,
+        // Und die an die Wand angepassten Farbwinkel.
+        wandToene,
       });
     }
 
     if (beamKraft * rest > 0.02) {
       this.beams.zeichnen(stift, breite, hoehe, toene[0], beamKraft * rest * (0.5 + wucht * 0.6));
+    }
+
+    /*
+     * Die Flaschenwand vor den Blitzen und nach dem Grundlicht: Sie ist ein
+     * Objekt im Raum und kein Effekt in der Luft.
+     */
+    if (flaschenKraft * rest > 0.02) {
+      this.flaschen.zeichnen(stift, breite, hoehe, rein[1], flaschenKraft * rest);
+    }
+    if (balkenKraft * rest > 0.02) {
+      this.balken.zeichnen(stift, breite, hoehe, wandToene[3] ?? wandToene[0], balkenKraft * rest);
     }
 
     this.blitze.zeichnen(stift, breite, hoehe, rest);
@@ -8940,6 +9595,10 @@ class Buehnenshow {
       flammen: Math.max(...this.flammen.leben),
       co2: Math.max(...this.co2.leben),
       funken: this.funken.teilchen.length,
+      moeglich: this.moeglich.map((b) => b.name),
+      flaschenMuster: this.flaschen.muster,
+      flaschenKaesten: this.flaschen.kaesten.length,
+      wandTraegtFarbe: this.flaechen.grund.traegtFarbe,
       lampen: this.grund.lampen.length,
       flammenStellen: this.flammen.stellen,
     };
@@ -12214,7 +12873,7 @@ const MODI = {
    * Der Lichtpark daneben bleibt bestehen. Er ist die ruhige Fassung fuer
    * eine Stelle, an der eine ganze Show zu viel waere.
    */
-  show: { name: 'Buehnenshow', zeichne: buehnenshowZeichnen, schmuck: false },
+  show: { name: 'Buehnenshow', zeichne: buehnenshowZeichnen, schmuck: false, eigeneKaesten: true },
   iris: { name: 'Iris', zeichne: irisZeichnen, schmuck: true },
   tunnel: { name: 'Tunnel', zeichne: tunnelZeichnen, schmuck: true },
   strahlen: { name: 'Strahlen', zeichne: strahlenZeichnen, schmuck: true },
@@ -14117,12 +14776,57 @@ function aufbereiten(b, seiten) {
     umfang += l;
   }
 
+  /*
+   * Die Abbildung vom Einheitsquadrat auf das Viereck.
+   *
+   * Damit laesst sich jeder Punkt eines Bereiches ueber zwei Zahlen von 0 bis
+   * 1 ansprechen - und zwar *perspektivisch richtig*. Ein Gitterkasten, der
+   * schraeg im Bild steht, hat oben schmalere Zellen als unten; wer da linear
+   * teilt, trifft die unteren Reihen nicht mehr.
+   *
+   * Es ist dieselbe Rechnung wie fuer die ganze Wand, nur eine Stufe kleiner,
+   * und sie benutzt denselben geprueften Loeser. Bei Bereichen, die keine
+   * vier Ecken haben, gibt es sie nicht - dann bleibt `punktAuf` null, und
+   * wer sie braucht, muss vorher fragen.
+   */
+  let aufsViereck = null;
+  if (p.length === 4) aufsViereck = homographie([[0, 0], [1, 0], [1, 1], [0, 1]], p);
+  const punktAuf = aufsViereck ? (u, v) => anwenden(aufsViereck, [u, v]) : null;
+
+  /*
+   * Die Zellen eines Gitterkastens.
+   *
+   * Sie werden hier einmal ausgerechnet und nicht je Bild: Ein Kasten mit
+   * zwoelf mal acht Faechern hat 96 Zellen, und die stehen fest, sobald die
+   * Messung steht.
+   */
+  let zellen = null;
+  if (b.art === 'gitterbox' && punktAuf) {
+    const sp = Math.max(1, Math.round(b.spalten ?? 10));
+    const re = Math.max(1, Math.round(b.reihen ?? 6));
+    zellen = { spalten: sp, reihen: re, mitten: [] };
+    for (let j = 0; j < re; j++) {
+      for (let i = 0; i < sp; i++) {
+        zellen.mitten.push(punktAuf((i + 0.5) / sp, (j + 0.5) / re));
+      }
+    }
+    // Wie gross eine Zelle ungefaehr ist - fuer die Groesse der Lichtflecken.
+    const a = punktAuf(0, 0.5);
+    const c = punktAuf(1, 0.5);
+    zellen.zellBreite = Math.hypot((c[0] - a[0]) * seiten, c[1] - a[1]) / sp;
+    const o = punktAuf(0.5, 0);
+    const u = punktAuf(0.5, 1);
+    zellen.zellHoehe = Math.hypot((u[0] - o[0]) * seiten, u[1] - o[1]) / re;
+  }
+
   return {
     ...b,
     mitte: [mx, my],
     kasten: { links, rechts, oben, unten, breite: rechts - links, hoehe: unten - oben },
     umfang,
     abschnitte,
+    punktAuf,
+    zellen,
     /**
      * Ein Punkt auf dem Rand, bei Anteil t des Umfangs.
      *
@@ -14303,6 +15007,35 @@ class Architektur {
     this.kanten = bild.an ? bild.bereiche.filter((b) => b.art === 'kante') : [];
     this.tueren = bild.an ? bild.bereiche.filter((b) => b.art === 'tuer') : [];
     this.tot = bild.an ? bild.bereiche.filter((b) => b.art === 'tot') : [];
+    this.kaesten = bild.an ? bild.bereiche.filter((b) => b.art === 'gitterbox' && b.zellen) : [];
+    this.balkenB = bild.an ? bild.bereiche.filter((b) => b.art === 'balken') : [];
+    /*
+     * Das Echo der Gitterkaesten.
+     *
+     * Die Aufgabe: Die Mandalas sollen nicht *vor* den Kaesten laufen,
+     * sondern *durch* sie hindurch - wo ein Mandala hell ist, sollen die
+     * Flaschen darunter aufleuchten.
+     *
+     * Der naheliegende Weg waere, jedem Modus beizubringen, wo die Kaesten
+     * stehen. Das waeren zwanzig Aenderungen, zwanzig Gelegenheiten fuer
+     * Fehler, und jeder neue Modus muesste wieder daran denken.
+     *
+     * Der Weg hier ist ein anderer und kostet eine einzige Stelle: Nachdem
+     * der Modus gezeichnet hat, wird das fertige Bild *abgetastet*. Was an
+     * der Stelle einer Zelle hell ist, laesst die Zelle leuchten - egal
+     * welcher Modus es dorthin gemalt hat. Ein neuer Modus reagiert damit
+     * automatisch, ohne eine Zeile dafuer.
+     *
+     * Abgetastet wird nicht die grosse Leinwand, sondern eine winzige Kopie
+     * davon: Ein `getImageData` ueber 1920x1080 waere je Bild ein Vielfaches
+     * des ganzen Budgets, ueber 64x48 ist es nichts. Die Kopie entsteht mit
+     * einem einzigen `drawImage`, das die Grafikkarte macht.
+     */
+    this.echoBreite = 64;
+    this.echoHoehe = 48;
+    this.echoLeinwand = null;
+    this.echoStift = null;
+    this.echoFeld = this.kaesten.map((k) => new Float32Array(k.zellen.mitten.length));
     /*
      * Die Oeffnungen nach ihrer Lage von links nach rechts sortieren. Die
      * Welle laeuft danach - und eine Welle, die in der Reihenfolge des
@@ -14335,7 +15068,18 @@ class Architektur {
 
   /** Gibt es ueberhaupt etwas zu tun? */
   get taetig() {
-    return this.bild.an && (this.oeffnungen.length > 0 || this.kanten.length > 0 || this.tot.length > 0);
+    /*
+     * Gitterkaesten und Balken gehoeren mit in diese Liste.
+     *
+     * Sie standen zuerst nicht darin, und die Folge war still und
+     * vollstaendig: In einem Raum, der *nur* Gitterkaesten hat und keine
+     * Fenster, hielt sich die Architektur fuer arbeitslos und stieg in der
+     * ersten Zeile von `zeichnen` aus. Das Flaschenecho lief nie. Die
+     * Messung hat null angeregte Zellen gemeldet - kein Fehler, keine
+     * Warnung, einfach nichts.
+     */
+    return this.bild.an && (this.oeffnungen.length > 0 || this.kanten.length > 0
+      || this.tot.length > 0 || this.kaesten.length > 0 || this.balkenB.length > 0);
   }
 
   /**
@@ -14346,16 +15090,110 @@ class Architektur {
    * @param {number} hoehe
    * @param {object} lage     sekunden, takt, wucht, spannung, abbau, drop, palette, spektrum
    */
+  /**
+   * Die fertige Leinwand verkleinern und je Zelle nachsehen, wie hell es
+   * dort ist.
+   */
+  _echoAbtasten(stift, breite, hoehe, sekunden) {
+    if (!this.echoLeinwand) {
+      this.echoLeinwand = document.createElement('canvas');
+      this.echoLeinwand.width = this.echoBreite;
+      this.echoLeinwand.height = this.echoHoehe;
+      this.echoStift = this.echoLeinwand.getContext('2d', { willReadFrequently: true });
+    }
+    const B = this.echoBreite;
+    const H = this.echoHoehe;
+    this.echoStift.clearRect(0, 0, B, H);
+    this.echoStift.drawImage(stift.canvas, 0, 0, B, H);
+    const d = this.echoStift.getImageData(0, 0, B, H).data;
+
+    for (let k = 0; k < this.kaesten.length; k++) {
+      const zellen = this.kaesten[k].zellen;
+      const feld = this.echoFeld[k];
+      for (let i = 0; i < feld.length; i++) {
+        const [u, v] = zellen.mitten[i];
+        const x = Math.min(B - 1, Math.max(0, Math.round(u * B)));
+        const y = Math.min(H - 1, Math.max(0, Math.round(v * H)));
+        const q = (y * B + x) * 4;
+        // Grob die Helligkeit; auf Genauigkeit kommt es hier nicht an, es
+        // geht um "da ist etwas" gegen "da ist nichts".
+        const hell = (d[q] + d[q + 1] + d[q + 2]) / 765;
+        /*
+         * Anstieg schnell, Abfall langsam. Eine Flasche, die sofort wieder
+         * ausgeht, flackert; eine, die nachgluecht, zieht dem Mandala einen
+         * Schweif aus echten Flaschen hinterher.
+         */
+        feld[i] = hell > feld[i]
+          ? hell
+          : Math.max(hell, feld[i] - sekunden * 2.4);
+      }
+    }
+  }
+
+  /** Und die angeregten Zellen aufleuchten lassen. */
+  _echoZeichnen(stift, breite, hoehe, toene, wucht) {
+    const ton = toene[1] ?? toene[0];
+    const b = fleck(ton);
+    for (let k = 0; k < this.kaesten.length; k++) {
+      const zellen = this.kaesten[k].zellen;
+      const feld = this.echoFeld[k];
+      const gr = Math.max(2, Math.min(zellen.zellBreite, zellen.zellHoehe) * hoehe * 0.4);
+      for (let i = 0; i < feld.length; i++) {
+        const w = feld[i];
+        // Erst ab einer gewissen Helligkeit. Unterhalb davon waere es kein
+        // Echo, sondern ein Grauschleier ueber dem ganzen Kasten.
+        if (w < 0.12) continue;
+        const [u, v] = zellen.mitten[i];
+        stift.globalAlpha = Math.min(1, (w - 0.12) * 1.6 * (0.5 + wucht * 0.6));
+        stift.drawImage(b, u * breite - gr, v * hoehe - gr, gr * 2, gr * 2);
+      }
+    }
+    stift.globalAlpha = 1;
+  }
+
   zeichnen(stift, breite, hoehe, lage) {
     if (!this.taetig) return;
     const {
       sekunden = 1 / 60, takt = null, wucht = 0.5, spannung = 0, abbau = 0,
       drop = false, palette = null,
+      /*
+       * Die Buehnenshow treibt die Kaesten selbst - dann darf das Echo
+       * nicht auch noch hinein, sonst zeichnen zwei Systeme dieselben
+       * Zellen.
+       */
+      eigeneKaesten = false,
     } = lage;
     // Die Palette der Buehne ist ein Objekt, kein Feld - siehe farben.js.
     const toene = toeneAus(palette);
 
     this._fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
+
+    /*
+     * Abgetastet wird *vor* dem eigenen Zeichnen: Gefragt ist, was der Modus
+     * hingelegt hat, nicht was die Architektur gleich dazulegt. Sonst wuerde
+     * sich das Echo selbst verstaerken und nach zwei Sekunden stehen alle
+     * Zellen auf Anschlag.
+     */
+    /*
+     * Nur jedes zweite Bild abtasten - und die Begruendung dafuer ist eine
+     * andere, als sie hier zuerst stand.
+     *
+     * Die Annahme war: Das Verkleinern der grossen Leinwand erzwingt einen
+     * Rasterlauf, das ist der teure Teil, halbe Abtastrate halbiert ihn.
+     * Gemessen wurde dann 5,10 gegen 5,00 ms - also praktisch nichts. Der
+     * Posten von 1,4 ms steckt nicht im Abtasten, sondern im *Zeichnen* der
+     * angeregten Zellen; achtzig weiche Flecken sind achtzig weiche Flecken.
+     *
+     * Es bleibt trotzdem bei jedem zweiten Bild: Dieser Prueflauf hat keine
+     * Grafikkarte, und auf einer echten ist das Zurueckholen von Bildpunkten
+     * aus dem Grafikspeicher eher teurer als hier, nicht billiger. Die
+     * Massnahme kostet nichts und deckt einen Fall ab, den dieser Behaelter
+     * nicht messen kann. Sichtbar ist sie nicht, weil die Zellen nachgluehen.
+     */
+    this.echoTakt = (this.echoTakt ?? 0) + 1;
+    if (!eigeneKaesten && this.kaesten.length && this.echoTakt % 2 === 0) {
+      this._echoAbtasten(stift, breite, hoehe, sekunden * 2);
+    }
 
     stift.save();
     /*
@@ -14366,6 +15204,9 @@ class Architektur {
      * ausstechen.
      */
     stift.globalCompositeOperation = 'lighter';
+    if (!eigeneKaesten && this.kaesten.length) {
+      this._echoZeichnen(stift, breite, hoehe, toene, wucht);
+    }
     this._fuellungen(stift, breite, hoehe, toene, wucht, lage.spektrum);
     this._rahmen(stift, breite, hoehe, toene, wucht);
     this._teilchen(stift, breite, hoehe, toene);
@@ -15193,6 +16034,8 @@ class Visualisierung {
       drop: dropJetzt,
       palette: this.paletteFuer(aktiv?.track),
       spektrum: this.spektrumScharf,
+      // Die Buehnenshow treibt die Gitterkaesten selbst - siehe lager.js.
+      eigeneKaesten: modus.eigeneKaesten === true,
     });
 
     // Ringe, Funken, Spannungsbogen und das Aufblitzen nach dem Drop gehoeren

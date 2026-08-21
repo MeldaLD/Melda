@@ -3251,7 +3251,7 @@ export const MODI = {
    * Der Lichtpark daneben bleibt bestehen. Er ist die ruhige Fassung fuer
    * eine Stelle, an der eine ganze Show zu viel waere.
    */
-  show: { name: 'Buehnenshow', zeichne: buehnenshowZeichnen, schmuck: false },
+  show: { name: 'Buehnenshow', zeichne: buehnenshowZeichnen, schmuck: false, eigeneKaesten: true },
   iris: { name: 'Iris', zeichne: irisZeichnen, schmuck: true },
   tunnel: { name: 'Tunnel', zeichne: tunnelZeichnen, schmuck: true },
   strahlen: { name: 'Strahlen', zeichne: strahlenZeichnen, schmuck: true },

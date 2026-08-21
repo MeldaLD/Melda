@@ -163,12 +163,57 @@ function aufbereiten(b, seiten) {
     umfang += l;
   }
 
+  /*
+   * Die Abbildung vom Einheitsquadrat auf das Viereck.
+   *
+   * Damit laesst sich jeder Punkt eines Bereiches ueber zwei Zahlen von 0 bis
+   * 1 ansprechen - und zwar *perspektivisch richtig*. Ein Gitterkasten, der
+   * schraeg im Bild steht, hat oben schmalere Zellen als unten; wer da linear
+   * teilt, trifft die unteren Reihen nicht mehr.
+   *
+   * Es ist dieselbe Rechnung wie fuer die ganze Wand, nur eine Stufe kleiner,
+   * und sie benutzt denselben geprueften Loeser. Bei Bereichen, die keine
+   * vier Ecken haben, gibt es sie nicht - dann bleibt `punktAuf` null, und
+   * wer sie braucht, muss vorher fragen.
+   */
+  let aufsViereck = null;
+  if (p.length === 4) aufsViereck = homographie([[0, 0], [1, 0], [1, 1], [0, 1]], p);
+  const punktAuf = aufsViereck ? (u, v) => anwenden(aufsViereck, [u, v]) : null;
+
+  /*
+   * Die Zellen eines Gitterkastens.
+   *
+   * Sie werden hier einmal ausgerechnet und nicht je Bild: Ein Kasten mit
+   * zwoelf mal acht Faechern hat 96 Zellen, und die stehen fest, sobald die
+   * Messung steht.
+   */
+  let zellen = null;
+  if (b.art === 'gitterbox' && punktAuf) {
+    const sp = Math.max(1, Math.round(b.spalten ?? 10));
+    const re = Math.max(1, Math.round(b.reihen ?? 6));
+    zellen = { spalten: sp, reihen: re, mitten: [] };
+    for (let j = 0; j < re; j++) {
+      for (let i = 0; i < sp; i++) {
+        zellen.mitten.push(punktAuf((i + 0.5) / sp, (j + 0.5) / re));
+      }
+    }
+    // Wie gross eine Zelle ungefaehr ist - fuer die Groesse der Lichtflecken.
+    const a = punktAuf(0, 0.5);
+    const c = punktAuf(1, 0.5);
+    zellen.zellBreite = Math.hypot((c[0] - a[0]) * seiten, c[1] - a[1]) / sp;
+    const o = punktAuf(0.5, 0);
+    const u = punktAuf(0.5, 1);
+    zellen.zellHoehe = Math.hypot((u[0] - o[0]) * seiten, u[1] - o[1]) / re;
+  }
+
   return {
     ...b,
     mitte: [mx, my],
     kasten: { links, rechts, oben, unten, breite: rechts - links, hoehe: unten - oben },
     umfang,
     abschnitte,
+    punktAuf,
+    zellen,
     /**
      * Ein Punkt auf dem Rand, bei Anteil t des Umfangs.
      *

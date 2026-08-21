@@ -24,7 +24,7 @@
 // *exakt* fest - sie gehen also immer durch, egal wie falsch sie sind. Erst
 // die *fuenfte* Information, das Raster dazwischen, kann widersprechen.
 
-import { homographie, anwenden, umkehren, viereckPruefen } from '/gemeinsam/homographie.js';
+import { homographie, anwenden, umkehren, viereckPruefen, imVieleck } from '/gemeinsam/homographie.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -62,7 +62,45 @@ const ARTEN = {
   kante: { farbe: '#c48bff', name: 'Kante' },
   flaeche: { farbe: '#6bd98a', name: 'Fläche' },
   tot: { farbe: '#ff6b6b', name: 'Totzone' },
+  /*
+   * Der Gitterkasten.
+   *
+   * Die interessanteste Flaeche des ganzen Raumes und der Grund, warum es
+   * diese Art ueberhaupt gibt. Ein Kasten voller Flaschen ist naemlich
+   * dreierlei zugleich:
+   *
+   *   - ein *Raster*. Das Drahtgitter und die Flaschenboeden bilden ein
+   *     regelmaessiges Feld - eine gebaute Punktmatrix, die man ansprechen
+   *     kann wie eine Anzeigetafel.
+   *   - eine *glaenzende* Flaeche. Verzinkter Stahl wirft Licht gerichtet
+   *     zurueck, nicht diffus wie eine Wand. Ein kleiner heller Fleck darauf
+   *     blitzt, wo derselbe Fleck auf der Holzwand nur ein Fleck waere.
+   *   - *neutral grau*. Das ist der eigentliche Schatz in diesem Raum: Der
+   *     Stahl gibt Farben ungefaelscht wieder, die orange Holzwand nicht.
+   *
+   * Deshalb braucht diese Art als einzige zwei Zusatzangaben: wie viele
+   * Faecher der Kasten breit und hoch ist.
+   */
+  gitterbox: { farbe: '#7fe6d8', name: 'Gitterkasten', raster: true, ecken: 4 },
+  /*
+   * Ein Deckenbalken. Linear wie eine Kante, aber ueber Kopf und meist zu
+   * mehreren parallel - eigene Art, damit ein Lauflicht sie der Reihe nach
+   * nehmen kann statt alle zugleich.
+   */
+  balken: { farbe: '#ffd479', name: 'Balken' },
+  /*
+   * Eine Raumkante, an der die Flaeche knickt.
+   *
+   * Keine Flaeche, sondern eine Grenze: Was ueber sie hinweglaeuft, bricht
+   * fuer jeden Betrachter sichtbar auseinander, weil dahinter eine andere
+   * Ebene liegt. Die Homographie gilt immer nur fuer *eine* Ebene.
+   */
+  knick: { farbe: '#ff8ad4', name: 'Knick' },
 };
+
+/** Arten, die genau vier Ecken brauchen - sonst gibt es kein Raster. */
+const VIERECKIG = Object.entries(ARTEN)
+  .filter(([, a]) => a.ecken === 4).map(([k]) => k);
 
 /* --- Das Testbild --------------------------------------------------------- */
 
@@ -221,6 +259,82 @@ document.addEventListener('keydown', (e) => {
 });
 $('vollbildschirm').addEventListener('click', vollbildBeenden);
 
+/* --- Die Farbe der Oberflaeche -------------------------------------------- */
+
+/*
+ * Warum das ueberhaupt gemessen wird.
+ *
+ * Ein Beamer *addiert* Licht zu dem, was die Flaeche ohnehin zurueckwirft.
+ * Auf einer weissen Leinwand ist das egal. Auf einer Grobspanplatte nicht:
+ * Die wirft warmes Orange zurueck und schluckt Blau fast vollstaendig. Ein
+ * blauer Kegel darauf wird nicht blau, sondern schmutzig grau.
+ *
+ * Die Forschung dazu heisst radiometrische Kompensation und rechnet je
+ * Bildpunkt gegen: Man misst, was die Flaeche mit jedem Kanal macht, und
+ * verstaerkt vorher das, was sie schluckt. Das funktioniert - und es kostet
+ * genau das, was es verspricht: Helligkeit. Wer Blau auf Orange durchsetzen
+ * will, muss Rot und Gruen herunterziehen, und uebrig bleibt ein dunkles
+ * Bild. Ausserdem laeuft die Rechnung aus dem Bereich, den der Beamer
+ * ueberhaupt darstellen kann, und clippt dann sichtbar.
+ *
+ * Deshalb wird hier *gemessen, aber nicht kompensiert*. Die Farbe geht in
+ * die Messung, und die Bildseite entscheidet damit die viel wirksamere
+ * Frage: Welche Farben soll man auf dieser Flaeche ueberhaupt zeigen? Siehe
+ * oberflaeche.js.
+ *
+ * Gemessen wird der *Median* je Kanal und nicht der Mittelwert. Eine
+ * Holzwand hat helle Spaene und dunkle Fugen, ein Gitterkasten hat blitzende
+ * Draehte vor schwarzem Glas - ein Mittelwert liesse sich von wenigen sehr
+ * hellen Punkten verziehen, der Median nicht.
+ */
+let fotoStift = null;
+
+function fotoInsRaster() {
+  const bild = $('foto');
+  if (!bild.naturalWidth) return null;
+  if (fotoStift && fotoStift.canvas.dataset.quelle === bild.src) return fotoStift;
+  const c = document.createElement('canvas');
+  // Klein reicht: Gesucht ist eine Farbe, keine Textur.
+  const grosse = 640;
+  const f = Math.min(1, grosse / bild.naturalWidth);
+  c.width = Math.max(1, Math.round(bild.naturalWidth * f));
+  c.height = Math.max(1, Math.round(bild.naturalHeight * f));
+  c.dataset.quelle = bild.src;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(bild, 0, 0, c.width, c.height);
+  fotoStift = g;
+  return g;
+}
+
+/**
+ * Die Medianfarbe innerhalb eines Vielecks (Punkte in Foto-Bildpunkten).
+ * Ohne Vieleck: das ganze Foto.
+ */
+function oberflaecheMessen(punkte = null) {
+  const g = fotoInsRaster();
+  if (!g) return null;
+  const { width: B, height: H } = g.canvas;
+  const d = g.getImageData(0, 0, B, H).data;
+  const anteilig = punkte
+    ? punkte.map(([x, y]) => [x / stand.fotoBreite, y / stand.fotoHoehe])
+    : null;
+  const r = [];
+  const gr = [];
+  const bl = [];
+  // Hoechstens rund 4000 Proben - mehr aendert am Median nichts.
+  const schritt = Math.max(1, Math.round(Math.sqrt((B * H) / 4000)));
+  for (let y = 0; y < H; y += schritt) {
+    for (let x = 0; x < B; x += schritt) {
+      if (anteilig && !imVieleck([x / B, y / H], anteilig)) continue;
+      const k = (y * B + x) * 4;
+      r.push(d[k]); gr.push(d[k + 1]); bl.push(d[k + 2]);
+    }
+  }
+  if (r.length < 8) return null;
+  const mitte = (a) => { a.sort((x, y) => x - y); return a[a.length >> 1]; };
+  return [mitte(r), mitte(gr), mitte(bl)];
+}
+
 /* --- Foto laden ----------------------------------------------------------- */
 
 $('fotoWahl').addEventListener('change', (e) => {
@@ -234,9 +348,13 @@ $('fotoWahl').addEventListener('change', (e) => {
     stand.marken = [];
     stand.bereiche = [];
     stand.entwurf = null;
+    fotoStift = null;
+    stand.grundfarbe = oberflaecheMessen();
     neuZeichnen();
-    melden(`Foto geladen, ${bild.naturalWidth} × ${bild.naturalHeight}. ` +
-      'Jetzt die vier Ecken des Testbildes anklicken – 1, 2, 3, 4.');
+    const f = stand.grundfarbe;
+    melden(`Foto geladen, ${bild.naturalWidth} × ${bild.naturalHeight}.`
+      + (f ? ` Oberflaeche gemessen: rgb(${f.join(' ')}).` : '')
+      + ' Jetzt die vier Ecken des Testbildes anklicken – 1, 2, 3, 4.');
   };
   bild.src = URL.createObjectURL(datei);
 });
@@ -297,6 +415,23 @@ function moduswechsel(m) {
 
 $('bereichFertig').addEventListener('click', () => {
   if (!stand.entwurf || stand.entwurf.punkte.length < 3) return;
+  /*
+   * Ein Gitterkasten muss vier Ecken haben, sonst gibt es keine Abbildung
+   * vom Einheitsquadrat auf ihn - und ohne die kein Raster. Lieber hier
+   * abfangen als spaeter ein Feld, das nur ungefaehr sitzt.
+   */
+  if (VIERECKIG.includes(stand.entwurf.art) && stand.entwurf.punkte.length !== 4) {
+    return melden(`${ARTEN[stand.entwurf.art].name}: genau vier Ecken setzen, `
+      + `im Uhrzeigersinn ab oben links (gerade ${stand.entwurf.punkte.length}).`);
+  }
+  if (ARTEN[stand.entwurf.art].raster) {
+    stand.entwurf.spalten = Math.max(1, Math.round(Number($('rasterSpalten').value) || 10));
+    stand.entwurf.reihen = Math.max(1, Math.round(Number($('rasterReihen').value) || 6));
+  }
+  // Jeder Bereich bekommt seine eigene gemessene Farbe. Ein Gitterkasten ist
+  // grau, die Wand daneben orange - ein Wert fuer beides waere fuer keinen
+  // von beiden richtig.
+  stand.entwurf.farbe = oberflaecheMessen(stand.entwurf.punkte);
   const art = ARTEN[stand.entwurf.art].name;
   const zahl = stand.bereiche.filter((b) => b.art === stand.entwurf.art).length + 1;
   stand.entwurf.name = `${art} ${zahl}`;
@@ -332,7 +467,17 @@ $('allesLoeschen').addEventListener('click', () => {
 });
 
 $('rasterZeigen').addEventListener('change', neuZeichnen);
-$('bereichsart').addEventListener('change', () => moduswechsel('bereich'));
+$('bereichsart').addEventListener('change', () => {
+  rasterFelderZeigen();
+  moduswechsel('bereich');
+});
+
+/** Die zwei Zahlenfelder gibt es nur fuer Arten, die ein Raster haben. */
+function rasterFelderZeigen() {
+  const art = ARTEN[$('bereichsart').value];
+  $('rasterFelder').hidden = !art?.raster;
+}
+rasterFelderZeigen();
 
 /* --- Zeichnen ------------------------------------------------------------- */
 
@@ -507,7 +652,11 @@ export function kalibrierungBauen(s = stand) {
       art: b.art,
       name: b.name,
       punkte: b.punkte.map(([x, y]) => [x / s.fotoBreite, y / s.fotoHoehe]),
+      ...(b.spalten ? { spalten: b.spalten, reihen: b.reihen } : {}),
+      ...(b.farbe ? { farbe: b.farbe } : {}),
     })),
+    // Die gemessene Farbe der Hauptflaeche - siehe oberflaecheMessen().
+    grundfarbe: s.grundfarbe ?? null,
   };
 }
 

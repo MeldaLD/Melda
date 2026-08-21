@@ -43,6 +43,8 @@
 // nach dem Gesetz der kleinen Zahlen viel zu oft.
 
 import { lichtToene } from './farben.js';
+import { flaechenLesen, winkelAnpassen } from './oberflaeche.js';
+import { Flaschenwand, Balkenlicht } from './lager.js';
 import { Partylicht } from './partylicht.js';
 import { Beams, Blinder, Blitze, Kugel, Flammen, Nebelstoss, Funken } from './gewerke.js';
 
@@ -53,6 +55,20 @@ import { Beams, Blinder, Blitze, Kugel, Flammen, Nebelstoss, Funken } from './ge
  * verhindert hat, bevor er entstehen konnte.
  */
 const grenze = (x, a, b) => (x < a ? a : x > b ? b : x);
+
+/**
+ * Einen Farbton auf das schieben, was eine Flaeche wiedergeben kann.
+ *
+ * `lichtToene` liefert `hsl(<winkel> <s>% <l>%)`; hier wird nur der Winkel
+ * ersetzt. Passt die Form nicht, bleibt der Ton unveraendert - lieber die
+ * Anpassung verlieren als die Farbe.
+ */
+function tonSchieben(ton, flaeche) {
+  const m = /^hsl\(\s*([-\d.]+)/.exec(ton);
+  if (!m) return ton;
+  const neu = winkelAnpassen(Number(m[1]), flaeche);
+  return ton.replace(m[1], String(Math.round(neu * 10) / 10));
+}
 
 /*
  * Die Bilder.
@@ -67,33 +83,51 @@ const grenze = (x, a, b) => (x < a ? a : x > b ? b : x);
 export const BILDER = [
   {
     name: 'Wash', ruhig: true,
-    wash: 1, beams: 0, kugel: 0, blitze: false, sunstrip: 1,
+    wash: 1, beams: 0, kugel: 0, blitze: false, sunstrip: 1, flaschen: 0.25, balken: 0.4,
     hinweis: 'Die Grundstimmung. Laeuft immer, wenn nichts anderes dran ist.',
   },
   {
     name: 'Beams', laut: true,
-    wash: 0.35, beams: 1, kugel: 0, blitze: false, sunstrip: 0.5,
+    wash: 0.35, beams: 1, kugel: 0, blitze: false, sunstrip: 0.5, flaschen: 0.5, balken: 0.8,
     hinweis: 'Strahlen in der Luft, Wash zurueckgenommen - sonst frisst er sie.',
   },
   {
     name: 'Kugel', ruhig: true, allein: true,
-    wash: 0, beams: 0, kugel: 1, blitze: false, sunstrip: 0,
+    wash: 0, beams: 0, kugel: 1, blitze: false, sunstrip: 0, flaschen: 0, balken: 0,
     hinweis: 'Die Spiegelkugel braucht die Wand fuer sich. Punkte im Grundlicht sind keine Punkte.',
   },
   {
     name: 'Kette', ruhig: true,
-    wash: 0.55, beams: 0, kugel: 0, blitze: false, sunstrip: 1.4,
+    wash: 0.55, beams: 0, kugel: 0, blitze: false, sunstrip: 1.4, flaschen: 0.35, balken: 1,
     hinweis: 'Nur die Lauflichter auf den Gesimsen. Ruhig, aber nicht still.',
   },
   {
     name: 'Halbdunkel', ruhig: true,
-    wash: 0.3, beams: 0.35, kugel: 0, blitze: false, sunstrip: 0.3,
+    wash: 0.3, beams: 0.35, kugel: 0, blitze: false, sunstrip: 0.3, flaschen: 0.3, balken: 0.3,
     hinweis: 'Alles zurueckgenommen. Der Platz, aus dem ein Aufbau kommen kann.',
   },
   {
     name: 'Vollgas', laut: true,
-    wash: 0.8, beams: 1, kugel: 0, blitze: true, sunstrip: 1,
+    wash: 0.8, beams: 1, kugel: 0, blitze: true, sunstrip: 1, flaschen: 1, balken: 1,
     hinweis: 'Alles ausser der Kugel. Hoechstens ein paar Phrasen am Stueck.',
+  },
+  /*
+   * Das Bild fuer den Lagerraum.
+   *
+   * Die Flaschenwand traegt allein, das Grundlicht geht fast aus. Der Grund
+   * steht in lager.js und ist kein Geschmack: Die Gitterkaesten sind die
+   * einzige Flaeche im Raum, die Farbe richtig wiedergibt und die Kontrast
+   * hat. Wer daneben die orange Holzwand hell faehrt, macht beides kaputt -
+   * die Kaesten verschwinden im Streulicht, und die Wand hat trotzdem keine
+   * Farbe.
+   *
+   * Kein `allein: true` wie bei der Kugel: Ein wenig Wash bleibt, damit der
+   * Raum nicht verschwindet, sondern die Kaesten *aus* ihm heraustreten.
+   */
+  {
+    name: 'Flaschenwand', ruhig: true, braucht: 'gitterbox',
+    wash: 0.12, beams: 0, kugel: 0, blitze: false, sunstrip: 0.2, flaschen: 1, balken: 0.5,
+    hinweis: 'Die Gitterkaesten als Anzeigetafel. Farbe gehoert hierher, nicht an die Wand.',
   },
 ];
 
@@ -174,6 +208,36 @@ export class Buehnenshow {
     this.flammen = new Flammen(this._flammenStellen(bild));
     this.co2 = new Nebelstoss([0.1, 0.9]);
     this.funken = new Funken([0.3, 0.7]);
+    this.flaschen = new Flaschenwand(bild);
+    this.balken = new Balkenlicht(bild);
+
+    /*
+     * Was die Flaechen mit dem Licht machen - einmal gelesen, nicht je Bild.
+     *
+     * Daraus kommt die eine Entscheidung, die in diesem Raum ueber alles
+     * andere entscheidet: Die Farbwinkel des Grundlichts werden auf das
+     * geschoben, was die Holzwand ueberhaupt wiedergeben kann. Die der
+     * Flaschenwand *nicht* - verzinkter Stahl ist neutral und braucht keine
+     * Hilfe. Siehe oberflaeche.js.
+     */
+    this.flaechen = flaechenLesen(bild);
+
+    /*
+     * Welche Bilder dieser Raum ueberhaupt hergibt.
+     *
+     * Ein Bild, das auf Gitterkaesten baut, ist in einem Raum ohne
+     * Gitterkaesten kein ruhiges Bild, sondern eine schwarze Wand - sein
+     * Grundlicht steht mit Absicht auf 0,12, weil die Kaesten den Rest
+     * machen sollen. Die Abnahme hat das nicht gemeldet, sie hat nur
+     * gemeldet, dass ein Bild in der Rotation fehlt; erst die Frage,
+     * *warum* es fehlt, hat den Fall sichtbar gemacht.
+     *
+     * Deshalb wird die Liste einmal am Anfang gefiltert und nicht bei jeder
+     * Auswahl geprueft: Was der Raum nicht hat, bekommt er auch nicht.
+     */
+    this.moeglich = BILDER.filter(
+      (b) => !b.braucht || (bild?.an && bild.bereiche.some((x) => x.art === b.braucht)),
+    );
 
     // Die Bilderfolge. Rotiert statt gewuerfelt - siehe oben.
     this.reihe = this._reiheMischen();
@@ -223,7 +287,7 @@ export class Buehnenshow {
   }
 
   _reiheMischen() {
-    const r = BILDER.map((b) => b.name);
+    const r = this.moeglich.map((b) => b.name);
     for (let i = r.length - 1; i > 0; i--) {
       const j = Math.floor(this.zufall() * (i + 1));
       [r[i], r[j]] = [r[j], r[i]];
@@ -240,20 +304,20 @@ export class Buehnenshow {
    */
   _naechstesBild(wucht, abbau) {
     const ruhig = abbau > 0.35 || wucht < 0.35;
-    for (let versuch = 0; versuch < BILDER.length * 2; versuch++) {
+    for (let versuch = 0; versuch < this.moeglich.length * 2; versuch++) {
       const name = this.reihe[this.reiheZeiger % this.reihe.length];
       this.reiheZeiger++;
       if (this.reiheZeiger >= this.reihe.length * 2) {
         this.reihe = this._reiheMischen();
         this.reiheZeiger = 0;
       }
-      const b = BILDER.find((x) => x.name === name);
+      const b = this.moeglich.find((x) => x.name === name);
       if (!b || b === this.aktuell) continue;
       if (ruhig && b.laut) continue;
       if (!ruhig && b.ruhig && this.zufall() < 0.6) continue;
       return b;
     }
-    return BILDER[0];
+    return this.moeglich[0] ?? BILDER[0];
   }
 
   /* --- Der Ablauf ---------------------------------------------------------- */
@@ -364,6 +428,8 @@ export class Buehnenshow {
     this.blitze.an = blitzWunsch
       && this.blitzKonto > (this.blitze.an ? 0 : BLITZ_HOECHSTENS * 0.5);
     this.blitze.fortschreiben(sekunden, 3 + spannung * 7 + wucht * 2);
+    this.flaschen.fortschreiben(sekunden, takt, wucht, spannung, this.spektrum, drop);
+    this.balken.fortschreiben(sekunden, wucht);
     return beamKraft;
   }
 
@@ -382,8 +448,25 @@ export class Buehnenshow {
       spannung = 0, abbau = 0, drop = false, palette = null,
     } = lage;
 
+    // Das Spektrum reicht die Buehne je Bild mit; die Flaschenwand braucht es
+    // fuer ihren Pegel, und `fortschreiben` bekommt es nicht als Parameter.
+    this.spektrum = lage.spektrum ?? null;
     this.fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
     const toene = lichtToene(palette);
+    /*
+     * Zwei Farbsaetze statt einem.
+     *
+     * `toene` gehen auf die Wand und werden an sie angepasst - auf einer
+     * orangen Grobspanplatte ist ein blauer Kegel kein blauer Kegel. `rein`
+     * geht auf die Gitterkaesten und bleibt, wie die Palette es meint.
+     *
+     * Ohne Messung sind beide gleich: `flaechenLesen` liefert dann eine
+     * neutrale Flaeche, und die veraendert nichts.
+     */
+    const rein = toene;
+    const wandToene = this.flaechen.grund.traegtFarbe
+      ? toene
+      : toene.map((t) => tonSchieben(t, this.flaechen.grund));
 
     /*
      * Der Dunkelfaktor. Alles wird damit multipliziert - so wirkt das Loch
@@ -430,6 +513,9 @@ export class Buehnenshow {
      */
     const rest = (1 - kugelKraft * 0.92) * (1 - this.blinder.staerke * 0.75);
 
+    const flaschenKraft = this._mischung('flaschen') * hell;
+    const balkenKraft = this._mischung('balken') * hell;
+
     if (washKraft * rest > 0.02) {
       this.grund.zeichnen(stift, {
         ...lage,
@@ -439,11 +525,24 @@ export class Buehnenshow {
         streifen: strichKraft,
         // Der Blinder gehoert hier der Regie - siehe partylicht.js.
         blinderAus: true,
+        // Und die an die Wand angepassten Farbwinkel.
+        wandToene,
       });
     }
 
     if (beamKraft * rest > 0.02) {
       this.beams.zeichnen(stift, breite, hoehe, toene[0], beamKraft * rest * (0.5 + wucht * 0.6));
+    }
+
+    /*
+     * Die Flaschenwand vor den Blitzen und nach dem Grundlicht: Sie ist ein
+     * Objekt im Raum und kein Effekt in der Luft.
+     */
+    if (flaschenKraft * rest > 0.02) {
+      this.flaschen.zeichnen(stift, breite, hoehe, rein[1], flaschenKraft * rest);
+    }
+    if (balkenKraft * rest > 0.02) {
+      this.balken.zeichnen(stift, breite, hoehe, wandToene[3] ?? wandToene[0], balkenKraft * rest);
     }
 
     this.blitze.zeichnen(stift, breite, hoehe, rest);
@@ -470,6 +569,10 @@ export class Buehnenshow {
       flammen: Math.max(...this.flammen.leben),
       co2: Math.max(...this.co2.leben),
       funken: this.funken.teilchen.length,
+      moeglich: this.moeglich.map((b) => b.name),
+      flaschenMuster: this.flaschen.muster,
+      flaschenKaesten: this.flaschen.kaesten.length,
+      wandTraegtFarbe: this.flaechen.grund.traegtFarbe,
       lampen: this.grund.lampen.length,
       flammenStellen: this.flammen.stellen,
     };

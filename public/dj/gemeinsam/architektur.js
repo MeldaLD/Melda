@@ -52,6 +52,7 @@
  * schattendj.js beim Bauen gemeldet, bevor er Schaden anrichten konnte.
  */
 import { toeneAus, mitAlpha } from './farben.js';
+import { fleck } from './gewerke.js';
 
 const zwischen = (x, a, b) => (x < a ? a : x > b ? b : x);
 
@@ -108,6 +109,35 @@ export class Architektur {
     this.kanten = bild.an ? bild.bereiche.filter((b) => b.art === 'kante') : [];
     this.tueren = bild.an ? bild.bereiche.filter((b) => b.art === 'tuer') : [];
     this.tot = bild.an ? bild.bereiche.filter((b) => b.art === 'tot') : [];
+    this.kaesten = bild.an ? bild.bereiche.filter((b) => b.art === 'gitterbox' && b.zellen) : [];
+    this.balkenB = bild.an ? bild.bereiche.filter((b) => b.art === 'balken') : [];
+    /*
+     * Das Echo der Gitterkaesten.
+     *
+     * Die Aufgabe: Die Mandalas sollen nicht *vor* den Kaesten laufen,
+     * sondern *durch* sie hindurch - wo ein Mandala hell ist, sollen die
+     * Flaschen darunter aufleuchten.
+     *
+     * Der naheliegende Weg waere, jedem Modus beizubringen, wo die Kaesten
+     * stehen. Das waeren zwanzig Aenderungen, zwanzig Gelegenheiten fuer
+     * Fehler, und jeder neue Modus muesste wieder daran denken.
+     *
+     * Der Weg hier ist ein anderer und kostet eine einzige Stelle: Nachdem
+     * der Modus gezeichnet hat, wird das fertige Bild *abgetastet*. Was an
+     * der Stelle einer Zelle hell ist, laesst die Zelle leuchten - egal
+     * welcher Modus es dorthin gemalt hat. Ein neuer Modus reagiert damit
+     * automatisch, ohne eine Zeile dafuer.
+     *
+     * Abgetastet wird nicht die grosse Leinwand, sondern eine winzige Kopie
+     * davon: Ein `getImageData` ueber 1920x1080 waere je Bild ein Vielfaches
+     * des ganzen Budgets, ueber 64x48 ist es nichts. Die Kopie entsteht mit
+     * einem einzigen `drawImage`, das die Grafikkarte macht.
+     */
+    this.echoBreite = 64;
+    this.echoHoehe = 48;
+    this.echoLeinwand = null;
+    this.echoStift = null;
+    this.echoFeld = this.kaesten.map((k) => new Float32Array(k.zellen.mitten.length));
     /*
      * Die Oeffnungen nach ihrer Lage von links nach rechts sortieren. Die
      * Welle laeuft danach - und eine Welle, die in der Reihenfolge des
@@ -140,7 +170,18 @@ export class Architektur {
 
   /** Gibt es ueberhaupt etwas zu tun? */
   get taetig() {
-    return this.bild.an && (this.oeffnungen.length > 0 || this.kanten.length > 0 || this.tot.length > 0);
+    /*
+     * Gitterkaesten und Balken gehoeren mit in diese Liste.
+     *
+     * Sie standen zuerst nicht darin, und die Folge war still und
+     * vollstaendig: In einem Raum, der *nur* Gitterkaesten hat und keine
+     * Fenster, hielt sich die Architektur fuer arbeitslos und stieg in der
+     * ersten Zeile von `zeichnen` aus. Das Flaschenecho lief nie. Die
+     * Messung hat null angeregte Zellen gemeldet - kein Fehler, keine
+     * Warnung, einfach nichts.
+     */
+    return this.bild.an && (this.oeffnungen.length > 0 || this.kanten.length > 0
+      || this.tot.length > 0 || this.kaesten.length > 0 || this.balkenB.length > 0);
   }
 
   /**
@@ -151,16 +192,110 @@ export class Architektur {
    * @param {number} hoehe
    * @param {object} lage     sekunden, takt, wucht, spannung, abbau, drop, palette, spektrum
    */
+  /**
+   * Die fertige Leinwand verkleinern und je Zelle nachsehen, wie hell es
+   * dort ist.
+   */
+  _echoAbtasten(stift, breite, hoehe, sekunden) {
+    if (!this.echoLeinwand) {
+      this.echoLeinwand = document.createElement('canvas');
+      this.echoLeinwand.width = this.echoBreite;
+      this.echoLeinwand.height = this.echoHoehe;
+      this.echoStift = this.echoLeinwand.getContext('2d', { willReadFrequently: true });
+    }
+    const B = this.echoBreite;
+    const H = this.echoHoehe;
+    this.echoStift.clearRect(0, 0, B, H);
+    this.echoStift.drawImage(stift.canvas, 0, 0, B, H);
+    const d = this.echoStift.getImageData(0, 0, B, H).data;
+
+    for (let k = 0; k < this.kaesten.length; k++) {
+      const zellen = this.kaesten[k].zellen;
+      const feld = this.echoFeld[k];
+      for (let i = 0; i < feld.length; i++) {
+        const [u, v] = zellen.mitten[i];
+        const x = Math.min(B - 1, Math.max(0, Math.round(u * B)));
+        const y = Math.min(H - 1, Math.max(0, Math.round(v * H)));
+        const q = (y * B + x) * 4;
+        // Grob die Helligkeit; auf Genauigkeit kommt es hier nicht an, es
+        // geht um "da ist etwas" gegen "da ist nichts".
+        const hell = (d[q] + d[q + 1] + d[q + 2]) / 765;
+        /*
+         * Anstieg schnell, Abfall langsam. Eine Flasche, die sofort wieder
+         * ausgeht, flackert; eine, die nachgluecht, zieht dem Mandala einen
+         * Schweif aus echten Flaschen hinterher.
+         */
+        feld[i] = hell > feld[i]
+          ? hell
+          : Math.max(hell, feld[i] - sekunden * 2.4);
+      }
+    }
+  }
+
+  /** Und die angeregten Zellen aufleuchten lassen. */
+  _echoZeichnen(stift, breite, hoehe, toene, wucht) {
+    const ton = toene[1] ?? toene[0];
+    const b = fleck(ton);
+    for (let k = 0; k < this.kaesten.length; k++) {
+      const zellen = this.kaesten[k].zellen;
+      const feld = this.echoFeld[k];
+      const gr = Math.max(2, Math.min(zellen.zellBreite, zellen.zellHoehe) * hoehe * 0.4);
+      for (let i = 0; i < feld.length; i++) {
+        const w = feld[i];
+        // Erst ab einer gewissen Helligkeit. Unterhalb davon waere es kein
+        // Echo, sondern ein Grauschleier ueber dem ganzen Kasten.
+        if (w < 0.12) continue;
+        const [u, v] = zellen.mitten[i];
+        stift.globalAlpha = Math.min(1, (w - 0.12) * 1.6 * (0.5 + wucht * 0.6));
+        stift.drawImage(b, u * breite - gr, v * hoehe - gr, gr * 2, gr * 2);
+      }
+    }
+    stift.globalAlpha = 1;
+  }
+
   zeichnen(stift, breite, hoehe, lage) {
     if (!this.taetig) return;
     const {
       sekunden = 1 / 60, takt = null, wucht = 0.5, spannung = 0, abbau = 0,
       drop = false, palette = null,
+      /*
+       * Die Buehnenshow treibt die Kaesten selbst - dann darf das Echo
+       * nicht auch noch hinein, sonst zeichnen zwei Systeme dieselben
+       * Zellen.
+       */
+      eigeneKaesten = false,
     } = lage;
     // Die Palette der Buehne ist ein Objekt, kein Feld - siehe farben.js.
     const toene = toeneAus(palette);
 
     this._fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
+
+    /*
+     * Abgetastet wird *vor* dem eigenen Zeichnen: Gefragt ist, was der Modus
+     * hingelegt hat, nicht was die Architektur gleich dazulegt. Sonst wuerde
+     * sich das Echo selbst verstaerken und nach zwei Sekunden stehen alle
+     * Zellen auf Anschlag.
+     */
+    /*
+     * Nur jedes zweite Bild abtasten - und die Begruendung dafuer ist eine
+     * andere, als sie hier zuerst stand.
+     *
+     * Die Annahme war: Das Verkleinern der grossen Leinwand erzwingt einen
+     * Rasterlauf, das ist der teure Teil, halbe Abtastrate halbiert ihn.
+     * Gemessen wurde dann 5,10 gegen 5,00 ms - also praktisch nichts. Der
+     * Posten von 1,4 ms steckt nicht im Abtasten, sondern im *Zeichnen* der
+     * angeregten Zellen; achtzig weiche Flecken sind achtzig weiche Flecken.
+     *
+     * Es bleibt trotzdem bei jedem zweiten Bild: Dieser Prueflauf hat keine
+     * Grafikkarte, und auf einer echten ist das Zurueckholen von Bildpunkten
+     * aus dem Grafikspeicher eher teurer als hier, nicht billiger. Die
+     * Massnahme kostet nichts und deckt einen Fall ab, den dieser Behaelter
+     * nicht messen kann. Sichtbar ist sie nicht, weil die Zellen nachgluehen.
+     */
+    this.echoTakt = (this.echoTakt ?? 0) + 1;
+    if (!eigeneKaesten && this.kaesten.length && this.echoTakt % 2 === 0) {
+      this._echoAbtasten(stift, breite, hoehe, sekunden * 2);
+    }
 
     stift.save();
     /*
@@ -171,6 +306,9 @@ export class Architektur {
      * ausstechen.
      */
     stift.globalCompositeOperation = 'lighter';
+    if (!eigeneKaesten && this.kaesten.length) {
+      this._echoZeichnen(stift, breite, hoehe, toene, wucht);
+    }
     this._fuellungen(stift, breite, hoehe, toene, wucht, lage.spektrum);
     this._rahmen(stift, breite, hoehe, toene, wucht);
     this._teilchen(stift, breite, hoehe, toene);

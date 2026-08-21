@@ -214,10 +214,17 @@ try {
         verschiedene: new Set(folge).size, wechsel: folge.length,
         kuerzeste: dauern.length ? Math.min(...dauern) : 0,
         folge: folge.slice(0, 12),
-        alle: window.__BILDER.length,
+        /*
+         * Verglichen wird gegen die Bilder, die *dieser Raum hergibt*, nicht
+         * gegen alle. Ein Bild, das Gitterkaesten braucht, kann in einer
+         * Fassadenmessung nicht vorkommen, und es zu verlangen hiesse, eine
+         * richtige Entscheidung der Regie als Fehler zu zaehlen.
+         */
+        alle: proben[0].moeglich.length,
+        namen: proben[0].moeglich,
       };
     });
-    pruefe('alle Bilder kommen vor', r.verschiedene >= r.alle - 1,
+    pruefe('alle moeglichen Bilder kommen vor', r.verschiedene >= r.alle,
       `${r.verschiedene} von ${r.alle}: ${r.folge.join(' → ')} …`);
     /*
      * Kein Bild darf kuerzer als zwei Phrasen stehen. Das ist die

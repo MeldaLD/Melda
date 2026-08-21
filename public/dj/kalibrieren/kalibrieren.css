@@ -154,3 +154,32 @@ li { margin: 0.35rem 0; }
   color: rgba(255, 255, 255, 0.25);
   font-size: 0.75rem;
 }
+
+/*
+ * Die zwei Rasterzahlen fuer den Gitterkasten. Sie stehen in der
+ * Werkzeugleiste und sollen dort nicht auffallen, solange sie nicht
+ * gebraucht werden - deshalb kein eigener Kasten, nur enger Satz.
+ */
+/*
+ * Das `[hidden]` muss ausdruecklich gewinnen.
+ *
+ * Der Browser gibt `[hidden]` nur `display: none` als Vorgabe mit, und eine
+ * Klassenregel schlaegt die. Ohne diese zwei Zeilen standen die
+ * Rasterfelder auch bei "Fenster" da - die Abnahme hat es sofort gemeldet.
+ */
+.raster-felder[hidden] {
+  display: none;
+}
+
+.raster-felder {
+  display: inline-flex;
+  gap: 0.6rem;
+  align-items: center;
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.raster-felder input {
+  width: 3.4rem;
+  margin-left: 0.25rem;
+}

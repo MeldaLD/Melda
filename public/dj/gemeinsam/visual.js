@@ -551,6 +551,8 @@ export class Visualisierung {
       drop: dropJetzt,
       palette: this.paletteFuer(aktiv?.track),
       spektrum: this.spektrumScharf,
+      // Die Buehnenshow treibt die Gitterkaesten selbst - siehe lager.js.
+      eigeneKaesten: modus.eigeneKaesten === true,
     });
 
     // Ringe, Funken, Spannungsbogen und das Aufblitzen nach dem Drop gehoeren

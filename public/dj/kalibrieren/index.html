@@ -78,12 +78,27 @@
         <button id="modusMarken" class="werkzeug an">Ecken setzen <b id="markenZahl">0/4</b></button>
         <button id="modusBereich" class="werkzeug">Bereich zeichnen</button>
         <select id="bereichsart" title="Was ist das für ein Bereich?">
+          <option value="gitterbox">Gitterkasten – Flaschenraster, glänzt</option>
           <option value="fenster">Fenster – Inhalt darf hinein</option>
           <option value="tuer">Tür – hier kommt etwas heraus</option>
           <option value="kante">Kante / Sims – Linie zum Nachzeichnen</option>
+          <option value="balken">Balken – Deckenbalken, Licht läuft entlang</option>
+          <option value="knick">Knick – Raumkante, hier bricht das Bild</option>
           <option value="flaeche">Fläche – gute Projektionsfläche</option>
           <option value="tot">Totzone – hier nichts hinwerfen</option>
         </select>
+        <!--
+          Nur fuer den Gitterkasten: wie viele Faecher er breit und hoch ist.
+          Damit wird aus dem Kasten eine ansprechbare Punktmatrix.
+        -->
+        <span id="rasterFelder" class="raster-felder" hidden>
+          <label title="Wie viele Fächer breit ist der Kasten?">
+            Spalten <input type="number" id="rasterSpalten" value="10" min="1" max="40" />
+          </label>
+          <label title="Wie viele Fächer hoch ist der Kasten?">
+            Reihen <input type="number" id="rasterReihen" value="6" min="1" max="40" />
+          </label>
+        </span>
         <button id="bereichFertig" disabled>Bereich schließen</button>
         <span class="trenner"></span>
         <label class="schalter"><input type="checkbox" id="rasterZeigen" checked /> Prüfraster</label>

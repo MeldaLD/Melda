@@ -128,14 +128,33 @@ Eckpunkte anklicken, **Bereich schließen**:
 
 | Art | Wofür | Was die Show damit macht |
 |---|---|---|
+| **Gitterkasten** | die Flaschenkästen | wird zur Punktmatrix: Pegel, Lauflicht, Funkeln |
 | **Fenster** | Fensterflächen | Inhalt läuft *hinein*, Rahmen werden nachgezeichnet |
 | **Tür** | Türen, Tore, Durchgänge | Hier kommt etwas *heraus* |
 | **Kante / Sims** | Gesimse, Sockel, Kanten | Lauflichter und Punktreihen laufen darauf |
+| **Balken** | Deckenbalken | Licht läuft der Reihe nach an ihnen entlang |
+| **Knick** | Raumkanten, wo die Wand abknickt | dort bricht das Bild – nichts Wichtiges hin |
 | **Fläche** | glatte, gute Wandstücke | bevorzugt für große Motive |
-| **Totzone** | Regenrohre, Büsche, Fenster mit Gästen dahinter | hier landet nichts |
+| **Totzone** | Regenrohre, Kisten, alles Störende | hier landet nichts |
 
-Lieber wenige, gut gesetzte Bereiche als viele ungenaue. **Zwei Fenster, eine
-Tür und die Sockelkante reichen für einen sehr guten ersten Eindruck.**
+### Für diesen Raum: die Gitterkästen zuerst
+
+Sie sind das Wertvollste, was der Raum hat – warum, steht in
+[LAGERRAUM.md](./LAGERRAUM.md). Beim Markieren:
+
+1. Art auf **Gitterkasten** stellen.
+2. **Spalten** und **Reihen** eintragen: wie viele Flaschen der Kasten breit
+   und hoch ist. Ruhig nachzählen, es lohnt sich – daraus wird die
+   Auflösung der Anzeigetafel. Zur Not schätzen; ungefähr ist besser als gar
+   nicht.
+3. **Genau vier Ecken**, im Uhrzeigersinn ab oben links. Die Seite lässt für
+   diese Art nichts anderes zu – ohne vier Ecken gibt es kein Raster.
+4. Für **jeden** Kasten einzeln, nicht einen Rahmen um den ganzen Stapel.
+
+Danach die vier, fünf **Deckenbalken** und die **Raumkante** links als Knick.
+
+Lieber wenige, gut gesetzte Bereiche als viele ungenaue. **Die vier
+Gitterkästen allein tragen schon fast alles.**
 
 ## 7 · Kontrollieren — der wichtigste Schritt
 
