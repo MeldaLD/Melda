@@ -176,7 +176,27 @@ try {
        * `oberflaecheLesen` direkt fuettert.
        */
       const durchKette = flaechenLesen(buehnenbildBauen(window.__LAGER, 1920, 1080));
+      /*
+       * Und der Fall, seit weisse Platten an der Wand haengen: Der Median
+       * des ganzen Fotos liegt dann zwischen Orange und Weiss und
+       * beschreibt keine der beiden Flaechen. Markierte Projektionsflaechen
+       * muessen ihn schlagen.
+       */
+      const mitPlatten = flaechenLesen(buehnenbildBauen({
+        ...window.__LAGER,
+        // ein Median, der zwischen Holz und Platte haengt
+        grundfarbe: [225, 205, 180],
+        bereiche: [...window.__LAGER.bereiche,
+          { art: 'flaeche', name: 'Platte 1', farbe: [238, 236, 232],
+            punkte: [[0.20, 0.30], [0.55, 0.30], [0.55, 0.60], [0.20, 0.60]] },
+          { art: 'flaeche', name: 'Platte 2', farbe: [232, 230, 228],
+            punkte: [[0.56, 0.30], [0.80, 0.30], [0.80, 0.60], [0.56, 0.60]] }],
+      }, 1920, 1080));
       return {
+        plattenAusVorzug: mitPlatten.ausVorzug,
+        plattenNeutral: mitPlatten.grund.neutral,
+        plattenTraegtFarbe: mitPlatten.grund.traegtFarbe,
+        plattenZahl: mitPlatten.vorzugsflaechen.length,
         ketteNeutral: durchKette.grund.neutral,
         ketteFarbe: durchKette.grund.traegtFarbe,
         kasten: durchKette.fuer({ name: 'Gitterkasten 1' }).traegtFarbe,
@@ -198,6 +218,14 @@ try {
       r.ketteFarbe === false && Math.abs(r.ketteNeutral - r.osbNeutral) < 0.01,
       `Neutralitaet ${r.ketteNeutral.toFixed(2)} nach buehnenbildBauen`);
     pruefe('und der Kasten wird dabei eigenstaendig gelesen', r.kasten === true);
+    /*
+     * Weisse Platten an der Wand: Ab jetzt zaehlen die markierten
+     * Projektionsflaechen und nicht mehr der Durchschnitt des Raumes.
+     */
+    pruefe('markierte Projektionsflaechen schlagen den Foto-Median',
+      r.plattenAusVorzug === true, `${r.plattenZahl} Flaechen`);
+    pruefe('und eine weisse Platte traegt dann wieder Farbe',
+      r.plattenTraegtFarbe === true, `Neutralitaet ${r.plattenNeutral.toFixed(2)}`);
     pruefe('der Stahl traegt Farbe', r.stahlFarbe === true,
       `Neutralitaet ${r.stahlNeutral.toFixed(2)}`);
     /*

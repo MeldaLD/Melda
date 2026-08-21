@@ -222,14 +222,43 @@ function hslNachRgb(winkel, s, l) {
  * abfragen muss, ob es eine Messung gibt.
  */
 export function flaechenLesen(bild) {
-  const grund = oberflaecheLesen(bild?.grundfarbe ?? null);
   const jeBereich = new Map();
   for (const b of bild?.bereiche ?? []) {
     jeBereich.set(b.name, oberflaecheLesen(b.farbe ?? null));
   }
+
+  /*
+   * Welche Farbe gilt als *die* Flaeche des Raumes?
+   *
+   * `grundfarbe` ist der Median des ganzen Fotos, und solange der Raum aus
+   * einem Material besteht, ist das genau richtig. Sobald jemand weisse
+   * Platten an eine orange Holzwand haengt, ist es genau falsch: Der Median
+   * landet irgendwo zwischen beiden und beschreibt keine der beiden
+   * Flaechen. Die Folge waere die schlechteste von allen - die Farbwinkel
+   * wuerden auf ein Orange geschoben, das es an der Stelle gar nicht mehr
+   * gibt, und die weisse Platte bekaeme eine Korrektur, die sie nicht
+   * braucht.
+   *
+   * Gibt es Bereiche der Art "flaeche", sind das die Stellen, auf die
+   * geworfen wird - dann zaehlen die und nicht der Durchschnitt des Raumes.
+   * Gemittelt wird ueber sie, damit zwei verschieden helle Platten nicht
+   * davon abhaengen, welche zuerst markiert wurde.
+   */
+  const vorzug = (bild?.bereiche ?? []).filter((b) => b.art === 'flaeche' && b.farbe);
+  let grundfarbe = bild?.grundfarbe ?? null;
+  if (vorzug.length) {
+    const summe = [0, 0, 0];
+    for (const b of vorzug) for (let i = 0; i < 3; i++) summe[i] += b.farbe[i];
+    grundfarbe = summe.map((v) => Math.round(v / vorzug.length));
+  }
+  const grund = oberflaecheLesen(grundfarbe);
+
   return {
     grund,
     jeBereich,
+    /** Ob die Hauptflaeche aus markierten Projektionsflaechen kommt. */
+    ausVorzug: vorzug.length > 0,
+    vorzugsflaechen: vorzug.map((b) => b.name),
     fuer: (bereich) => jeBereich.get(bereich?.name) ?? grund,
   };
 }

@@ -140,7 +140,7 @@ Eckpunkte anklicken, **Bereich schließen**:
 | **Kante / Sims** | Gesimse, Sockel, Kanten | Lauflichter und Punktreihen laufen darauf |
 | **Balken** | Deckenbalken | Licht läuft der Reihe nach an ihnen entlang |
 | **Knick** | Raumkanten, wo die Wand abknickt | dort bricht das Bild – nichts Wichtiges hin |
-| **Fläche** | glatte, gute Wandstücke | bevorzugt für große Motive |
+| **Fläche** | die weißen Platten | **wird zur Referenz für die Farbmessung** |
 | **Totzone** | Regenrohre, Kisten, alles Störende | hier landet nichts |
 
 ### Für diesen Raum: die Gitterkästen zuerst
@@ -158,6 +158,16 @@ Sie sind das Wertvollste, was der Raum hat – warum, steht in
 4. Für **jeden** Kasten einzeln, nicht einen Rahmen um den ganzen Stapel.
 
 Danach die vier, fünf **Deckenbalken** und die **Raumkante** links als Knick.
+
+### Und die weißen Platten als *Fläche* markieren
+
+Wichtiger, als es aussieht. Die Software misst die Oberflächenfarbe aus dem
+Foto, und ohne markierte Flächen nimmt sie den Median des **ganzen** Bildes.
+In einem Raum aus einem Material stimmt das; mit weißen Platten an oranger
+Holzwand landet der Median dazwischen und beschreibt keine der beiden.
+
+Sind Flächen markiert, zählen die — und nur die. Die orange Wand links und
+rechts muss dafür **nicht** markiert werden.
 
 Lieber wenige, gut gesetzte Bereiche als viele ungenaue. **Die vier
 Gitterkästen allein tragen schon fast alles.**
