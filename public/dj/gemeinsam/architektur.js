@@ -52,7 +52,7 @@
  * schattendj.js beim Bauen gemeldet, bevor er Schaden anrichten konnte.
  */
 import { toeneAus, mitAlpha } from './farben.js';
-import { fleck } from './gewerke.js';
+import { fleck, Schwarzschnitt } from './gewerke.js';
 
 const zwischen = (x, a, b) => (x < a ? a : x > b ? b : x);
 
@@ -138,6 +138,33 @@ export class Architektur {
     this.echoLeinwand = null;
     this.echoStift = null;
     this.echoFeld = this.kaesten.map((k) => new Float32Array(k.zellen.mitten.length));
+    /*
+     * Der Schwarzschnitt - auch fuer die Mandalas.
+     *
+     * Er sitzt hier und nicht in den einzelnen Modi, aus demselben Grund wie
+     * das Flaschenecho: Die Architektur laeuft nach jedem Modus, also
+     * bekommt jeder Modus den Schnitt geschenkt, ohne davon zu wissen. Ein
+     * Mandala, durch das schwarze Balken wandern, ist auf einer Wand etwas
+     * ganz anderes als eines, das gleichmaessig leuchtet.
+     */
+    this.schnitt = new Schwarzschnitt();
+
+    /*
+     * Der Kantenblitz.
+     *
+     * Was beim Einmessen als Kante oder Balken markiert ist, sind die harten
+     * Linien des Raumes: Gesimse, Sockel, Deckenbalken. Ein kurzer heller
+     * Schlag genau auf ihnen zeichnet fuer einen Wimpernschlag den *Raum*
+     * nach statt eines Bildes - und weil er auf einer echten Kante sitzt,
+     * sieht er nicht aus wie Projektion, sondern wie eingebautes Licht.
+     *
+     * Er hat eine Sperrzeit, und die ist der ganze Punkt. Ein Blitz, der auf
+     * jedem Drop kommt, ist nach zehn Minuten Tapete; einer, der zweimal im
+     * Track kommt, ist ein Ereignis. Dieselbe Ueberlegung wie bei Flamme und
+     * Blinder in der Buehnenshow, nur billiger.
+     */
+    this.kantenBlitz = 0;
+    this.kantenSperre = 0;
     /*
      * Die Oeffnungen nach ihrer Lage von links nach rechts sortieren. Die
      * Welle laeuft danach - und eine Welle, die in der Reihenfolge des
@@ -269,6 +296,12 @@ export class Architektur {
     const toene = toeneAus(palette);
 
     this._fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
+    /*
+     * Bei der Buehnenshow bringt die Regie ihren eigenen Schnitt mit -
+     * zwei uebereinander waeren einer zu viel, genau wie beim Blinder.
+     */
+    this.schnitt.fortschreiben(sekunden, takt, wucht,
+      eigeneKaesten ? 0 : 0.3 + wucht * 0.35);
 
     /*
      * Abgetastet wird *vor* dem eigenen Zeichnen: Gefragt ist, was der Modus
@@ -313,13 +346,37 @@ export class Architektur {
     this._rahmen(stift, breite, hoehe, toene, wucht);
     this._teilchen(stift, breite, hoehe, toene);
     this._laeufer(stift, breite, hoehe, toene);
+    this._kantenBlitz(stift, breite, hoehe, toene);
     stift.restore();
 
     // Die Totzonen zuletzt und *nicht* additiv: Sie nehmen weg.
     this._totzonen(stift, breite, hoehe);
+
+    /*
+     * Und ganz zuletzt der Schwarzschnitt, aus demselben Grund: Er addiert
+     * nicht, er loescht. Er nimmt damit auch aus dem Modus darunter Licht
+     * heraus, und genau das ist gewollt - ein schwarzer Balken, der die
+     * Fensterrahmen durchschneidet, aber nicht das Mandala dahinter, waere
+     * kein Balken, sondern ein Zeichenfehler.
+     *
+     * Diese Zeile stand versehentlich einmal *in* `_totzonen`, und der
+     * Fehler war unsichtbar: Diese Methode laeuft nur, wenn es Totzonen
+     * gibt. In einem Raum ohne welche wurde der Schnitt nie gezeichnet -
+     * kein Fehler, keine Warnung, nur eine Messung, die sich nicht bewegte.
+     */
+    this.schnitt.zeichnen(stift, breite, hoehe);
   }
 
   /* --- Der innere Stand ---------------------------------------------------- */
+
+  /*
+   * Sperrzeit des Kantenblitzes, in Sekunden.
+   *
+   * Neun Sekunden sind bei 124 Schlaegen je Minute knapp fuenf Takte - lang
+   * genug, dass zwei Blitze nie zur Folge werden, kurz genug, dass ein
+   * Aufbau mit mehreren Drops nicht nur einen einzigen abbekommt.
+   */
+  static get KANTEN_SPERRE() { return 9; }
 
   _fortschreiben(sekunden, takt, wucht, spannung, abbau, drop) {
     const abfall = Math.exp(-RAHMEN_ABKLINGEN * sekunden);
@@ -363,8 +420,22 @@ export class Architektur {
       }
     }
 
+    // Der Blitz klingt schnell ab - er ist ein Schlag, kein Licht.
+    if (this.kantenBlitz > 0) this.kantenBlitz = Math.max(0, this.kantenBlitz - sekunden * 4.5);
+    if (this.kantenSperre > 0) this.kantenSperre = Math.max(0, this.kantenSperre - sekunden);
+
     if (drop) {
       this.dropHall = 1;
+      /*
+       * Der Drop zuendet die Kanten - aber nur, wenn die Sperre abgelaufen
+       * ist. Und nur, wenn wirklich Energie da ist: Ein Drop im Ausklang
+       * ist kein Moment fuer den staerksten Akzent, den dieses Modul hat.
+       */
+      if (this.kantenSperre <= 0 && wucht > 0.5
+        && (this.kanten.length > 0 || this.balkenB.length > 0)) {
+        this.kantenBlitz = 1;
+        this.kantenSperre = Architektur.KANTEN_SPERRE;
+      }
       // Beim Drop alles auf einmal - das ist der eine Moment, in dem die ganze
       // Fassade brennen darf.
       for (const b of this.bild.bereiche) this._anzuenden(b, 1.4);
@@ -580,6 +651,41 @@ export class Architektur {
     stift.restore();
   }
 
+  /**
+   * Die markierten Kanten und Balken kurz weiss aufreissen.
+   *
+   * Hell und *hart*: keine weichen Flecken, sondern eine Linie mit einem
+   * Kern. Eine echte Kante wirft ein hartes Licht, und genau daran erkennt
+   * das Auge, dass da etwas Gebautes ist und nicht etwas Gemaltes.
+   */
+  _kantenBlitz(stift, breite, hoehe, toene) {
+    if (this.kantenBlitz < 0.02) return;
+    const w = this.kantenBlitz;
+    const linien = [...this.kanten, ...this.balkenB];
+    if (!linien.length) return;
+    stift.lineCap = 'round';
+    for (const b of linien) {
+      // Die Mittellinie des Bereichs: Anfang und Mitte des Umfangs sind bei
+      // einem langen, schmalen Viereck genau die beiden Enden.
+      const a = b.aufDemRand ? b.aufDemRand(0) : b.punkte[0];
+      const c = b.aufDemRand ? b.aufDemRand(0.5) : b.punkte[2];
+      // Erst ein breiter, schwacher Schein - das ist der Hof.
+      stift.strokeStyle = toene[1] ?? toene[0];
+      stift.globalAlpha = zwischen(w * 0.4, 0, 1);
+      stift.lineWidth = Math.max(2, hoehe * 0.02 * w);
+      stift.beginPath();
+      stift.moveTo(a[0] * breite, a[1] * hoehe);
+      stift.lineTo(c[0] * breite, c[1] * hoehe);
+      stift.stroke();
+      // Und darauf der harte Kern.
+      stift.strokeStyle = 'hsl(210 25% 96%)';
+      stift.globalAlpha = zwischen(w * 0.95, 0, 1);
+      stift.lineWidth = Math.max(1, hoehe * 0.0035);
+      stift.stroke();
+    }
+    stift.globalAlpha = 1;
+  }
+
   /** Fuer die Abnahme: der innere Stand, ohne dass etwas gezeichnet werden muss. */
   stand() {
     return {
@@ -589,6 +695,8 @@ export class Architektur {
       wellePhase: this.wellePhase,
       laeufer: this.laeufer ? { name: this.laeufer.bereich.name, wo: this.laeufer.wo } : null,
       dropHall: this.dropHall,
+      kantenBlitz: this.kantenBlitz,
+      kantenSperre: this.kantenSperre,
       licht: Object.fromEntries([...this.licht].map(([b, v]) => [b.name, v])),
     };
   }

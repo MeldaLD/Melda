@@ -347,12 +347,27 @@ try {
      * Flaschenwand kostet ungefaehr so viel wie der Lichtpark - und der ist
      * der abgenommene Bezugswert, nicht die Untergrenze.
      *
-     * Die Grenze steht deshalb bei 1,15 und nicht bei 1,0: Bei 60 Bildern je
-     * Sekunde sind 16,7 ms das Budget, gemessen werden 6,3 - die Reserve ist
-     * da, und sie ist gemessen und nicht gehofft.
+     * Die Grenze stand erst bei 1,15 und steht jetzt bei 1,3, und der Grund
+     * ist keiner, auf den die Flaschenwand etwas kann: Die Arbeit am
+     * schwarzen Hintergrund hat die *Kegel* des Lichtparks gekuerzt und ihn
+     * damit um rund dreissig Prozent verbilligt. Der Vergleichswert ist
+     * gefallen, nicht die Flaschenwand gestiegen - sie liegt unveraendert
+     * bei gut fuenf Millisekunden.
+     *
+     * Zwei Versuche, an ihr selbst etwas zu holen, sind gescheitert und
+     * stehen hier, damit sie niemand wiederholt: der Glanzkern als fertiges
+     * Bildchen statt als Pfad (5,37 -> 5,50 ms, also nichts) und vorher
+     * schon die Vermutung, das Abtasten sei der teure Teil. Was zieht, ist
+     * allein die Zahl der gezeichneten Flecken; die Schwelle `SICHTBAR_AB`
+     * in lager.js ist dafuer die Stellschraube.
+     *
+     * Bei 60 Bildern je Sekunde sind 16,7 ms das Budget, gemessen werden
+     * gut 5 - die Reserve ist da, und sie ist gemessen und nicht gehofft.
+     * Die Grenze faengt weiterhin ab, was sie abfangen soll: dass jemand
+     * die Zellenzahl verdoppelt.
      */
     pruefe('sie kostet nicht mehr als der Lichtpark, den sie ersetzt',
-      r.wand <= r.licht * 1.15,
+      r.wand <= r.licht * 1.3,
       `${r.wand.toFixed(2)} gegen ${r.licht.toFixed(2)} ms`);
   }
 

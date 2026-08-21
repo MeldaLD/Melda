@@ -7764,12 +7764,27 @@ class Partylicht {
      */
     stift.save();
     stift.globalCompositeOperation = 'lighter';
-    const dunst = stift.createLinearGradient(0, hoehe, 0, hoehe * 0.15);
-    dunst.addColorStop(0, mitAlpha(toene[1], 0.13));
+    /*
+     * Der Dunst deckt nur noch den Fuss der Kegel statt der ganzen Flaeche.
+     *
+     * Hier stand ein `fillRect` ueber die *komplette* Leinwand. Die
+     * Begruendung war richtig und der Ort falsch: Ein Lichtstrahl ist nur zu
+     * sehen, wenn etwas in der Luft ist - aber das gilt fuer den Strahl, und
+     * ein Strahl steht nicht ueberall.
+     *
+     * Auf einem Bildschirm faellt der Unterschied nicht auf. Auf einer
+     * Projektion beleuchtet dieselbe Flaeche die ganze Wand schwach, und
+     * genau das frisst den Kontrast: Gemessen waren von der Buehnenshow nur
+     * zwanzig Prozent der Flaeche wirklich schwarz, der Rest lag im
+     * Schleier. Jetzt liegt der Dunst dort, wo die Lampen stehen, und
+     * darueber ist Nacht.
+     */
+    const dunst = stift.createLinearGradient(0, hoehe, 0, hoehe * 0.55);
+    dunst.addColorStop(0, mitAlpha(toene[1], 0.16));
     dunst.addColorStop(1, mitAlpha(toene[1], 0));
     stift.fillStyle = dunst;
-    stift.globalAlpha = 0.14 + this.helligkeit * 0.16;
-    stift.fillRect(0, 0, breite, hoehe);
+    stift.globalAlpha = 0.1 + this.helligkeit * 0.12;
+    stift.fillRect(0, hoehe * 0.55, breite, hoehe * 0.45);
     stift.globalAlpha = 1;
 
     // --- Die Kegel ---
@@ -7812,9 +7827,23 @@ class Partylicht {
        * sieht man den Unterschied nicht.
        */
       const v = stift.createLinearGradient(fx, fy, fx + kippen * reich, fy - reich);
+      /*
+       * Der Kegel stirbt frueher.
+       *
+       * Vorher lief der Verlauf von 0,16 bei halber Hoehe bis 0 am Ende -
+       * also lag ueber der oberen Haelfte der Wand ein schwacher Schleier,
+       * und weil sich die Kegel aller Lampen dort ueberlagern, war davon
+       * nichts mehr schwach. Gemessen waren nur zwanzig Prozent des Bildes
+       * wirklich schwarz.
+       *
+       * Ein Scheinwerfer im Nebel sieht auch nicht so aus: Sein Strahl wird
+       * mit der Entfernung schnell schwaecher und ist irgendwann weg. Die
+       * letzten dreissig Prozent der Kegelhoehe sind jetzt Nacht.
+       */
       v.addColorStop(0, farbe);
       v.addColorStop(0.10, mitAlpha(farbe, 0.55));
-      v.addColorStop(0.5, mitAlpha(farbe, 0.16));
+      v.addColorStop(0.42, mitAlpha(farbe, 0.13));
+      v.addColorStop(0.72, mitAlpha(farbe, 0));
       v.addColorStop(1, mitAlpha(farbe, 0));
       stift.fillStyle = v;
       stift.globalAlpha = klammer(kraft * KEGEL_DECKUNG, 0, 1);
@@ -8736,6 +8765,162 @@ class Funken {
   }
 }
 
+/* --- Der Schwarzschnitt ------------------------------------------------------
+ *
+ * Das einzige Gewerk, das kein Licht macht, sondern welches wegnimmt.
+ *
+ * --- Warum es das braucht ---------------------------------------------------
+ *
+ * Ein Beamer kann Schwarz nicht *werfen*. Er addiert Licht; wo das Bild
+ * schwarz ist, wirft er nichts, und man sieht die Wand, wie sie ist. Auf
+ * einem Bildschirm ist Schwarz eine Farbe unter vielen - auf einer Projektion
+ * ist es der einzige echte Gegenpol zu allem anderen, und zwar ein
+ * unendlich starker: null Licht gegen viel Licht.
+ *
+ * Daraus folgt etwas Ungewohntes: Das wirksamste Gestaltungsmittel in diesem
+ * Raum ist nicht eine Farbe, sondern eine *Form ohne Licht*. Ein harter
+ * schwarzer Balken quer durch einen hellen Kegel trennt schaerfer als jeder
+ * Farbkontrast es koennte, weil die eine Seite gar nicht beleuchtet ist.
+ *
+ * --- Wie man Schwarz zeichnet ------------------------------------------------
+ *
+ * Gar nicht - jedenfalls nicht additiv. Die ganze Show zeichnet mit
+ * `lighter`, und schwarz addiert ist nichts. Wer Schwarz *hinzufuegen* will,
+ * muss stattdessen Licht *entfernen*: `destination-out` loescht dort, wo
+ * gezeichnet wird, statt hinzuzufuegen. Man stanzt Loecher.
+ *
+ * Deshalb laeuft dieses Gewerk immer als letztes, nach allem anderen.
+ */
+
+/** Die Muster, in denen gestanzt wird. */
+const SCHNITTE = ['balken', 'keil', 'ring', 'kamm', 'mandala'];
+
+class Schwarzschnitt {
+  constructor() {
+    this.muster = 'balken';
+    this.phase = 0;
+    this.staerke = 0;
+    this.ziel = 0;
+    this.letztePhrase = -1;
+  }
+
+  /**
+   * @param {number} wunsch  wie stark geschnitten werden soll, 0 bis 1
+   */
+  fortschreiben(sekunden, takt, wucht, wunsch) {
+    this.phase += sekunden * (0.35 + wucht * 0.9);
+    this.ziel = wunsch;
+    // Weich auf- und zufahren. Ein Schnitt, der hart einsetzt, sieht aus wie
+    // ein Fehler im Bild und nicht wie eine Entscheidung.
+    this.staerke += (this.ziel - this.staerke) * kl(sekunden * 1.6, 0, 1);
+    if (takt && takt.aufPhrase && takt.nummer !== this.letztePhrase) {
+      this.letztePhrase = takt.nummer;
+      const i = SCHNITTE.indexOf(this.muster);
+      this.muster = SCHNITTE[(i + 1) % SCHNITTE.length];
+    }
+  }
+
+  zeichnen(stift, breite, hoehe) {
+    if (this.staerke < 0.03) return;
+    stift.save();
+    /*
+     * `destination-out` mit einem Deckungsgrad unter eins loescht nur
+     * teilweise. Genau das ist gewollt: Ein Schnitt, der immer alles
+     * wegnimmt, zerhackt das Bild. Einer, der sich aufbaut, schiebt sich
+     * hinein.
+     */
+    stift.globalCompositeOperation = 'destination-out';
+    stift.fillStyle = '#000';
+    stift.globalAlpha = kl(this.staerke, 0, 1);
+
+    if (this.muster === 'balken') {
+      /*
+       * Waagerechte Balken, die nach oben wandern. Die Vorlage ist eine
+       * Jalousie vor einem Fenster - und sie passt zu diesem Raum, weil die
+       * Deckenbalken dasselbe schon in echt tun.
+       */
+      const zahl = 7;
+      const hoeheJe = hoehe / (zahl * 2);
+      const versatz = (this.phase % 1) * hoeheJe * 2;
+      for (let i = -1; i < zahl + 1; i++) {
+        stift.fillRect(0, hoehe - versatz - i * hoeheJe * 2, breite, hoeheJe);
+      }
+    } else if (this.muster === 'keil') {
+      // Ein Muehlrad aus Schatten. Vier Keile, die sich drehen.
+      const mx = breite / 2;
+      const my = hoehe * 0.55;
+      const r = Math.hypot(breite, hoehe);
+      const keile = 4;
+      for (let i = 0; i < keile; i++) {
+        const a = this.phase * 0.6 + (i / keile) * Math.PI * 2;
+        stift.beginPath();
+        stift.moveTo(mx, my);
+        stift.arc(mx, my, r, a, a + Math.PI / keile);
+        stift.closePath();
+        stift.fill();
+      }
+    } else if (this.muster === 'ring') {
+      /*
+       * Ein wachsender schwarzer Ring, der nach aussen laeuft und dabei
+       * duenner wird. Das Gegenstueck zu einer Schockwelle aus Licht - und
+       * auf einer Wand deutlich staerker, weil dahinter wirklich nichts ist.
+       */
+      const mx = breite / 2;
+      const my = hoehe * 0.55;
+      const t = this.phase % 1;
+      const r = t * Math.hypot(breite, hoehe) * 0.75;
+      const dick = hoehe * 0.16 * (1 - t);
+      if (dick > 0.5) {
+        stift.lineWidth = dick;
+        stift.strokeStyle = '#000';
+        stift.beginPath();
+        stift.arc(mx, my, Math.max(1, r), 0, Math.PI * 2);
+        stift.stroke();
+      }
+    } else if (this.muster === 'mandala') {
+      /*
+       * Schwarze Ringe um die Bildmitte.
+       *
+       * Das ist der Schnitt fuer die Mandalas, und er ist etwas anderes als
+       * die uebrigen vier: Die schneiden *durch* das Bild, dieser schneidet
+       * *mit ihm*. Ein Mandala ist konzentrisch aufgebaut; schwarze Ringe in
+       * derselben Mitte lesen sich nicht als Stoerung, sondern als Teil der
+       * Figur - so als waere Schwarz einer der Farbringe.
+       *
+       * Und auf einer Projektion ist es genau das: der einzige "Farbton",
+       * bei dem der Beamer nichts wirft und die Wand durchkommt. Neben ihm
+       * wirkt jeder andere Ring heller, als er ist.
+       */
+      const mx = breite / 2;
+      const my = hoehe / 2;
+      const aussen = Math.hypot(breite, hoehe) * 0.5;
+      const ringe = 5;
+      stift.strokeStyle = '#000';
+      for (let i = 0; i < ringe; i++) {
+        // Die Ringe atmen leicht - sonst stehen sie wie aufgemalt im Bild.
+        const t = (i + 0.5) / ringe + Math.sin(this.phase * 0.7 + i) * 0.035;
+        const r = t * aussen;
+        const dick = aussen * 0.055 * (0.7 + 0.5 * Math.sin(this.phase * 1.1 + i * 2));
+        if (r <= dick / 2 || dick < 0.5) continue;
+        stift.lineWidth = dick;
+        stift.beginPath();
+        stift.arc(mx, my, r, 0, Math.PI * 2);
+        stift.stroke();
+      }
+    } else {
+      // Senkrechte Zinken, die sich seitlich schieben - ein Kamm.
+      const zahl = 11;
+      const breiteJe = breite / (zahl * 2);
+      const versatz = (this.phase % 1) * breiteJe * 2;
+      for (let i = -1; i < zahl + 1; i++) {
+        stift.fillRect(versatz + i * breiteJe * 2, 0, breiteJe, hoehe);
+      }
+    }
+    stift.restore();
+    stift.globalAlpha = 1;
+  }
+}
+
 
 // ===== public/gemeinsam/lager.js =====
 // Der Lagerraum als Buehnenbild.
@@ -8799,12 +8984,25 @@ const ABFALL = 3.2;
 const GLANZ = mitAlpha('hsl(45 25% 96%)', 0.9);
 
 /*
- * Die Muster.
+ * Wie hell eine Zelle mindestens sein muss, um ueberhaupt gezeichnet zu
+ * werden.
  *
- * Jedes schreibt nur *Wunschhelligkeiten* in die Zellen. Wie daraus ein Bild
- * wird - Nachgluehen, Farbe, Groesse -, entscheidet die Wand einmal fuer
- * alle. So kostet ein neues Muster acht Zeilen und kein neues Gewerk.
+ * Das ist die einzige Stellschraube, die bei diesem Gewerk wirklich zieht -
+ * und das steht hier, weil zwei andere Versuche es nicht getan haben:
+ *
+ *   - Den Glanzkern von `arc`+`fill` auf ein fertiges Bildchen umstellen:
+ *     5,37 -> 5,50 ms. Kein Gewinn, also wieder entfernt.
+ *   - Den Farbstring aus der Schleife ziehen: das hat 0,66 ms gebracht und
+ *     ist geblieben.
+ *
+ * Was bleibt, ist die Zahl der gezeichneten Flecken. Dreihundert weiche
+ * Flecken sind Fuellrate, und Fuellrate laesst sich nicht wegoptimieren,
+ * nur vermeiden. Bei 0,10 statt 0,03 fallen die Zellen weg, die ohnehin
+ * niemand sieht - auf einer Wand ist ein Fleck mit drei Prozent Deckung
+ * kein Fleck.
  */
+const SICHTBAR_AB = 0.1;
+
 const MUSTER = ['pegel', 'lauf', 'welle', 'funkeln', 'atem'];
 
 class Flaschenwand {
@@ -8971,7 +9169,7 @@ class Flaschenwand {
       const gr = Math.max(2, Math.min(zellBreite, zellHoehe) * hoehe * 0.42);
       for (let i = 0; i < feld.length; i++) {
         const w = feld[i];
-        if (w < 0.03) continue;
+        if (w < SICHTBAR_AB) continue;
         const [u, v] = mitten[i];
         const x = u * breite;
         const y = v * hoehe;
@@ -8983,7 +9181,7 @@ class Flaschenwand {
          * das ist der Unterschied zwischen "leuchtet" und "blitzt".
          */
         if (w > 0.55) {
-          stift.globalAlpha = zaum((w - 0.55) / 0.45 * kraft, 0, 1);
+          stift.globalAlpha = zaum(((w - 0.55) / 0.45) * kraft, 0, 1);
           stift.beginPath();
           stift.arc(x, y, Math.max(1, gr * 0.22), 0, Math.PI * 2);
           stift.fill();
@@ -9138,32 +9336,32 @@ function tonSchieben(ton, flaeche) {
 const BILDER = [
   {
     name: 'Wash', ruhig: true,
-    wash: 1, beams: 0, kugel: 0, blitze: false, sunstrip: 1, flaschen: 0.25, balken: 0.4,
+    wash: 1, beams: 0, kugel: 0, blitze: false, sunstrip: 1, schnitt: 0.35, flaschen: 0.25, balken: 0.4,
     hinweis: 'Die Grundstimmung. Laeuft immer, wenn nichts anderes dran ist.',
   },
   {
     name: 'Beams', laut: true,
-    wash: 0.35, beams: 1, kugel: 0, blitze: false, sunstrip: 0.5, flaschen: 0.5, balken: 0.8,
+    wash: 0.35, beams: 1, kugel: 0, blitze: false, sunstrip: 0.5, schnitt: 0.5, flaschen: 0.5, balken: 0.8,
     hinweis: 'Strahlen in der Luft, Wash zurueckgenommen - sonst frisst er sie.',
   },
   {
     name: 'Kugel', ruhig: true, allein: true,
-    wash: 0, beams: 0, kugel: 1, blitze: false, sunstrip: 0, flaschen: 0, balken: 0,
+    wash: 0, beams: 0, kugel: 1, blitze: false, sunstrip: 0, schnitt: 0, flaschen: 0, balken: 0,
     hinweis: 'Die Spiegelkugel braucht die Wand fuer sich. Punkte im Grundlicht sind keine Punkte.',
   },
   {
     name: 'Kette', ruhig: true,
-    wash: 0.55, beams: 0, kugel: 0, blitze: false, sunstrip: 1.4, flaschen: 0.35, balken: 1,
+    wash: 0.55, beams: 0, kugel: 0, blitze: false, sunstrip: 1.4, schnitt: 0.25, flaschen: 0.35, balken: 1,
     hinweis: 'Nur die Lauflichter auf den Gesimsen. Ruhig, aber nicht still.',
   },
   {
     name: 'Halbdunkel', ruhig: true,
-    wash: 0.3, beams: 0.35, kugel: 0, blitze: false, sunstrip: 0.3, flaschen: 0.3, balken: 0.3,
+    wash: 0.3, beams: 0.35, kugel: 0, blitze: false, sunstrip: 0.3, schnitt: 0.15, flaschen: 0.3, balken: 0.3,
     hinweis: 'Alles zurueckgenommen. Der Platz, aus dem ein Aufbau kommen kann.',
   },
   {
     name: 'Vollgas', laut: true,
-    wash: 0.8, beams: 1, kugel: 0, blitze: true, sunstrip: 1, flaschen: 1, balken: 1,
+    wash: 0.8, beams: 1, kugel: 0, blitze: true, sunstrip: 1, schnitt: 0.6, flaschen: 1, balken: 1,
     hinweis: 'Alles ausser der Kugel. Hoechstens ein paar Phrasen am Stueck.',
   },
   /*
@@ -9181,7 +9379,7 @@ const BILDER = [
    */
   {
     name: 'Flaschenwand', ruhig: true, braucht: 'gitterbox',
-    wash: 0.12, beams: 0, kugel: 0, blitze: false, sunstrip: 0.2, flaschen: 1, balken: 0.5,
+    wash: 0.12, beams: 0, kugel: 0, blitze: false, sunstrip: 0.2, schnitt: 0.3, flaschen: 1, balken: 0.5,
     hinweis: 'Die Gitterkaesten als Anzeigetafel. Farbe gehoert hierher, nicht an die Wand.',
   },
 ];
@@ -9264,6 +9462,12 @@ class Buehnenshow {
     this.co2 = new Nebelstoss([0.1, 0.9]);
     this.funken = new Funken([0.3, 0.7]);
     this.flaschen = new Flaschenwand(bild);
+    /*
+     * Der Schwarzschnitt. Er steht bei den Gewerken, gehoert aber eigentlich
+     * zur Regie: Er macht kein Licht, er nimmt welches weg - siehe
+     * gewerke.js. Deshalb laeuft er als letztes, nach allem anderen.
+     */
+    this.schnitt = new Schwarzschnitt();
     this.balken = new Balkenlicht(bild);
 
     /*
@@ -9484,6 +9688,13 @@ class Buehnenshow {
       && this.blitzKonto > (this.blitze.an ? 0 : BLITZ_HOECHSTENS * 0.5);
     this.blitze.fortschreiben(sekunden, 3 + spannung * 7 + wucht * 2);
     this.flaschen.fortschreiben(sekunden, takt, wucht, spannung, this.spektrum, drop);
+    /*
+     * Der Schnitt zieht sich beim Drop zurueck. Ein Hoehepunkt ist der eine
+     * Moment, in dem die ganze Flaeche gehoert - Loecher hineinzustanzen
+     * waere genau dann falsch.
+     */
+    this.schnitt.fortschreiben(sekunden, takt, wucht,
+      grenze(this._mischung('schnitt') * (1 - this.dropHall) * (0.4 + wucht * 0.6), 0, 1));
     this.balken.fortschreiben(sekunden, wucht);
     return beamKraft;
   }
@@ -9608,6 +9819,13 @@ class Buehnenshow {
     this.blinder.zeichnen(stift, breite, hoehe);
 
     stift.restore();
+
+    /*
+     * Und der Schnitt noch dahinter - ausserhalb des `save`, weil er nicht
+     * additiv arbeitet, sondern loescht. Er gehoert damit nicht in die
+     * Lichtrechnung, sondern hinter sie.
+     */
+    this.schnitt.zeichnen(stift, breite, hoehe);
   }
 
   /** Fuer die Abnahme. */
@@ -9625,6 +9843,8 @@ class Buehnenshow {
       co2: Math.max(...this.co2.leben),
       funken: this.funken.teilchen.length,
       moeglich: this.moeglich.map((b) => b.name),
+      schnittMuster: this.schnitt.muster,
+      schnittStaerke: this.schnitt.staerke,
       flaschenMuster: this.flaschen.muster,
       flaschenKaesten: this.flaschen.kaesten.length,
       wandTraegtFarbe: this.flaechen.grund.traegtFarbe,
@@ -15081,6 +15301,33 @@ class Architektur {
     this.echoStift = null;
     this.echoFeld = this.kaesten.map((k) => new Float32Array(k.zellen.mitten.length));
     /*
+     * Der Schwarzschnitt - auch fuer die Mandalas.
+     *
+     * Er sitzt hier und nicht in den einzelnen Modi, aus demselben Grund wie
+     * das Flaschenecho: Die Architektur laeuft nach jedem Modus, also
+     * bekommt jeder Modus den Schnitt geschenkt, ohne davon zu wissen. Ein
+     * Mandala, durch das schwarze Balken wandern, ist auf einer Wand etwas
+     * ganz anderes als eines, das gleichmaessig leuchtet.
+     */
+    this.schnitt = new Schwarzschnitt();
+
+    /*
+     * Der Kantenblitz.
+     *
+     * Was beim Einmessen als Kante oder Balken markiert ist, sind die harten
+     * Linien des Raumes: Gesimse, Sockel, Deckenbalken. Ein kurzer heller
+     * Schlag genau auf ihnen zeichnet fuer einen Wimpernschlag den *Raum*
+     * nach statt eines Bildes - und weil er auf einer echten Kante sitzt,
+     * sieht er nicht aus wie Projektion, sondern wie eingebautes Licht.
+     *
+     * Er hat eine Sperrzeit, und die ist der ganze Punkt. Ein Blitz, der auf
+     * jedem Drop kommt, ist nach zehn Minuten Tapete; einer, der zweimal im
+     * Track kommt, ist ein Ereignis. Dieselbe Ueberlegung wie bei Flamme und
+     * Blinder in der Buehnenshow, nur billiger.
+     */
+    this.kantenBlitz = 0;
+    this.kantenSperre = 0;
+    /*
      * Die Oeffnungen nach ihrer Lage von links nach rechts sortieren. Die
      * Welle laeuft danach - und eine Welle, die in der Reihenfolge des
      * Anklickens durch die Fassade springt, ist keine Welle.
@@ -15211,6 +15458,12 @@ class Architektur {
     const toene = toeneAus(palette);
 
     this._fortschreiben(sekunden, takt, wucht, spannung, abbau, drop);
+    /*
+     * Bei der Buehnenshow bringt die Regie ihren eigenen Schnitt mit -
+     * zwei uebereinander waeren einer zu viel, genau wie beim Blinder.
+     */
+    this.schnitt.fortschreiben(sekunden, takt, wucht,
+      eigeneKaesten ? 0 : 0.3 + wucht * 0.35);
 
     /*
      * Abgetastet wird *vor* dem eigenen Zeichnen: Gefragt ist, was der Modus
@@ -15255,13 +15508,37 @@ class Architektur {
     this._rahmen(stift, breite, hoehe, toene, wucht);
     this._teilchen(stift, breite, hoehe, toene);
     this._laeufer(stift, breite, hoehe, toene);
+    this._kantenBlitz(stift, breite, hoehe, toene);
     stift.restore();
 
     // Die Totzonen zuletzt und *nicht* additiv: Sie nehmen weg.
     this._totzonen(stift, breite, hoehe);
+
+    /*
+     * Und ganz zuletzt der Schwarzschnitt, aus demselben Grund: Er addiert
+     * nicht, er loescht. Er nimmt damit auch aus dem Modus darunter Licht
+     * heraus, und genau das ist gewollt - ein schwarzer Balken, der die
+     * Fensterrahmen durchschneidet, aber nicht das Mandala dahinter, waere
+     * kein Balken, sondern ein Zeichenfehler.
+     *
+     * Diese Zeile stand versehentlich einmal *in* `_totzonen`, und der
+     * Fehler war unsichtbar: Diese Methode laeuft nur, wenn es Totzonen
+     * gibt. In einem Raum ohne welche wurde der Schnitt nie gezeichnet -
+     * kein Fehler, keine Warnung, nur eine Messung, die sich nicht bewegte.
+     */
+    this.schnitt.zeichnen(stift, breite, hoehe);
   }
 
   /* --- Der innere Stand ---------------------------------------------------- */
+
+  /*
+   * Sperrzeit des Kantenblitzes, in Sekunden.
+   *
+   * Neun Sekunden sind bei 124 Schlaegen je Minute knapp fuenf Takte - lang
+   * genug, dass zwei Blitze nie zur Folge werden, kurz genug, dass ein
+   * Aufbau mit mehreren Drops nicht nur einen einzigen abbekommt.
+   */
+  static get KANTEN_SPERRE() { return 9; }
 
   _fortschreiben(sekunden, takt, wucht, spannung, abbau, drop) {
     const abfall = Math.exp(-RAHMEN_ABKLINGEN * sekunden);
@@ -15305,8 +15582,22 @@ class Architektur {
       }
     }
 
+    // Der Blitz klingt schnell ab - er ist ein Schlag, kein Licht.
+    if (this.kantenBlitz > 0) this.kantenBlitz = Math.max(0, this.kantenBlitz - sekunden * 4.5);
+    if (this.kantenSperre > 0) this.kantenSperre = Math.max(0, this.kantenSperre - sekunden);
+
     if (drop) {
       this.dropHall = 1;
+      /*
+       * Der Drop zuendet die Kanten - aber nur, wenn die Sperre abgelaufen
+       * ist. Und nur, wenn wirklich Energie da ist: Ein Drop im Ausklang
+       * ist kein Moment fuer den staerksten Akzent, den dieses Modul hat.
+       */
+      if (this.kantenSperre <= 0 && wucht > 0.5
+        && (this.kanten.length > 0 || this.balkenB.length > 0)) {
+        this.kantenBlitz = 1;
+        this.kantenSperre = Architektur.KANTEN_SPERRE;
+      }
       // Beim Drop alles auf einmal - das ist der eine Moment, in dem die ganze
       // Fassade brennen darf.
       for (const b of this.bild.bereiche) this._anzuenden(b, 1.4);
@@ -15522,6 +15813,41 @@ class Architektur {
     stift.restore();
   }
 
+  /**
+   * Die markierten Kanten und Balken kurz weiss aufreissen.
+   *
+   * Hell und *hart*: keine weichen Flecken, sondern eine Linie mit einem
+   * Kern. Eine echte Kante wirft ein hartes Licht, und genau daran erkennt
+   * das Auge, dass da etwas Gebautes ist und nicht etwas Gemaltes.
+   */
+  _kantenBlitz(stift, breite, hoehe, toene) {
+    if (this.kantenBlitz < 0.02) return;
+    const w = this.kantenBlitz;
+    const linien = [...this.kanten, ...this.balkenB];
+    if (!linien.length) return;
+    stift.lineCap = 'round';
+    for (const b of linien) {
+      // Die Mittellinie des Bereichs: Anfang und Mitte des Umfangs sind bei
+      // einem langen, schmalen Viereck genau die beiden Enden.
+      const a = b.aufDemRand ? b.aufDemRand(0) : b.punkte[0];
+      const c = b.aufDemRand ? b.aufDemRand(0.5) : b.punkte[2];
+      // Erst ein breiter, schwacher Schein - das ist der Hof.
+      stift.strokeStyle = toene[1] ?? toene[0];
+      stift.globalAlpha = zwischen(w * 0.4, 0, 1);
+      stift.lineWidth = Math.max(2, hoehe * 0.02 * w);
+      stift.beginPath();
+      stift.moveTo(a[0] * breite, a[1] * hoehe);
+      stift.lineTo(c[0] * breite, c[1] * hoehe);
+      stift.stroke();
+      // Und darauf der harte Kern.
+      stift.strokeStyle = 'hsl(210 25% 96%)';
+      stift.globalAlpha = zwischen(w * 0.95, 0, 1);
+      stift.lineWidth = Math.max(1, hoehe * 0.0035);
+      stift.stroke();
+    }
+    stift.globalAlpha = 1;
+  }
+
   /** Fuer die Abnahme: der innere Stand, ohne dass etwas gezeichnet werden muss. */
   stand() {
     return {
@@ -15531,6 +15857,8 @@ class Architektur {
       wellePhase: this.wellePhase,
       laeufer: this.laeufer ? { name: this.laeufer.bereich.name, wo: this.laeufer.wo } : null,
       dropHall: this.dropHall,
+      kantenBlitz: this.kantenBlitz,
+      kantenSperre: this.kantenSperre,
       licht: Object.fromEntries([...this.licht].map(([b, v]) => [b.name, v])),
     };
   }
@@ -16294,7 +16622,22 @@ class Visualisierung {
     const h = ll.height;
 
     ls.globalCompositeOperation = 'source-over';
-    ls.fillStyle = '#07070c';
+    /*
+     * Echtes Schwarz als Grundierung, nicht fast-schwarz.
+     *
+     * Hier stand `#07070c` - ein sehr dunkles Blaugrau, auf einem Bildschirm
+     * kaum von Schwarz zu unterscheiden und dort eine huebsche Grundierung.
+     * Auf einer Projektion ist es etwas voellig anderes: Ein Beamer *addiert*
+     * Licht, er kann keins wegnehmen. Wo das Bild schwarz ist, wirft er gar
+     * nichts - und man sieht die Wand, wie sie ist. Wo es `#07070c` ist,
+     * beleuchtet er die *ganze* Flaeche schwach, und damit liegt ein
+     * Grauschleier ueber Holzmaserung und Gitterkaesten. Der Kontrast, von
+     * dem das ganze Bild lebt, ist dahin.
+     *
+     * Gemessen: Mit dieser einen Zeile war kein einziger Bildpunkt des
+     * Hintergrunds wirklich schwarz.
+     */
+    ls.fillStyle = '#000';
     ls.fillRect(0, 0, b, h);
     ls.globalCompositeOperation = 'lighter';
 
@@ -16320,9 +16663,19 @@ class Visualisierung {
       const nimmB = paletteB && (i % 2 === 0 ? anteilB > 0.35 : anteilB > 0.65);
       const farbe = (nimmB ? paletteB : paletteA).toene[i % 4];
 
+      /*
+       * Der Verlauf endet frueher als der Radius.
+       *
+       * Ein Verlauf, der erst bei 1,0 auf null geht, hat auf den letzten
+       * dreissig Prozent seines Weges Werte zwischen 1 und 4 von 255 - auf
+       * einem Bildschirm unsichtbar, auf einer Wand ein Schleier, der die
+       * halbe Flaeche bedeckt. Bei 0,78 ist Schluss, und dazwischen ist
+       * wirklich nichts.
+       */
       const verlauf = ls.createRadialGradient(x, y, 0, x, y, r);
       verlauf.addColorStop(0, farbe);
       verlauf.addColorStop(0.45, farbe.replace(')', ' / 45%)').replace('hsl(', 'hsl('));
+      verlauf.addColorStop(0.78, 'transparent');
       verlauf.addColorStop(1, 'transparent');
       ls.globalAlpha = 0.5 + wucht * 0.35;
       ls.fillStyle = verlauf;
@@ -17947,18 +18300,22 @@ function schattenUmschalten(an) {
 }
 {
   /*
-   * Vorgabe ist *aus*.
+   * Vorgabe ist wieder *an*.
    *
-   * Nicht wegen der Figur selbst, sondern wegen des Raumes: Im Lagerraum
-   * steht die Leinwand nicht hinter einem Pult, sondern auf Gitterkaesten
-   * und einer Holzwand. Eine DJ-Silhouette hat dort keinen Platz, an dem
-   * sie richtig steht - und Rechenzeit, die sie kostet, fehlt der
-   * Flaschenwand.
+   * Sie war kurz aus, weil im Lagerraum keine Buehne hinter einem Pult
+   * steht. An der Wand hat sich das anders dargestellt: Die Figur ist ein
+   * *Schatten*, und ein Schatten braucht keine Buehne - er braucht eine
+   * Flaeche und Licht dahinter. Beides ist da.
    *
-   * Der Code bleibt vollstaendig da. Wer sie sehen will, drueckt D oder
-   * setzt den Haken; die Wahl wird gemerkt.
+   * Und sie ist genau das, was dieser Raum sonst nicht hergibt: eine grosse
+   * zusammenhaengende schwarze Form. Auf einer Projektion ist Schwarz kein
+   * Farbton, sondern die Abwesenheit von Licht - die Wand, wie sie ist.
+   * Damit ist die Figur der staerkste Kontrast im ganzen Bild.
+   *
+   * Wer sie einmal abgeschaltet hat, bekommt sie nicht wieder aufgedraengt;
+   * nur das Fehlen des Eintrags heisst "an".
    */
-  const gemerkt = localStorage.getItem('djSchatten') === 'ja';
+  const gemerkt = localStorage.getItem('djSchatten') !== 'nein';
   $('schattenWahl').checked = gemerkt;
   schattenSetzen(gemerkt);
   $('schattenWahl').addEventListener('change', (e) => schattenUmschalten(e.target.checked));

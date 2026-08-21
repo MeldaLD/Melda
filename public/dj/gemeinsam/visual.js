@@ -767,7 +767,22 @@ export class Visualisierung {
     const h = ll.height;
 
     ls.globalCompositeOperation = 'source-over';
-    ls.fillStyle = '#07070c';
+    /*
+     * Echtes Schwarz als Grundierung, nicht fast-schwarz.
+     *
+     * Hier stand `#07070c` - ein sehr dunkles Blaugrau, auf einem Bildschirm
+     * kaum von Schwarz zu unterscheiden und dort eine huebsche Grundierung.
+     * Auf einer Projektion ist es etwas voellig anderes: Ein Beamer *addiert*
+     * Licht, er kann keins wegnehmen. Wo das Bild schwarz ist, wirft er gar
+     * nichts - und man sieht die Wand, wie sie ist. Wo es `#07070c` ist,
+     * beleuchtet er die *ganze* Flaeche schwach, und damit liegt ein
+     * Grauschleier ueber Holzmaserung und Gitterkaesten. Der Kontrast, von
+     * dem das ganze Bild lebt, ist dahin.
+     *
+     * Gemessen: Mit dieser einen Zeile war kein einziger Bildpunkt des
+     * Hintergrunds wirklich schwarz.
+     */
+    ls.fillStyle = '#000';
     ls.fillRect(0, 0, b, h);
     ls.globalCompositeOperation = 'lighter';
 
@@ -793,9 +808,19 @@ export class Visualisierung {
       const nimmB = paletteB && (i % 2 === 0 ? anteilB > 0.35 : anteilB > 0.65);
       const farbe = (nimmB ? paletteB : paletteA).toene[i % 4];
 
+      /*
+       * Der Verlauf endet frueher als der Radius.
+       *
+       * Ein Verlauf, der erst bei 1,0 auf null geht, hat auf den letzten
+       * dreissig Prozent seines Weges Werte zwischen 1 und 4 von 255 - auf
+       * einem Bildschirm unsichtbar, auf einer Wand ein Schleier, der die
+       * halbe Flaeche bedeckt. Bei 0,78 ist Schluss, und dazwischen ist
+       * wirklich nichts.
+       */
       const verlauf = ls.createRadialGradient(x, y, 0, x, y, r);
       verlauf.addColorStop(0, farbe);
       verlauf.addColorStop(0.45, farbe.replace(')', ' / 45%)').replace('hsl(', 'hsl('));
+      verlauf.addColorStop(0.78, 'transparent');
       verlauf.addColorStop(1, 'transparent');
       ls.globalAlpha = 0.5 + wucht * 0.35;
       ls.fillStyle = verlauf;

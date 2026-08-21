@@ -1005,18 +1005,22 @@ function schattenUmschalten(an) {
 }
 {
   /*
-   * Vorgabe ist *aus*.
+   * Vorgabe ist wieder *an*.
    *
-   * Nicht wegen der Figur selbst, sondern wegen des Raumes: Im Lagerraum
-   * steht die Leinwand nicht hinter einem Pult, sondern auf Gitterkaesten
-   * und einer Holzwand. Eine DJ-Silhouette hat dort keinen Platz, an dem
-   * sie richtig steht - und Rechenzeit, die sie kostet, fehlt der
-   * Flaschenwand.
+   * Sie war kurz aus, weil im Lagerraum keine Buehne hinter einem Pult
+   * steht. An der Wand hat sich das anders dargestellt: Die Figur ist ein
+   * *Schatten*, und ein Schatten braucht keine Buehne - er braucht eine
+   * Flaeche und Licht dahinter. Beides ist da.
    *
-   * Der Code bleibt vollstaendig da. Wer sie sehen will, drueckt D oder
-   * setzt den Haken; die Wahl wird gemerkt.
+   * Und sie ist genau das, was dieser Raum sonst nicht hergibt: eine grosse
+   * zusammenhaengende schwarze Form. Auf einer Projektion ist Schwarz kein
+   * Farbton, sondern die Abwesenheit von Licht - die Wand, wie sie ist.
+   * Damit ist die Figur der staerkste Kontrast im ganzen Bild.
+   *
+   * Wer sie einmal abgeschaltet hat, bekommt sie nicht wieder aufgedraengt;
+   * nur das Fehlen des Eintrags heisst "an".
    */
-  const gemerkt = localStorage.getItem('djSchatten') === 'ja';
+  const gemerkt = localStorage.getItem('djSchatten') !== 'nein';
   $('schattenWahl').checked = gemerkt;
   schattenSetzen(gemerkt);
   $('schattenWahl').addEventListener('change', (e) => schattenUmschalten(e.target.checked));

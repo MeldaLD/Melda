@@ -511,3 +511,159 @@ export class Funken {
     stift.globalAlpha = 1;
   }
 }
+
+/* --- Der Schwarzschnitt ------------------------------------------------------
+ *
+ * Das einzige Gewerk, das kein Licht macht, sondern welches wegnimmt.
+ *
+ * --- Warum es das braucht ---------------------------------------------------
+ *
+ * Ein Beamer kann Schwarz nicht *werfen*. Er addiert Licht; wo das Bild
+ * schwarz ist, wirft er nichts, und man sieht die Wand, wie sie ist. Auf
+ * einem Bildschirm ist Schwarz eine Farbe unter vielen - auf einer Projektion
+ * ist es der einzige echte Gegenpol zu allem anderen, und zwar ein
+ * unendlich starker: null Licht gegen viel Licht.
+ *
+ * Daraus folgt etwas Ungewohntes: Das wirksamste Gestaltungsmittel in diesem
+ * Raum ist nicht eine Farbe, sondern eine *Form ohne Licht*. Ein harter
+ * schwarzer Balken quer durch einen hellen Kegel trennt schaerfer als jeder
+ * Farbkontrast es koennte, weil die eine Seite gar nicht beleuchtet ist.
+ *
+ * --- Wie man Schwarz zeichnet ------------------------------------------------
+ *
+ * Gar nicht - jedenfalls nicht additiv. Die ganze Show zeichnet mit
+ * `lighter`, und schwarz addiert ist nichts. Wer Schwarz *hinzufuegen* will,
+ * muss stattdessen Licht *entfernen*: `destination-out` loescht dort, wo
+ * gezeichnet wird, statt hinzuzufuegen. Man stanzt Loecher.
+ *
+ * Deshalb laeuft dieses Gewerk immer als letztes, nach allem anderen.
+ */
+
+/** Die Muster, in denen gestanzt wird. */
+export const SCHNITTE = ['balken', 'keil', 'ring', 'kamm', 'mandala'];
+
+export class Schwarzschnitt {
+  constructor() {
+    this.muster = 'balken';
+    this.phase = 0;
+    this.staerke = 0;
+    this.ziel = 0;
+    this.letztePhrase = -1;
+  }
+
+  /**
+   * @param {number} wunsch  wie stark geschnitten werden soll, 0 bis 1
+   */
+  fortschreiben(sekunden, takt, wucht, wunsch) {
+    this.phase += sekunden * (0.35 + wucht * 0.9);
+    this.ziel = wunsch;
+    // Weich auf- und zufahren. Ein Schnitt, der hart einsetzt, sieht aus wie
+    // ein Fehler im Bild und nicht wie eine Entscheidung.
+    this.staerke += (this.ziel - this.staerke) * kl(sekunden * 1.6, 0, 1);
+    if (takt && takt.aufPhrase && takt.nummer !== this.letztePhrase) {
+      this.letztePhrase = takt.nummer;
+      const i = SCHNITTE.indexOf(this.muster);
+      this.muster = SCHNITTE[(i + 1) % SCHNITTE.length];
+    }
+  }
+
+  zeichnen(stift, breite, hoehe) {
+    if (this.staerke < 0.03) return;
+    stift.save();
+    /*
+     * `destination-out` mit einem Deckungsgrad unter eins loescht nur
+     * teilweise. Genau das ist gewollt: Ein Schnitt, der immer alles
+     * wegnimmt, zerhackt das Bild. Einer, der sich aufbaut, schiebt sich
+     * hinein.
+     */
+    stift.globalCompositeOperation = 'destination-out';
+    stift.fillStyle = '#000';
+    stift.globalAlpha = kl(this.staerke, 0, 1);
+
+    if (this.muster === 'balken') {
+      /*
+       * Waagerechte Balken, die nach oben wandern. Die Vorlage ist eine
+       * Jalousie vor einem Fenster - und sie passt zu diesem Raum, weil die
+       * Deckenbalken dasselbe schon in echt tun.
+       */
+      const zahl = 7;
+      const hoeheJe = hoehe / (zahl * 2);
+      const versatz = (this.phase % 1) * hoeheJe * 2;
+      for (let i = -1; i < zahl + 1; i++) {
+        stift.fillRect(0, hoehe - versatz - i * hoeheJe * 2, breite, hoeheJe);
+      }
+    } else if (this.muster === 'keil') {
+      // Ein Muehlrad aus Schatten. Vier Keile, die sich drehen.
+      const mx = breite / 2;
+      const my = hoehe * 0.55;
+      const r = Math.hypot(breite, hoehe);
+      const keile = 4;
+      for (let i = 0; i < keile; i++) {
+        const a = this.phase * 0.6 + (i / keile) * Math.PI * 2;
+        stift.beginPath();
+        stift.moveTo(mx, my);
+        stift.arc(mx, my, r, a, a + Math.PI / keile);
+        stift.closePath();
+        stift.fill();
+      }
+    } else if (this.muster === 'ring') {
+      /*
+       * Ein wachsender schwarzer Ring, der nach aussen laeuft und dabei
+       * duenner wird. Das Gegenstueck zu einer Schockwelle aus Licht - und
+       * auf einer Wand deutlich staerker, weil dahinter wirklich nichts ist.
+       */
+      const mx = breite / 2;
+      const my = hoehe * 0.55;
+      const t = this.phase % 1;
+      const r = t * Math.hypot(breite, hoehe) * 0.75;
+      const dick = hoehe * 0.16 * (1 - t);
+      if (dick > 0.5) {
+        stift.lineWidth = dick;
+        stift.strokeStyle = '#000';
+        stift.beginPath();
+        stift.arc(mx, my, Math.max(1, r), 0, Math.PI * 2);
+        stift.stroke();
+      }
+    } else if (this.muster === 'mandala') {
+      /*
+       * Schwarze Ringe um die Bildmitte.
+       *
+       * Das ist der Schnitt fuer die Mandalas, und er ist etwas anderes als
+       * die uebrigen vier: Die schneiden *durch* das Bild, dieser schneidet
+       * *mit ihm*. Ein Mandala ist konzentrisch aufgebaut; schwarze Ringe in
+       * derselben Mitte lesen sich nicht als Stoerung, sondern als Teil der
+       * Figur - so als waere Schwarz einer der Farbringe.
+       *
+       * Und auf einer Projektion ist es genau das: der einzige "Farbton",
+       * bei dem der Beamer nichts wirft und die Wand durchkommt. Neben ihm
+       * wirkt jeder andere Ring heller, als er ist.
+       */
+      const mx = breite / 2;
+      const my = hoehe / 2;
+      const aussen = Math.hypot(breite, hoehe) * 0.5;
+      const ringe = 5;
+      stift.strokeStyle = '#000';
+      for (let i = 0; i < ringe; i++) {
+        // Die Ringe atmen leicht - sonst stehen sie wie aufgemalt im Bild.
+        const t = (i + 0.5) / ringe + Math.sin(this.phase * 0.7 + i) * 0.035;
+        const r = t * aussen;
+        const dick = aussen * 0.055 * (0.7 + 0.5 * Math.sin(this.phase * 1.1 + i * 2));
+        if (r <= dick / 2 || dick < 0.5) continue;
+        stift.lineWidth = dick;
+        stift.beginPath();
+        stift.arc(mx, my, r, 0, Math.PI * 2);
+        stift.stroke();
+      }
+    } else {
+      // Senkrechte Zinken, die sich seitlich schieben - ein Kamm.
+      const zahl = 11;
+      const breiteJe = breite / (zahl * 2);
+      const versatz = (this.phase % 1) * breiteJe * 2;
+      for (let i = -1; i < zahl + 1; i++) {
+        stift.fillRect(versatz + i * breiteJe * 2, 0, breiteJe, hoehe);
+      }
+    }
+    stift.restore();
+    stift.globalAlpha = 1;
+  }
+}

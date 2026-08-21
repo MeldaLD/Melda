@@ -46,7 +46,7 @@ import { lichtToene } from './farben.js';
 import { flaechenLesen, winkelAnpassen } from './oberflaeche.js';
 import { Flaschenwand, Balkenlicht } from './lager.js';
 import { Partylicht } from './partylicht.js';
-import { Beams, Blinder, Blitze, Kugel, Flammen, Nebelstoss, Funken } from './gewerke.js';
+import { Beams, Blinder, Blitze, Kugel, Flammen, Nebelstoss, Funken, Schwarzschnitt } from './gewerke.js';
 
 /*
  * Heisst `grenze` und nicht `kl`: Der Buendler legt alle Module in eine
@@ -83,32 +83,32 @@ function tonSchieben(ton, flaeche) {
 export const BILDER = [
   {
     name: 'Wash', ruhig: true,
-    wash: 1, beams: 0, kugel: 0, blitze: false, sunstrip: 1, flaschen: 0.25, balken: 0.4,
+    wash: 1, beams: 0, kugel: 0, blitze: false, sunstrip: 1, schnitt: 0.35, flaschen: 0.25, balken: 0.4,
     hinweis: 'Die Grundstimmung. Laeuft immer, wenn nichts anderes dran ist.',
   },
   {
     name: 'Beams', laut: true,
-    wash: 0.35, beams: 1, kugel: 0, blitze: false, sunstrip: 0.5, flaschen: 0.5, balken: 0.8,
+    wash: 0.35, beams: 1, kugel: 0, blitze: false, sunstrip: 0.5, schnitt: 0.5, flaschen: 0.5, balken: 0.8,
     hinweis: 'Strahlen in der Luft, Wash zurueckgenommen - sonst frisst er sie.',
   },
   {
     name: 'Kugel', ruhig: true, allein: true,
-    wash: 0, beams: 0, kugel: 1, blitze: false, sunstrip: 0, flaschen: 0, balken: 0,
+    wash: 0, beams: 0, kugel: 1, blitze: false, sunstrip: 0, schnitt: 0, flaschen: 0, balken: 0,
     hinweis: 'Die Spiegelkugel braucht die Wand fuer sich. Punkte im Grundlicht sind keine Punkte.',
   },
   {
     name: 'Kette', ruhig: true,
-    wash: 0.55, beams: 0, kugel: 0, blitze: false, sunstrip: 1.4, flaschen: 0.35, balken: 1,
+    wash: 0.55, beams: 0, kugel: 0, blitze: false, sunstrip: 1.4, schnitt: 0.25, flaschen: 0.35, balken: 1,
     hinweis: 'Nur die Lauflichter auf den Gesimsen. Ruhig, aber nicht still.',
   },
   {
     name: 'Halbdunkel', ruhig: true,
-    wash: 0.3, beams: 0.35, kugel: 0, blitze: false, sunstrip: 0.3, flaschen: 0.3, balken: 0.3,
+    wash: 0.3, beams: 0.35, kugel: 0, blitze: false, sunstrip: 0.3, schnitt: 0.15, flaschen: 0.3, balken: 0.3,
     hinweis: 'Alles zurueckgenommen. Der Platz, aus dem ein Aufbau kommen kann.',
   },
   {
     name: 'Vollgas', laut: true,
-    wash: 0.8, beams: 1, kugel: 0, blitze: true, sunstrip: 1, flaschen: 1, balken: 1,
+    wash: 0.8, beams: 1, kugel: 0, blitze: true, sunstrip: 1, schnitt: 0.6, flaschen: 1, balken: 1,
     hinweis: 'Alles ausser der Kugel. Hoechstens ein paar Phrasen am Stueck.',
   },
   /*
@@ -126,7 +126,7 @@ export const BILDER = [
    */
   {
     name: 'Flaschenwand', ruhig: true, braucht: 'gitterbox',
-    wash: 0.12, beams: 0, kugel: 0, blitze: false, sunstrip: 0.2, flaschen: 1, balken: 0.5,
+    wash: 0.12, beams: 0, kugel: 0, blitze: false, sunstrip: 0.2, schnitt: 0.3, flaschen: 1, balken: 0.5,
     hinweis: 'Die Gitterkaesten als Anzeigetafel. Farbe gehoert hierher, nicht an die Wand.',
   },
 ];
@@ -209,6 +209,12 @@ export class Buehnenshow {
     this.co2 = new Nebelstoss([0.1, 0.9]);
     this.funken = new Funken([0.3, 0.7]);
     this.flaschen = new Flaschenwand(bild);
+    /*
+     * Der Schwarzschnitt. Er steht bei den Gewerken, gehoert aber eigentlich
+     * zur Regie: Er macht kein Licht, er nimmt welches weg - siehe
+     * gewerke.js. Deshalb laeuft er als letztes, nach allem anderen.
+     */
+    this.schnitt = new Schwarzschnitt();
     this.balken = new Balkenlicht(bild);
 
     /*
@@ -429,6 +435,13 @@ export class Buehnenshow {
       && this.blitzKonto > (this.blitze.an ? 0 : BLITZ_HOECHSTENS * 0.5);
     this.blitze.fortschreiben(sekunden, 3 + spannung * 7 + wucht * 2);
     this.flaschen.fortschreiben(sekunden, takt, wucht, spannung, this.spektrum, drop);
+    /*
+     * Der Schnitt zieht sich beim Drop zurueck. Ein Hoehepunkt ist der eine
+     * Moment, in dem die ganze Flaeche gehoert - Loecher hineinzustanzen
+     * waere genau dann falsch.
+     */
+    this.schnitt.fortschreiben(sekunden, takt, wucht,
+      grenze(this._mischung('schnitt') * (1 - this.dropHall) * (0.4 + wucht * 0.6), 0, 1));
     this.balken.fortschreiben(sekunden, wucht);
     return beamKraft;
   }
@@ -553,6 +566,13 @@ export class Buehnenshow {
     this.blinder.zeichnen(stift, breite, hoehe);
 
     stift.restore();
+
+    /*
+     * Und der Schnitt noch dahinter - ausserhalb des `save`, weil er nicht
+     * additiv arbeitet, sondern loescht. Er gehoert damit nicht in die
+     * Lichtrechnung, sondern hinter sie.
+     */
+    this.schnitt.zeichnen(stift, breite, hoehe);
   }
 
   /** Fuer die Abnahme. */
@@ -570,6 +590,8 @@ export class Buehnenshow {
       co2: Math.max(...this.co2.leben),
       funken: this.funken.teilchen.length,
       moeglich: this.moeglich.map((b) => b.name),
+      schnittMuster: this.schnitt.muster,
+      schnittStaerke: this.schnitt.staerke,
       flaschenMuster: this.flaschen.muster,
       flaschenKaesten: this.flaschen.kaesten.length,
       wandTraegtFarbe: this.flaechen.grund.traegtFarbe,

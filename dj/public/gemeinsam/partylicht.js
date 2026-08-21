@@ -320,12 +320,27 @@ export class Partylicht {
      */
     stift.save();
     stift.globalCompositeOperation = 'lighter';
-    const dunst = stift.createLinearGradient(0, hoehe, 0, hoehe * 0.15);
-    dunst.addColorStop(0, mitAlpha(toene[1], 0.13));
+    /*
+     * Der Dunst deckt nur noch den Fuss der Kegel statt der ganzen Flaeche.
+     *
+     * Hier stand ein `fillRect` ueber die *komplette* Leinwand. Die
+     * Begruendung war richtig und der Ort falsch: Ein Lichtstrahl ist nur zu
+     * sehen, wenn etwas in der Luft ist - aber das gilt fuer den Strahl, und
+     * ein Strahl steht nicht ueberall.
+     *
+     * Auf einem Bildschirm faellt der Unterschied nicht auf. Auf einer
+     * Projektion beleuchtet dieselbe Flaeche die ganze Wand schwach, und
+     * genau das frisst den Kontrast: Gemessen waren von der Buehnenshow nur
+     * zwanzig Prozent der Flaeche wirklich schwarz, der Rest lag im
+     * Schleier. Jetzt liegt der Dunst dort, wo die Lampen stehen, und
+     * darueber ist Nacht.
+     */
+    const dunst = stift.createLinearGradient(0, hoehe, 0, hoehe * 0.55);
+    dunst.addColorStop(0, mitAlpha(toene[1], 0.16));
     dunst.addColorStop(1, mitAlpha(toene[1], 0));
     stift.fillStyle = dunst;
-    stift.globalAlpha = 0.14 + this.helligkeit * 0.16;
-    stift.fillRect(0, 0, breite, hoehe);
+    stift.globalAlpha = 0.1 + this.helligkeit * 0.12;
+    stift.fillRect(0, hoehe * 0.55, breite, hoehe * 0.45);
     stift.globalAlpha = 1;
 
     // --- Die Kegel ---
@@ -368,9 +383,23 @@ export class Partylicht {
        * sieht man den Unterschied nicht.
        */
       const v = stift.createLinearGradient(fx, fy, fx + kippen * reich, fy - reich);
+      /*
+       * Der Kegel stirbt frueher.
+       *
+       * Vorher lief der Verlauf von 0,16 bei halber Hoehe bis 0 am Ende -
+       * also lag ueber der oberen Haelfte der Wand ein schwacher Schleier,
+       * und weil sich die Kegel aller Lampen dort ueberlagern, war davon
+       * nichts mehr schwach. Gemessen waren nur zwanzig Prozent des Bildes
+       * wirklich schwarz.
+       *
+       * Ein Scheinwerfer im Nebel sieht auch nicht so aus: Sein Strahl wird
+       * mit der Entfernung schnell schwaecher und ist irgendwann weg. Die
+       * letzten dreissig Prozent der Kegelhoehe sind jetzt Nacht.
+       */
       v.addColorStop(0, farbe);
       v.addColorStop(0.10, mitAlpha(farbe, 0.55));
-      v.addColorStop(0.5, mitAlpha(farbe, 0.16));
+      v.addColorStop(0.42, mitAlpha(farbe, 0.13));
+      v.addColorStop(0.72, mitAlpha(farbe, 0));
       v.addColorStop(1, mitAlpha(farbe, 0));
       stift.fillStyle = v;
       stift.globalAlpha = klammer(kraft * KEGEL_DECKUNG, 0, 1);

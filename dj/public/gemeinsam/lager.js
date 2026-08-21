@@ -61,12 +61,25 @@ const ABFALL = 3.2;
 const GLANZ = mitAlpha('hsl(45 25% 96%)', 0.9);
 
 /*
- * Die Muster.
+ * Wie hell eine Zelle mindestens sein muss, um ueberhaupt gezeichnet zu
+ * werden.
  *
- * Jedes schreibt nur *Wunschhelligkeiten* in die Zellen. Wie daraus ein Bild
- * wird - Nachgluehen, Farbe, Groesse -, entscheidet die Wand einmal fuer
- * alle. So kostet ein neues Muster acht Zeilen und kein neues Gewerk.
+ * Das ist die einzige Stellschraube, die bei diesem Gewerk wirklich zieht -
+ * und das steht hier, weil zwei andere Versuche es nicht getan haben:
+ *
+ *   - Den Glanzkern von `arc`+`fill` auf ein fertiges Bildchen umstellen:
+ *     5,37 -> 5,50 ms. Kein Gewinn, also wieder entfernt.
+ *   - Den Farbstring aus der Schleife ziehen: das hat 0,66 ms gebracht und
+ *     ist geblieben.
+ *
+ * Was bleibt, ist die Zahl der gezeichneten Flecken. Dreihundert weiche
+ * Flecken sind Fuellrate, und Fuellrate laesst sich nicht wegoptimieren,
+ * nur vermeiden. Bei 0,10 statt 0,03 fallen die Zellen weg, die ohnehin
+ * niemand sieht - auf einer Wand ist ein Fleck mit drei Prozent Deckung
+ * kein Fleck.
  */
+const SICHTBAR_AB = 0.1;
+
 export const MUSTER = ['pegel', 'lauf', 'welle', 'funkeln', 'atem'];
 
 export class Flaschenwand {
@@ -233,7 +246,7 @@ export class Flaschenwand {
       const gr = Math.max(2, Math.min(zellBreite, zellHoehe) * hoehe * 0.42);
       for (let i = 0; i < feld.length; i++) {
         const w = feld[i];
-        if (w < 0.03) continue;
+        if (w < SICHTBAR_AB) continue;
         const [u, v] = mitten[i];
         const x = u * breite;
         const y = v * hoehe;
@@ -245,7 +258,7 @@ export class Flaschenwand {
          * das ist der Unterschied zwischen "leuchtet" und "blitzt".
          */
         if (w > 0.55) {
-          stift.globalAlpha = zaum((w - 0.55) / 0.45 * kraft, 0, 1);
+          stift.globalAlpha = zaum(((w - 0.55) / 0.45) * kraft, 0, 1);
           stift.beginPath();
           stift.arc(x, y, Math.max(1, gr * 0.22), 0, Math.PI * 2);
           stift.fill();
