@@ -197,15 +197,28 @@ async function eineVermessen(datei) {
 
   datei.schritt = 'Dekodieren';
   zeichnen();
+  /*
+   * Die Groesse *vorher* merken - und die Datei danach ohne Kopie
+   * weiterreichen.
+   *
+   * Hier stand `decodeAudioData(roh.slice(0))`, und das `slice` war eine
+   * vollstaendige Kopie: Bei einem Stundenmix von 120 MB lagen damit 240 MB
+   * gleichzeitig im Speicher, dazu noch der dekodierte Ton. Der Grund fuer
+   * die Kopie war allein, dass `decodeAudioData` den uebergebenen Puffer
+   * *entkoppelt* und `roh.byteLength` danach null waere - gebraucht wird die
+   * Zahl aber nur fuer die Fehlermeldung. Also einmal ablesen und die Kopie
+   * sparen.
+   */
+  const groesseMB = roh.byteLength / 1048576;
   const rate = roh.byteLength > GROSS_AB_MB * 1048576 ? 11025 : 22050;
   const ctx = kontext(rate);
   let puffer;
   try {
-    puffer = await ctx.decodeAudioData(roh.slice(0));
+    puffer = await ctx.decodeAudioData(roh);
   } catch (grund) {
     void ctx.close();
     throw new Error(
-      `Dieser Browser kann die Datei nicht dekodieren (${(roh.byteLength / 1048576).toFixed(1)} MB). ` +
+      `Dieser Browser kann die Datei nicht dekodieren (${groesseMB.toFixed(1)} MB). ` +
         `Im Zweifel als MP3 oder WAV umwandeln. ${grund?.message ?? ''}`.trim(),
     );
   }

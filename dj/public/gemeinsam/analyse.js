@@ -34,6 +34,22 @@ const BPM_BIS = 185;
  * Vermisst einen dekodierten Track.
  * @param {AudioBuffer} puffer
  */
+/*
+ * Einmal ans Fenster zurueckgeben.
+ *
+ * Die Messung laeuft im Hauptstrang - sie muss, weil `OfflineAudioContext`
+ * in einem Worker nicht zur Verfuegung steht. Eine Rechnung, die dort eine
+ * Minute am Stueck laeuft, friert die Seite ein: kein Fortschrittsbalken,
+ * keine Reaktion, und irgendwann bietet der Browser an, die Seite
+ * abzuschiessen. Von aussen sieht das aus, als waere gar nichts passiert.
+ *
+ * `setTimeout(0)` und nicht `queueMicrotask` oder ein leeres `await`: Nur
+ * ein echter Ausflug in die Ereignisschleife gibt dem Browser die
+ * Gelegenheit, wirklich zu zeichnen. Eine Mikroaufgabe laeuft noch im selben
+ * Durchgang und aendert nichts.
+ */
+const luftHolen = () => new Promise((f) => setTimeout(f, 0));
+
 export async function analysiere(puffer, beiSchritt = () => {}) {
   const dauer = puffer.duration;
 
@@ -45,10 +61,24 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
   beiSchritt('Lautheit');
   const lufs = lautheitAusBloecken(messung.blockLautheiten);
 
+  /*
+   * Das Raster ueber die ganze Datei - und das ist ein Block, der sich nicht
+   * teilen laesst: `rasterBestimmen` vergleicht die Anschlagskurve gegen
+   * hunderte Tempo-Schablonen, und das Ergebnis steht erst fest, wenn alle
+   * durch sind. Bei einer Dreiviertelstunde kostet das gemessen rund neun
+   * Sekunden am Stueck.
+   *
+   * Deshalb wenigstens die Meldung *davor* und eine Atempause dahinter: So
+   * steht auf dem Balken "Tempo", bevor es still wird, statt dass die
+   * Anzeige mitten in "Messen 99 %" einfriert.
+   */
   beiSchritt('Tempo');
+  await luftHolen();
   const gesamt = rasterBestimmen(huellen, hops);
+  await luftHolen();
   const anschlaege = gesamt.anschlaege;
-  const abschnitte = tempoKarte(huellen, hops, dauer, gesamt);
+  const abschnitte = await tempoKarte(huellen, hops, dauer, gesamt,
+    (anteil) => beiSchritt(`Tempo ${Math.round(anteil * 100)} %`));
 
   /*
    * Die gemeldeten Einzelwerte kommen aus dem *ersten* Abschnitt.
@@ -76,8 +106,16 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
    * Taktgrenzen - sonst verwischt die Neuheitskurve, und genau aus ihr kommen
    * die Drops.
    */
-  const teile = abschnitte.map((a) =>
-    profilBauen(
+  /*
+   * Nacheinander und nicht mit `map`, weil `profilBauen` jetzt zwischendurch
+   * Luft holt. Der Fortschritt laeuft ueber alle Abschnitte durch - bei
+   * einem Stundenmix ist das oft ohnehin nur einer, und dann ist der
+   * Balken innerhalb dieses einen die einzige Rueckmeldung, die es gibt.
+   */
+  const teile = [];
+  for (let i = 0; i < abschnitte.length; i++) {
+    const a = abschnitte[i];
+    teile.push(await profilBauen(
       huellen,
       anschlaege,
       hops,
@@ -87,8 +125,11 @@ export async function analysiere(puffer, beiSchritt = () => {}) {
       a.von,
       a.bis,
       a.beatVersatz,
-    ),
-  );
+      (anteil) => beiSchritt(
+        `Verlauf ${Math.round(((i + anteil) / abschnitte.length) * 100)} %`,
+      ),
+    ));
+  }
 
   beiSchritt('Aufbau');
   const marken = [];
@@ -199,7 +240,18 @@ function angleichBegrenzen(db) {
 // Abschnitt sein eigenes Tempo und seinen eigenen Beatversatz, und die
 // Zaehlung springt an den Grenzen. Wer dann Index mal vier rechnet, landet
 // nach einer halben Stunde Minuten daneben.
-function profilBauen(
+/*
+ * Wieviele Takte am Stueck gerechnet werden, bevor einmal Luft geholt wird.
+ *
+ * Gemessen laeuft diese Schleife mit rund einer Sekunde je Minute Musik;
+ * ein Takt kostet also gut anderthalb Millisekunden. Bei 128 Takten sind
+ * das rund zweihundert Millisekunden zwischen zwei Atempausen - kurz genug,
+ * dass der Balken laeuft und der Browser die Seite nicht fuer tot haelt,
+ * lang genug, dass die Pausen selbst nicht ins Gewicht fallen.
+ */
+const TAKTE_JE_ZUG = 128;
+
+async function profilBauen(
   huellen,
   anschlaege,
   hops,
@@ -209,6 +261,7 @@ function profilBauen(
   vonS = 0,
   bisS = Infinity,
   beatVersatz = 0,
+  beiFortschritt = null,
 ) {
   // Ohne Raster gibt es keine Takte. Dann wird in festen Zwei-Sekunden-
   // Abschnitten gerechnet, damit wenigstens der Verlauf stimmt.
@@ -234,6 +287,16 @@ function profilBauen(
 
   const roh = [];
   for (let t = 0; t < takte; t++) {
+    /*
+     * Die Atempause. Sie steht am Anfang des Durchgangs und nicht am Ende,
+     * damit auch der allererste Balkenstand gezeichnet wird, bevor gerechnet
+     * wird - sonst stuende die Anzeige die ersten zweihundert Millisekunden
+     * auf null und sprae dann.
+     */
+    if (t > 0 && t % TAKTE_JE_ZUG === 0) {
+      beiFortschritt?.(t / takte);
+      await luftHolen();
+    }
     const von = Math.max(0, Math.floor((versatz + t * taktSekunden) * hops));
     const bis = Math.min(laenge, Math.floor((versatz + (t + 1) * taktSekunden) * hops));
     if (bis - von < 2) break;
@@ -657,7 +720,22 @@ function passenZusammen(a, b) {
  * Kurze Dateien und solche, die durchgehend dasselbe Tempo haben, bekommen
  * genau einen Abschnitt - dann ist das Ergebnis dasselbe wie vorher.
  */
-function tempoKarte(huellen, hops, dauer, gesamt) {
+/*
+ * Wieviele Fenster der Tempo-Karte am Stueck gerechnet werden, bevor einmal
+ * Luft geholt wird.
+ *
+ * Diese Schleife ist der teuerste Teil der ganzen Messung, und das war lange
+ * nicht sichtbar: Ein Fenster kostet gemessen rund 165 Millisekunden, und
+ * bei einer Dreiviertelstunde Musik sind das hundertachtzig Fenster - dreissig
+ * Sekunden am Stueck, in denen der Hauptstrang nicht ans Fenster zurueckgibt.
+ * Von aussen sah das aus, als wuerde die Messung gar nicht erst starten.
+ *
+ * Acht Fenster sind gut anderthalb Sekunden. Das ist die grobste Koernung,
+ * die der Browser noch als lebendige Seite durchgehen laesst.
+ */
+const KARTE_FENSTER_JE_ZUG = 8;
+
+async function tempoKarte(huellen, hops, dauer, gesamt, beiFortschritt = null) {
   const einer = (mess) => [
     {
       von: 0,
@@ -676,7 +754,13 @@ function tempoKarte(huellen, hops, dauer, gesamt) {
   const schrittHops = Math.round(KARTE_SCHRITT_S * hops);
   const laenge = huellen[0].length;
   const fenster = [];
+  let zug = 0;
   for (let von = 0; von + fensterHops <= laenge; von += schrittHops) {
+    if (zug > 0 && zug % KARTE_FENSTER_JE_ZUG === 0) {
+      beiFortschritt?.(von / Math.max(1, laenge));
+      await luftHolen();
+    }
+    zug++;
     const mess = rasterBestimmen(huellen, hops, von, von + fensterHops);
     fenster.push({
       von: von / hops,
