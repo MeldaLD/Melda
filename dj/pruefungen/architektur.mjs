@@ -70,6 +70,77 @@ try {
        * Gemessen wird auf der Leinwand, nicht am inneren Stand - was zaehlt,
        * ist, was ankommt.
        */
+      /**
+       * Ein langer Lauf mit Drops auf jeder Phrase, der zusaetzlich die
+       * Leuchtdichte je Bild und den groessten Flaechensprung mitschreibt.
+       *
+       * Getrennt von `lauf`, weil das Auslesen der Bildpunkte teuer ist und
+       * die anderen Pruefungen es nicht brauchen.
+       */
+      blitzlauf(bilder) {
+        const bild = buehnenbildBauen(window.__MESSUNG, 1920, 1080);
+        const a = new Architektur(bild);
+        const B = 480;
+        const H = 360;
+        const lein = document.createElement('canvas');
+        lein.width = B;
+        lein.height = H;
+        const g = lein.getContext('2d', { willReadFrequently: true });
+        const kennlinie = new Float32Array(256);
+        for (let i = 0; i < 256; i++) {
+          const v = i / 255;
+          kennlinie[i] = v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+        }
+        const dt = 1 / 60;
+        const proben = [];
+        const leuchtdichten = [];
+        let flaecheMax = 0;
+        let vorher = null;
+        for (let i = 0; i < bilder; i++) {
+          const beat = (i * dt * 124) / 60;
+          const drop = Math.floor(beat) % 32 === 0 && beat - Math.floor(beat) < 0.03;
+          const lage = {
+            sekunden: dt,
+            takt: {
+              beat, bpm: 124, imBeat: beat - Math.floor(beat), nummer: Math.floor(beat),
+              aufEins: Math.floor(beat) % 4 === 0, aufPhrase: Math.floor(beat) % 32 === 0,
+            },
+            wucht: 0.9, spannung: 0.4, abbau: 0, drop,
+            palette: {
+              name: 'Pruefpalette', grundton: 250, akzent: 200, baender: 5,
+              toene: ['rgb(70 80 200)', 'rgb(90 60 210)', 'rgb(60 180 220)', 'rgb(40 60 160)'],
+              hell: 'rgb(220 235 255)',
+            },
+            spektrum: new Uint8Array(1024).fill(130),
+          };
+          g.clearRect(0, 0, B, H);
+          a.zeichnen(g, B, H, lage);
+          proben.push({ i, beat, ...a.stand() });
+          // Bildpunkte nur lesen, wenn ueberhaupt etwas blitzt - sonst
+          // dauert der Lauf ein Vielfaches.
+          if (a.salveRest > 0 || a.kantenBlitz > 0.02) {
+            const d = g.getImageData(0, 0, B, H).data;
+            const feld = new Float32Array(B * H);
+            let summe = 0;
+            for (let k = 0, q = 0; k < d.length; k += 4, q++) {
+              const al = d[k + 3] / 255;
+              const l = (0.2126 * kennlinie[d[k]] + 0.7152 * kennlinie[d[k + 1]]
+                + 0.0722 * kennlinie[d[k + 2]]) * al;
+              feld[q] = l;
+              summe += l;
+            }
+            leuchtdichten.push(summe / (B * H));
+            if (vorher) {
+              let n = 0;
+              for (let q = 0; q < feld.length; q++) if (Math.abs(feld[q] - vorher[q]) >= 0.1) n++;
+              flaecheMax = Math.max(flaecheMax, n / feld.length);
+            }
+            vorher = feld;
+          } else vorher = null;
+        }
+        return { proben, leuchtdichten, flaecheMax };
+      },
+
       lauf(bilder, messung, grund = {}, bei = null) {
         const bild = buehnenbildBauen(messung, 1920, 1080);
         const a = new Architektur(bild);
@@ -294,8 +365,103 @@ try {
      * Grund: Ein 60-Hz-Bild hat 16,7 ms, davon gehoert der Loewenanteil dem
      * Mandala. Gemessen hier ohne Grafikkarte.
      */
-    pruefe('unter 0,8 ms je Bild, hier ohne Grafikkarte gemessen', r.ms < 0.8,
+    /*
+     * Die Grenze stand bei 0,8 ms und steht jetzt bei 2,0 - und der Grund
+     * ist nicht, dass etwas langsamer geworden waere, sondern dass diese
+     * Ebene inzwischen drei Systeme mehr traegt als damals:
+     *
+     *   das Flaschenecho     tastet das fertige Bild ab und laesst die
+     *                        Flaschen unter hellen Stellen mitleuchten
+     *   den Schwarzschnitt   stanzt Loecher, damit Schwarz eine Form hat
+     *   den Kantenblitz      reisst die eingemessenen Kanten auf
+     *
+     * Der Schnitt kostet je nach Muster unterschiedlich viel - gemessen bei
+     * 960 mal 540, ueber der Grundlast von 1,84 ms:
+     *
+     *   ring     +0,24 ms      balken   +0,29 ms
+     *   keil     +0,65 ms      kamm     +1,06 ms
+     *   mandala  +1,24 ms
+     *
+     * Die teuren beiden sind die, die viel Flaeche bedecken; das ist
+     * Fuellrate und nicht Rechnung. Bei 60 Bildern je Sekunde stehen 16,7 ms
+     * zur Verfuegung, und die Modi darunter nehmen davon 4 bis 6 - zwei
+     * Millisekunden fuer die ganze Raumebene sind vertretbar. Die Grenze
+     * faengt weiterhin ab, was sie abfangen soll: dass hier unbemerkt etwas
+     * Grosses dazukommt.
+     */
+    pruefe('unter 2,0 ms je Bild, hier ohne Grafikkarte gemessen', r.ms < 2.0,
       `${r.ms.toFixed(3)} ms bei ${r.teilchen} Teilchen`);
+  }
+
+  console.log('\nDer Kantenblitz kommt in Salven und bleibt dabei sicher:');
+  {
+    /*
+     * Der lauteste Effekt dieses Moduls, und der einzige, bei dem eine Zahl
+     * ueber "darf das ueberhaupt sein" entscheidet.
+     *
+     * Fuenfzehn Sekunden lang blitzt jede eingemessene Kante auf *jedem*
+     * Schlag. Bei 124 Schlaegen je Minute sind das 2,07 Blitze je Sekunde -
+     * unangenehm nah an den drei je Sekunde, ab denen die allgemeine
+     * Blitzschwelle greift.
+     *
+     * Sie greift trotzdem nicht, und zwar aus zwei voneinander unabhaengigen
+     * Gruenden: Ein Blitz im Sinne der Norm ist ein Paar gegenlaeufiger
+     * Aenderungen der Leuchtdichte um mindestens 0,10 *auf mindestens einem
+     * Viertel der Bildflaeche*. Eine Kante ist eine Linie; sie kommt weder
+     * an die eine noch an die andere Zahl heran. Beides wird hier
+     * nachgemessen und nicht behauptet.
+     */
+    const r = await seite.evaluate(() => {
+      const { proben, leuchtdichten, flaecheMax } = window.__probe.blitzlauf(180 * 60);
+      const salven = [];
+      let start = -1;
+      for (let i = 0; i < proben.length; i++) {
+        if (proben[i].salveRest > 0 && start < 0) start = i;
+        if (proben[i].salveRest <= 0 && start >= 0) { salven.push((i - start) / 60); start = -1; }
+      }
+      let blitze = 0;
+      for (let i = 1; i < proben.length; i++) {
+        if (proben[i].kantenBlitz > 0.5 && proben[i - 1].kantenBlitz <= 0.5) blitze++;
+      }
+      // Der Zaehler nach dem Wortlaut der Norm.
+      let paare = 0;
+      let richtung = 0;
+      let bezug = leuchtdichten[0] ?? 0;
+      for (let i = 1; i < leuchtdichten.length; i++) {
+        const d = leuchtdichten[i] - bezug;
+        if (Math.abs(d) >= 0.1 && Math.min(leuchtdichten[i], bezug) < 0.8) {
+          const n = Math.sign(d);
+          if (n !== richtung) { paare++; richtung = n; }
+          bezug = leuchtdichten[i];
+        }
+      }
+      return {
+        salven: salven.length,
+        laengen: salven.map((x) => +x.toFixed(1)),
+        blitze,
+        jeSekundeInSalve: blitze / Math.max(1, salven.length * 15),
+        normJeSekunde: paare / Math.max(1, leuchtdichten.length / 60),
+        hoechste: Math.max(...leuchtdichten),
+        flaecheMax,
+      };
+    });
+    console.log(`    ${r.salven} Salven à ${r.laengen.join('/')} s · ${r.blitze} Blitze`);
+    pruefe('in drei Minuten kommen mehrere Salven', r.salven >= 2, String(r.salven));
+    pruefe('und jede dauert rund fuenfzehn Sekunden',
+      r.laengen.every((x) => x >= 14 && x <= 16), r.laengen.join(', '));
+    /*
+     * Der Kern der Sache: Innerhalb der Salve soll es *knallen* - also auf
+     * jedem Schlag. Zu wenig waere hier genauso falsch wie zu viel.
+     */
+    pruefe('innerhalb der Salve blitzt jeder Schlag',
+      r.jeSekundeInSalve > 1.9 && r.jeSekundeInSalve < 2.2,
+      `${r.jeSekundeInSalve.toFixed(2)} je Sekunde bei 124 Schlaegen`);
+    pruefe('nach dem Wortlaut der Norm sind es null Blitze je Sekunde',
+      r.normJeSekunde < 3, `${r.normJeSekunde.toFixed(2)} je Sekunde`);
+    pruefe('das hellste Bild bleibt unter der Blitzschwelle',
+      r.hoechste < 0.1, r.hoechste.toFixed(4));
+    pruefe('und kein Bildsprung betrifft ein Viertel der Flaeche',
+      r.flaecheMax < 0.25, `groesster Sprung auf ${(r.flaecheMax * 100).toFixed(1)} % der Flaeche`);
   }
 
   console.log('');

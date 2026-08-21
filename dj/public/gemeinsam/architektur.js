@@ -165,6 +165,9 @@ export class Architektur {
      */
     this.kantenBlitz = 0;
     this.kantenSperre = 0;
+    // Wie lange die laufende Salve noch feuern darf.
+    this.salveRest = 0;
+    this.letzterBlitzBeat = -1;
     /*
      * Die Oeffnungen nach ihrer Lage von links nach rechts sortieren. Die
      * Welle laeuft danach - und eine Welle, die in der Reihenfolge des
@@ -370,13 +373,33 @@ export class Architektur {
   /* --- Der innere Stand ---------------------------------------------------- */
 
   /*
-   * Sperrzeit des Kantenblitzes, in Sekunden.
+   * Der Kantenblitz kommt in Salven, nicht einzeln.
    *
-   * Neun Sekunden sind bei 124 Schlaegen je Minute knapp fuenf Takte - lang
-   * genug, dass zwei Blitze nie zur Folge werden, kurz genug, dass ein
-   * Aufbau mit mehreren Drops nicht nur einen einzigen abbekommt.
+   * Erst stand hier eine feste Sperre von neun Sekunden: hoechstens ein
+   * Blitz, dann Ruhe. Das war sicher und langweilig. Ein Blitz allein ist
+   * ein Zucken; fuenfzehn Sekunden davon auf jedem Schlag sind ein
+   * Ereignis, ueber das man hinterher redet - und danach eine Minute Ruhe,
+   * damit es eines bleibt.
+   *
+   * Das ist auch die Bauweise echter Shows: Ein Effekt kommt nicht
+   * gleichmaessig verteilt, sondern in einem Block genau dort, wo die Musik
+   * ihn traegt.
+   *
+   * Die Zahlen sind vom Auftraggeber vorgegeben und nicht gerechnet -
+   * fuenfzehn Sekunden Salve, rund eine Minute Pause. Was *gerechnet* ist,
+   * steht in der Abnahme: Bei 124 Schlaegen je Minute feuert die Salve mit
+   * 2,07 Blitzen je Sekunde, und damit unter den drei je Sekunde, ab denen
+   * die allgemeine Blitzschwelle greift. Die Flaeche liegt weit darunter,
+   * weil eine Kante eine Linie ist und keine Flaeche.
    */
-  static get KANTEN_SPERRE() { return 9; }
+  static get SALVE_DAUER() { return 15; }
+
+  static get SALVE_SPERRE() { return 60; }
+
+  /** Ob es ueberhaupt Linien gibt, die blitzen koennten. */
+  get hatLinien() {
+    return this.kanten.length > 0 || this.balkenB.length > 0;
+  }
 
   _fortschreiben(sekunden, takt, wucht, spannung, abbau, drop) {
     const abfall = Math.exp(-RAHMEN_ABKLINGEN * sekunden);
@@ -421,20 +444,32 @@ export class Architektur {
     }
 
     // Der Blitz klingt schnell ab - er ist ein Schlag, kein Licht.
-    if (this.kantenBlitz > 0) this.kantenBlitz = Math.max(0, this.kantenBlitz - sekunden * 4.5);
+    if (this.kantenBlitz > 0) this.kantenBlitz = Math.max(0, this.kantenBlitz - sekunden * 6.5);
     if (this.kantenSperre > 0) this.kantenSperre = Math.max(0, this.kantenSperre - sekunden);
+    if (this.salveRest > 0) this.salveRest = Math.max(0, this.salveRest - sekunden);
+
+    /*
+     * Waehrend der Salve auf jedem Schlag. Nicht auf jedem *Bild* - der
+     * Blitz haengt am Takt, sonst ist er ein Flackern und kein Schlag.
+     */
+    if (this.salveRest > 0 && takt && takt.nummer !== this.letzterBlitzBeat) {
+      this.letzterBlitzBeat = takt.nummer;
+      // Zum Ende der Salve hin wird es schwaecher, statt hart abzubrechen.
+      const ausklang = Math.min(1, this.salveRest / 2.5);
+      this.kantenBlitz = Math.max(this.kantenBlitz, 0.55 + wucht * 0.45 * ausklang);
+    }
 
     if (drop) {
       this.dropHall = 1;
       /*
-       * Der Drop zuendet die Kanten - aber nur, wenn die Sperre abgelaufen
+       * Der Drop oeffnet die Salve - aber nur, wenn die Sperre abgelaufen
        * ist. Und nur, wenn wirklich Energie da ist: Ein Drop im Ausklang
        * ist kein Moment fuer den staerksten Akzent, den dieses Modul hat.
        */
-      if (this.kantenSperre <= 0 && wucht > 0.5
-        && (this.kanten.length > 0 || this.balkenB.length > 0)) {
+      if (this.kantenSperre <= 0 && wucht > 0.5 && this.hatLinien) {
+        this.salveRest = Architektur.SALVE_DAUER;
+        this.kantenSperre = Architektur.SALVE_DAUER + Architektur.SALVE_SPERRE;
         this.kantenBlitz = 1;
-        this.kantenSperre = Architektur.KANTEN_SPERRE;
       }
       // Beim Drop alles auf einmal - das ist der eine Moment, in dem die ganze
       // Fassade brennen darf.
@@ -697,6 +732,7 @@ export class Architektur {
       dropHall: this.dropHall,
       kantenBlitz: this.kantenBlitz,
       kantenSperre: this.kantenSperre,
+      salveRest: this.salveRest,
       licht: Object.fromEntries([...this.licht].map(([b, v]) => [b.name, v])),
     };
   }
