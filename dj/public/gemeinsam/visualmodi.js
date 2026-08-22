@@ -13,6 +13,7 @@
 // auf Positionen ab - Oktaven liegen dadurch immer gleich weit auseinander,
 // egal welcher Track laeuft.
 
+import { verzerrungAnlegen } from './buehnenbild.js';
 import {
   gpuBereit, gpuFarben, gpuZeichnen, gpuProbe, gpuProbeVergessen, gpuLeinwand, gpuName,
   reiheAuskunft,
@@ -1175,7 +1176,13 @@ let mandelSeitAufgabe = 1e9;
  */
 let mandelEbeneDrin = false;
 
-function mandelEbeneSichern(sichtbar) {
+/*
+ * Merkt sich, fuer welche Messung die Fraktalebene zuletzt ausgerichtet
+ * wurde - das Verziehen soll nicht je Bild neu passieren.
+ */
+let mandelEbeneFuer = null;
+
+function mandelEbeneSichern(sichtbar, bild = null) {
   const leinwand = gpuLeinwand();
   if (!leinwand) return;
   if (!mandelEbeneDrin) {
@@ -1198,9 +1205,37 @@ function mandelEbeneSichern(sichtbar) {
       ziel.style.zIndex = '1';
       ziel.parentNode.insertBefore(leinwand, ziel);
       mandelEbeneDrin = true;
+      mandelEbeneFuer = null;
     }
   }
   leinwand.style.visibility = sichtbar ? 'visible' : 'hidden';
+
+  /*
+   * Die Fraktalebene mit derselben Verzerrung wie alles andere.
+   *
+   * Sie lag als eigene Leinwand ueber den ganzen Bildschirm - `inset: 0`,
+   * Breite und Hoehe hundert Prozent - und hat die Einmessung schlicht
+   * ignoriert. Auf einem Monitor faellt das nicht auf, weil dort Bildschirm
+   * und Bild dasselbe sind. Auf einer eingemessenen Wand ist es ein Fehler
+   * mit zwei Folgen: Das Fraktal sitzt nicht auf der Wand, sondern im
+   * Beamerbild, und es leuchtet ueber den vermessenen Bereich hinaus - also
+   * genau dorthin, wo gar nichts hingehoert.
+   *
+   * Gefunden beim Nachsehen, warum neben der verzogenen Leinwand ueberhaupt
+   * etwas Buntes steht.
+   */
+  if (bild !== mandelEbeneFuer) {
+    mandelEbeneFuer = bild;
+    if (bild && bild.an) {
+      verzerrungAnlegen(leinwand, bild);
+    } else {
+      // Ohne Messung zurueck auf Vollbild - `verzerrungAnlegen` raeumt die
+      // Masse nur ab, es kennt die Vorgabe dieser Ebene nicht.
+      verzerrungAnlegen(leinwand, { an: false });
+      leinwand.style.width = '100%';
+      leinwand.style.height = '100%';
+    }
+  }
 }
 const MANDEL_SCHONZEIT = 5;
 /*
@@ -2497,7 +2532,7 @@ function mandelbrotZeichnen(stift, lage) {
       };
     }
 
-    mandelEbeneSichern(true);
+    mandelEbeneSichern(true, lage.buehnenbild ?? null);
     // Auf die 2D-Leinwand kommt nur noch, was ueber dem Fraktal liegt: die
     // Ueberblendung beim Stellenwechsel und der Schleier fuer die Schrift.
     mandelUeberlagern(stift, breite, hoehe, sekunden, bild.leinwand, bild.breite, bild.hoehe);

@@ -507,37 +507,13 @@ export class Visualisierung {
       anteilB: uebergang ? uebergang.fortschritt : 0,
     });
 
-    /*
-     * Der Schatten-DJ - vor dem Bild, hinter der Schrift.
-     *
-     * Die Stelle ist gewaehlt und nicht zufaellig. Vor dem Modus stuende er
-     * hinter dem Fraktal und waere unsichtbar; nach dem Schleier laege er
-     * ueber der Schrift. Hier steht er da, wo ein echter DJ auch steht:
-     * zwischen der Projektion und dem Publikum.
-     *
-     * Er bekommt dieselben Zahlen wie der Modus. Damit bewegt er sich zu
-     * *dieser* Musik und nicht zu einem Zufallsgenerator - und im Breakdown
-     * hoert er wirklich den naechsten Track vor, waehrend die Buehne ihn
-     * wirklich laedt.
-     */
-    schattenZeichnen(stift, breite, hoehe, {
-      sekunden,
-      takt,
-      spannung,
-      abbau,
-      wucht,
-      drop: dropJetzt,
-      anteilB: uebergang ? uebergang.fortschritt : 0,
-      palette: this.paletteFuer(aktiv?.track),
-      guetestufe: this.guetestufe,
-    });
 
     /*
      * Und darueber das Haus.
      *
-     * Die Stelle ist bewusst *nach* dem Schatten-DJ: Fensterrahmen und
-     * Lichtlinien gehoeren zur Wand, und die Wand liegt hinter niemandem.
-     * Der DJ steht davor, die Rahmen leuchten um ihn herum.
+     * Fensterrahmen, Lichtlinien und der Kantenblitz gehoeren zur Wand, und
+     * die Wand liegt hinter der Figur - der Schatten-DJ kommt deshalb ganz
+     * zuletzt, siehe unten.
      *
      * Sie bekommt dieselben Zahlen wie alles andere - und wenn nichts
      * eingemessen ist, tut sie nichts.
@@ -577,6 +553,49 @@ export class Visualisierung {
       this.funken.length = 0;
     }
     if (this.stossHalt > 0) this.stossHalt = Math.max(0, this.stossHalt - sekunden * 3.5);
+
+    /*
+     * Der Schatten-DJ - ganz vorn, nach allem anderen.
+     *
+     * Er stand lange zwischen Modus und Architektur, mit der Begruendung,
+     * die Wand liege hinter niemandem und die Fensterrahmen sollten um ihn
+     * herum leuchten. Auf einer Wand stimmt das nicht mehr: Dort ist er
+     * kein Bildelement, sondern ein *Schatten*, und ein Schatten liegt
+     * ueber allem, was hinter ihm leuchtet - sonst ist er keiner.
+     *
+     * Praktisch ist das auch der staerkste Kontrast, den dieser Raum
+     * hergibt. Ein Beamer kann Schwarz nicht werfen; wo die Figur steht,
+     * bleibt die Wand unbeleuchtet. Eine grosse zusammenhaengende Form aus
+     * gar keinem Licht, vor allem anderen - staerker geht es nicht.
+     *
+     * Dass er jetzt auch das weisse Aufblitzen nach dem Drop ueberdeckt,
+     * ist kein Nebeneffekt, sondern der beste Moment der Figur: eine
+     * schwarze Silhouette vor einer weissen Wand.
+     *
+     * `source-over` ausdruecklich: Vorher lief er im Windschatten dessen,
+     * was der Modus gerade eingestellt hatte. Steht dort `lighter`, ist
+     * Schwarz nichts - die Figur waere unsichtbar, ohne dass irgendwo ein
+     * Fehler auftaucht.
+     *
+     * Er bekommt dieselben Zahlen wie der Modus. Damit bewegt er sich zu
+     * *dieser* Musik und nicht zu einem Zufallsgenerator - und im Breakdown
+     * hoert er wirklich den naechsten Track vor, waehrend die Buehne ihn
+     * wirklich laedt.
+     */
+    stift.globalCompositeOperation = 'source-over';
+    stift.globalAlpha = 1;
+    schattenZeichnen(stift, breite, hoehe, {
+      sekunden,
+      takt,
+      spannung,
+      abbau,
+      wucht,
+      drop: dropJetzt,
+      anteilB: uebergang ? uebergang.fortschritt : 0,
+      palette: this.paletteFuer(aktiv?.track),
+      guetestufe: this.guetestufe,
+    });
+
 
     // Wie lange ein Bild wirklich braucht. Traege geglaettet, damit die
     // Anzeige lesbar bleibt statt zu zappeln.

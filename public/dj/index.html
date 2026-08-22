@@ -8,7 +8,15 @@
     <style>
 :root {
   color-scheme: dark;
-  --grund: #07070c;
+  /*
+   * Echtes Schwarz, nicht fast-schwarz.
+   *
+   * Das ist der Hintergrund *hinter* der Leinwand, also alles, was der
+   * Beamer neben dem eingemessenen Bereich trifft. #07070c sieht auf einem
+   * Monitor aus wie Schwarz und beleuchtet auf einer Wand die ganze Flaeche
+   * schwach - dieselbe Falle wie bei der Lava, nur eine Ebene hoeher.
+   */
+  --grund: #000;
   --text: #f2f2f8;
   --leise: #9a9ab4;
   --akzent: #ff3d7f;
@@ -3581,6 +3589,555 @@ async function leitungSuchen() {
   }
 
   return new EigenLeitung();
+}
+
+
+// ===== public/gemeinsam/homographie.js =====
+// Die projektive Abbildung zwischen Beamer, Foto und Wand.
+//
+// --- Das Problem ------------------------------------------------------------
+//
+// Ein Beamer steht nie genau senkrecht vor der Wand. Was er als Rechteck
+// wirft, kommt dort als Trapez an - und je schraeger er steht, desto
+// schiefer. Damit ein Mandala genau in ein Fenster passt, muss das Bild
+// *vorher* gegengebogen werden.
+//
+// --- Warum ein Foto reicht --------------------------------------------------
+//
+// Der naheliegende Gedanke ist, die Kamera an einen genau vermessenen Ort zu
+// stellen. Das ist nicht noetig, und es waere sogar der schwierigere Weg.
+//
+// Solange die Wand *eben* ist, gibt es zwischen je zwei Ansichten davon eine
+// projektive Abbildung mit acht Freiheitsgraden - und vier Punktpaare legen
+// sie eindeutig fest. Steht auf einem einzigen Foto sowohl das Testbild des
+// Beamers als auch die Fassade, dann steckt darin alles:
+//
+//   Beamer -> Foto   aus den vier Marken des Testbildes
+//   Foto -> Beamer   die Umkehrung davon
+//   Fassade          ist schon im Foto, also schon in derselben Rechnung
+//
+// Wo die Kamera stand, kuerzt sich heraus. Das ist keine Naeherung, sondern
+// eine Eigenschaft ebener Flaechen.
+//
+// --- Und warum das Foto der Entwurfsraum ist --------------------------------
+//
+// Entzerrt wird nicht auf die *echte* Wand, sondern auf das *Foto*. Das
+// klingt nach einem Kompromiss und ist die richtige Wahl: Eine Projektion auf
+// eine Fassade sieht nur von einem Ort wirklich richtig aus, und dieser Ort
+// soll dort sein, wo die Gaeste stehen. Steht die Kamera dort, dann ist
+// "sieht im Foto rechteckig aus" genau das gewuenschte Ergebnis.
+//
+// Nebenwirkung, und eine sehr angenehme: Das Foto ist damit die Zeichenflaeche.
+// Ein Mandala, das im Foto ueber der Tuer sitzt, sitzt an dem Abend ueber der
+// Tuer.
+//
+// --- Was es kostet ----------------------------------------------------------
+//
+// Nichts je Bild. Die Abbildung wird einmal beim Kalibrieren geloest und
+// danach als CSS-Matrix an die Leinwand gehaengt; das Verziehen macht der
+// Compositor auf der Grafikkarte. Die Visualisierung rechnet weiter in einem
+// glatten Rechteck und weiss von alldem nichts.
+
+/* --- Lineares Gleichungssystem ---------------------------------------------
+ *
+ * Acht Unbekannte, acht Gleichungen. Geloest mit Gauss und Spaltenpivotisierung
+ * - ohne Pivotisierung kippt das Verfahren, sobald eine Zeile mit einer Null
+ * an der Diagonalen anfaengt, und das passiert bei achsenparallelen Marken
+ * sofort.
+ */
+function loesen(A, b) {
+  const n = b.length;
+  const M = A.map((zeile, i) => [...zeile, b[i]]);
+  for (let s = 0; s < n; s++) {
+    let beste = s;
+    for (let z = s + 1; z < n; z++) if (Math.abs(M[z][s]) > Math.abs(M[beste][s])) beste = z;
+    if (Math.abs(M[beste][s]) < 1e-12) return null; // entartet
+    [M[s], M[beste]] = [M[beste], M[s]];
+    for (let z = 0; z < n; z++) {
+      if (z === s) continue;
+      const f = M[z][s] / M[s][s];
+      if (!f) continue;
+      for (let k = s; k <= n; k++) M[z][k] -= f * M[s][k];
+    }
+  }
+  /*
+   * Nach der Elimination steht in Zeile i nur noch das Diagonalglied und die
+   * rechte Seite. Die Loesung ist also M[i][n] / M[i][i] - und weil `zeile`
+   * hier schon die Zeile *ist*, heisst das `zeile[n] / zeile[i]`. Ein Index
+   * zu viel an dieser Stelle macht aus allem stillschweigend NaN.
+   */
+  return M.map((zeile, i) => zeile[n] / zeile[i]);
+}
+
+/**
+ * Die projektive Abbildung aus vier Punktpaaren.
+ *
+ * Gesucht ist H mit  [x' y' w]ᵀ = H · [x y 1]ᵀ  und  (u,v) = (x'/w, y'/w).
+ * h33 wird auf 1 gesetzt - eine Homographie ist nur bis auf einen Faktor
+ * bestimmt, und diese Normierung ist die uebliche.
+ *
+ * Je Punktpaar zwei Gleichungen:
+ *   u = (h11 x + h12 y + h13) / (h31 x + h32 y + 1)
+ *   v = (h21 x + h22 y + h23) / (h31 x + h32 y + 1)
+ * ausmultipliziert und nach den acht Unbekannten sortiert.
+ *
+ * @param {Array<[number,number]>} von  vier Punkte
+ * @param {Array<[number,number]>} nach vier Punkte, in derselben Reihenfolge
+ * @returns {number[]|null} neun Zahlen zeilenweise, oder null bei entarteter Lage
+ */
+function homographie(von, nach) {
+  if (von.length !== 4 || nach.length !== 4) throw new Error('Vier Punktpaare, nicht mehr und nicht weniger');
+  const A = [];
+  const b = [];
+  for (let i = 0; i < 4; i++) {
+    const [x, y] = von[i];
+    const [u, v] = nach[i];
+    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+    b.push(u);
+    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+    b.push(v);
+  }
+  const h = loesen(A, b);
+  return h ? [...h, 1] : null;
+}
+
+/** Einen Punkt durch die Abbildung schicken. */
+function anwenden(H, [x, y]) {
+  const w = H[6] * x + H[7] * y + H[8];
+  // Ein Punkt auf der Fluchtlinie hat kein Bild. In der Praxis heisst das:
+  // Er liegt hinter dem Beamer. Statt Unendlich zurueckzugeben wird geklemmt -
+  // ein NaN in der Zeichenkette waere schlimmer als ein weit entfernter Punkt.
+  const n = Math.abs(w) < 1e-12 ? (w < 0 ? -1e-12 : 1e-12) : w;
+  return [(H[0] * x + H[1] * y + H[2]) / n, (H[3] * x + H[4] * y + H[5]) / n];
+}
+
+/** Die Umkehrabbildung. */
+function umkehren(H) {
+  const [a, b, c, d, e, f, g, h, i] = H;
+  const A = e * i - f * h;
+  const B = -(d * i - f * g);
+  const C = d * h - e * g;
+  const det = a * A + b * B + c * C;
+  if (Math.abs(det) < 1e-12) return null;
+  const inv = [
+    A, -(b * i - c * h), b * f - c * e,
+    B, a * i - c * g, -(a * f - c * d),
+    C, -(a * h - b * g), a * e - b * d,
+  ].map((v) => v / det);
+  // Wieder auf h33 = 1 normieren, damit die Zahlen vergleichbar bleiben.
+  return Math.abs(inv[8]) > 1e-12 ? inv.map((v) => v / inv[8]) : inv;
+}
+
+/**
+ * Als CSS-Transformation.
+ *
+ * `matrix3d` nimmt eine 4x4-Matrix spaltenweise. Eine ebene Homographie
+ * steckt darin an genau den Stellen, an denen die dritte Zeile und Spalte
+ * die Einheitsmatrix bleiben: Aus h31 und h32 wird die perspektivische
+ * Verjuengung.
+ *
+ * Der Grund, das ueberhaupt so zu machen: Der Compositor des Browsers
+ * verzieht das Element auf der Grafikkarte, und zwar einmal beim Zeichnen und
+ * nicht je Bildpunkt in JavaScript. Die Verzerrung kostet damit *nichts* -
+ * und die Visualisierung dahinter rechnet weiter in einem glatten Rechteck,
+ * ohne von der schiefen Wand zu wissen.
+ *
+ * `transform-origin: 0 0` ist Pflicht. Ohne das rechnet der Browser die
+ * Matrix um den Mittelpunkt des Elements herum, und die perspektivischen
+ * Glieder ergeben dann etwas ganz anderes.
+ */
+function alsCss(H) {
+  const [a, b, c, d, e, f, g, h, i] = H;
+  const m = [
+    a, d, 0, g,
+    b, e, 0, h,
+    0, 0, 1, 0,
+    c, f, 0, i,
+  ];
+  /*
+   * Volle Genauigkeit, keine festen Nachkommastellen.
+   *
+   * Zuerst stand hier toFixed(9). Das klingt grosszuegig und ist es fuer die
+   * grossen Glieder auch - aber die perspektivischen h31 und h32 sind bei
+   * einer Leinwand von tausend Bildpunkten in der Groessenordnung 1e-7, und
+   * neun feste Nachkommastellen lassen davon zwei uebrig. Gemessen kam die
+   * CSS-Matrix damit auf 1,5 Tausendstel Bildpunkte anders heraus als die
+   * Rechnung. Das ist physikalisch belanglos und trotzdem der falsche Weg:
+   * Eine Zahl abzuschneiden, um eine Zeichenkette zu kuerzen, spart hier
+   * nichts.
+   */
+  return `matrix3d(${m.map((v) => (Math.abs(v) < 1e-14 ? 0 : v)).join(',')})`;
+}
+
+/**
+ * Liegt ein Punkt in einem Vieleck?
+ *
+ * Strahlverfahren. Gebraucht wird das an zwei Stellen: um zu pruefen, ob eine
+ * Stelle der Wand ueberhaupt vom Beamer erreicht wird, und um Totzonen
+ * auszusparen.
+ */
+function imVieleck([x, y], punkte) {
+  let drin = false;
+  for (let i = 0, j = punkte.length - 1; i < punkte.length; j = i++) {
+    const [xi, yi] = punkte[i];
+    const [xj, yj] = punkte[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) drin = !drin;
+  }
+  return drin;
+}
+
+/**
+ * Wie gut passt eine Abbildung zu ihren eigenen Punktpaaren?
+ *
+ * Bei genau vier Paaren ist der Fehler rechnerisch null - die Abbildung geht
+ * durch alle vier hindurch. Das macht die Zahl aber nicht wertlos: Ist sie
+ * *nicht* null, ist etwas mit der Rechnung faul, und das faellt sonst erst
+ * an der Wand auf.
+ *
+ * Bei mehr als vier Paaren wird es eine echte Aussage. Deshalb steht die
+ * Funktion hier und nicht in der Abnahme.
+ */
+function passfehler(H, von, nach) {
+  let schlimmster = 0;
+  for (let i = 0; i < von.length; i++) {
+    const [u, v] = anwenden(H, von[i]);
+    schlimmster = Math.max(schlimmster, Math.hypot(u - nach[i][0], v - nach[i][1]));
+  }
+  return schlimmster;
+}
+
+/**
+ * Ist ein Viereck brauchbar - oder hat jemand die Marken vertauscht?
+ *
+ * Geprueft wird die Konvexitaet ueber das Vorzeichen der Kreuzprodukte an den
+ * vier Ecken. Sind sie nicht alle gleich, ist das Viereck ueberschlagen, und
+ * die Abbildung daraus klappt das Bild an einer Achse um. Das sieht an der
+ * Wand aus wie ein Fehler im Zeichner und ist in Wahrheit ein
+ * Bedienungsfehler beim Anklicken - deshalb wird es hier abgefangen und
+ * nicht dort gesucht.
+ */
+function viereckPruefen(punkte) {
+  if (punkte.length !== 4) return 'Es braucht genau vier Ecken';
+  let positiv = 0;
+  let negativ = 0;
+  for (let i = 0; i < 4; i++) {
+    const a = punkte[i];
+    const b = punkte[(i + 1) % 4];
+    const c = punkte[(i + 2) % 4];
+    const kreuz = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+    if (kreuz > 0) positiv++;
+    else if (kreuz < 0) negativ++;
+  }
+  if (positiv && negativ) return 'Die Ecken sind ueberschlagen – Reihenfolge oben links, oben rechts, unten rechts, unten links';
+  // Flaeche ueber die Schnuersenkelformel: ein sehr flaches Viereck heisst,
+  // dass zwei Marken fast aufeinanderliegen.
+  let flaeche = 0;
+  for (let i = 0, j = 3; i < 4; j = i++) {
+    flaeche += (punkte[j][0] + punkte[i][0]) * (punkte[j][1] - punkte[i][1]);
+  }
+  if (Math.abs(flaeche / 2) < 1e-6) return 'Die vier Ecken liegen fast auf einer Linie';
+  return null;
+}
+
+
+// ===== public/gemeinsam/buehnenbild.js =====
+// Die Wand als Teil des Bildes.
+//
+// Was hier steht, verbindet zwei Welten: die Kalibrierung, die einmal vor Ort
+// gemessen wurde, und die Visualisierung, die jeden Abend laeuft. Dazwischen
+// liegen zwei Aufgaben.
+//
+// --- 1. Das Bild gegenbiegen ------------------------------------------------
+//
+// Der Beamer steht schief, also kommt sein Rechteck als Trapez an der Wand
+// an. Damit ein Mandala genau in ein Fenster passt, muss das Bild vorher
+// gegenverzerrt werden.
+//
+// Gemacht wird das *nicht* im Zeichner, sondern mit einer CSS-Matrix an der
+// Leinwand. Der Compositor des Browsers verzieht das fertige Bild auf der
+// Grafikkarte - das kostet nichts je Bild, und die ganze Visualisierung
+// dahinter rechnet weiter in einem glatten Rechteck, ohne von der schiefen
+// Wand zu wissen. Waere die Verzerrung im Zeichner, muesste jede einzelne
+// Linie durch eine projektive Abbildung, und jedes Mandala haette sie zu
+// beruecksichtigen.
+//
+// --- 2. Die Architektur weiterreichen ---------------------------------------
+//
+// Die Bereiche - Fenster, Tueren, Kanten, Totzonen - werden in Anteilen der
+// Entwurfsflaeche gespeichert. Die Visualisierung fragt sie ab und kann
+// damit etwas anfangen:
+//
+//   Fenster   Inhalt hineinsetzen, oder den Rahmen als Lichtlinie ziehen
+//   Tuer      ein Ursprung, aus dem etwas herauswaechst
+//   Kante     eine Linie, an der etwas entlanglaeuft
+//   Flaeche   gute Projektionsflaeche, hier darf das Grosse hin
+//   Totzone   Glas, dunkler Stein, ein Baum davor - hier ist Licht verloren
+//
+// --- Der Entwurfsraum -------------------------------------------------------
+//
+// Alles rechnet in "Entwurfskoordinaten": ein Rechteck mit denselben
+// Seitenverhaeltnissen wie das Foto, in Anteilen von 0 bis 1. Das ist genau
+// das Foto - was dort ueber der Tuer sitzt, sitzt abends ueber der Tuer.
+
+
+const SCHLUESSEL = 'djBeamerKalibrierung';
+
+/** Wie eine leere, unverzerrte Buehne aussieht. */
+const OHNE = {
+  an: false,
+  seitenverhaeltnis: 16 / 9,
+  bereiche: [],
+  css: 'none',
+  imBild: () => true,
+};
+
+/**
+ * Eine gespeicherte Kalibrierung einlesen und in Betriebsform bringen.
+ *
+ * @param {object|null} roh   was die Einmessseite abgelegt hat
+ * @param {number} breite     Breite der Anzeige in Bildpunkten
+ * @param {number} hoehe      Hoehe der Anzeige in Bildpunkten
+ */
+function buehnenbildBauen(roh, breite, hoehe) {
+  if (!roh || roh.fassung !== 1 || !Array.isArray(roh.marken) || roh.marken.length !== 4) return { ...OHNE };
+
+  const seiten = roh.fotoSeitenverhaeltnis || 16 / 9;
+
+  /*
+   * Die Groesse der Entwurfsleinwand.
+   *
+   * Sie hat das Seitenverhaeltnis des Fotos und ungefaehr so viele
+   * Bildpunkte wie die Anzeige. "Ungefaehr" reicht: Was der Compositor
+   * hinterher verzieht, wird ohnehin neu abgetastet, und eine Leinwand, die
+   * deutlich groesser waere als das Beamerbild, kostete Rechenzeit fuer
+   * Bildpunkte, die niemand sieht.
+   */
+  const flaeche = breite * hoehe;
+  const entwurfBreite = Math.round(Math.sqrt(flaeche * seiten));
+  const entwurfHoehe = Math.round(entwurfBreite / seiten);
+
+  /*
+   * Die Abbildung, die an die Leinwand kommt: von *Entwurfsbildpunkten* nach
+   * *Anzeigebildpunkten*.
+   *
+   * Sie wird in einem Schritt aus vier Punktpaaren geloest und nicht aus
+   * mehreren Teilabbildungen zusammengesetzt. Zusammensetzen waere derselbe
+   * Rechenweg mit mehr Gelegenheiten, eine Einheit zu verwechseln.
+   *
+   *   von:  wo die Marken im Entwurf liegen  = Anteil im Foto mal Entwurfsgroesse
+   *   nach: wo die Marken im Beamerbild liegen = Anteil mal Anzeigegroesse
+   */
+  const von = roh.marken.map(([x, y]) => [x * entwurfBreite, y * entwurfHoehe]);
+  const nach = (roh.markenImBeamer ?? [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]])
+    .map(([x, y]) => [x * breite, y * hoehe]);
+  const H = homographie(von, nach);
+  if (!H) return { ...OHNE };
+
+  /*
+   * Welcher Teil des Entwurfs wird ueberhaupt vom Beamer erreicht? Das ist
+   * das Beamerbild, in den Entwurf zurueckgerechnet. Was ausserhalb liegt,
+   * bleibt an der Wand dunkel - die Visualisierung soll dort nichts
+   * Wichtiges hinlegen.
+   */
+  const R = umkehren(H);
+  const sichtbar = R
+    ? [[0, 0], [breite, 0], [breite, hoehe], [0, hoehe]]
+      .map((p) => anwenden(R, p).map((v, i) => v / (i ? entwurfHoehe : entwurfBreite)))
+    : [[0, 0], [1, 0], [1, 1], [0, 1]];
+
+  const bereiche = (roh.bereiche ?? []).map((b) => aufbereiten(b, seiten));
+
+  return {
+    an: true,
+    seitenverhaeltnis: seiten,
+    breite: entwurfBreite,
+    hoehe: entwurfHoehe,
+    /*
+     * Die gemessene Farbe der Hauptflaeche geht mit durch.
+     *
+     * Sie hat hier zuerst gefehlt, und der Ausfall war lautlos: Die
+     * Einmessseite hat gemessen und gespeichert, `flaechenLesen` hat
+     * nachgesehen, nichts gefunden und die neutrale Vorgabe geliefert - also
+     * genau das Verhalten von vorher. Die ganze Farbanpassung an die Wand
+     * war damit zur Laufzeit wirkungslos, ohne dass irgendwo etwas
+     * schiefging.
+     *
+     * Die Abnahme hat es auch nicht gefunden, weil sie `oberflaecheLesen`
+     * direkt gefuettert hat statt ueber diese Kette. Ein Test, der das
+     * Bauteil prueft und nicht den Einbau, findet einen fehlenden Draht nie.
+     */
+    grundfarbe: roh.grundfarbe ?? null,
+    css: alsCss(H),
+    bereiche,
+    sichtbar,
+    /** Liegt ein Punkt (in Anteilen) im Beamerbild? */
+    imBild: (p) => imVieleck(p, sichtbar),
+    /** Alle Bereiche einer Art. */
+    art: (art) => bereiche.filter((b) => b.art === art),
+    /** Welcher Bereich liegt an dieser Stelle? */
+    bei: (p) => bereiche.find((b) => imVieleck(p, b.punkte)) ?? null,
+  };
+}
+
+/**
+ * Einen Bereich um alles ergaenzen, was die Visualisierung sonst je Bild neu
+ * ausrechnen muesste.
+ *
+ * Mitte, Umfang, Hoehe und Breite stehen fest, sobald die Messung steht - sie
+ * je Bild neu zu bestimmen waere Arbeit fuer ein Ergebnis, das sich nie
+ * aendert.
+ */
+function aufbereiten(b, seiten) {
+  const p = b.punkte;
+  let mx = 0;
+  let my = 0;
+  for (const [x, y] of p) { mx += x; my += y; }
+  mx /= p.length;
+  my /= p.length;
+
+  const xs = p.map((q) => q[0]);
+  const ys = p.map((q) => q[1]);
+  const links = Math.min(...xs);
+  const rechts = Math.max(...xs);
+  const oben = Math.min(...ys);
+  const unten = Math.max(...ys);
+
+  /*
+   * Der Umfang wird in *Seitenverhaeltnis-treuen* Einheiten gemessen: Ein
+   * Foto ist breiter als hoch, und in reinen Anteilen waere eine waagerechte
+   * Strecke sonst kuerzer als eine gleich lange senkrechte. Fuer eine
+   * Lichtlinie, die mit gleichmaessiger Geschwindigkeit an einem
+   * Fensterrahmen entlanglaeuft, macht das den Unterschied zwischen "laeuft"
+   * und "ruckelt an den Ecken".
+   */
+  let umfang = 0;
+  const abschnitte = [];
+  for (let i = 0; i < p.length; i++) {
+    const a = p[i];
+    const c = p[(i + 1) % p.length];
+    const l = Math.hypot((c[0] - a[0]) * seiten, c[1] - a[1]);
+    abschnitte.push(l);
+    umfang += l;
+  }
+
+  /*
+   * Die Abbildung vom Einheitsquadrat auf das Viereck.
+   *
+   * Damit laesst sich jeder Punkt eines Bereiches ueber zwei Zahlen von 0 bis
+   * 1 ansprechen - und zwar *perspektivisch richtig*. Ein Gitterkasten, der
+   * schraeg im Bild steht, hat oben schmalere Zellen als unten; wer da linear
+   * teilt, trifft die unteren Reihen nicht mehr.
+   *
+   * Es ist dieselbe Rechnung wie fuer die ganze Wand, nur eine Stufe kleiner,
+   * und sie benutzt denselben geprueften Loeser. Bei Bereichen, die keine
+   * vier Ecken haben, gibt es sie nicht - dann bleibt `punktAuf` null, und
+   * wer sie braucht, muss vorher fragen.
+   */
+  let aufsViereck = null;
+  if (p.length === 4) aufsViereck = homographie([[0, 0], [1, 0], [1, 1], [0, 1]], p);
+  const punktAuf = aufsViereck ? (u, v) => anwenden(aufsViereck, [u, v]) : null;
+
+  /*
+   * Die Zellen eines Gitterkastens.
+   *
+   * Sie werden hier einmal ausgerechnet und nicht je Bild: Ein Kasten mit
+   * zwoelf mal acht Faechern hat 96 Zellen, und die stehen fest, sobald die
+   * Messung steht.
+   */
+  let zellen = null;
+  if (b.art === 'gitterbox' && punktAuf) {
+    const sp = Math.max(1, Math.round(b.spalten ?? 10));
+    const re = Math.max(1, Math.round(b.reihen ?? 6));
+    zellen = { spalten: sp, reihen: re, mitten: [] };
+    for (let j = 0; j < re; j++) {
+      for (let i = 0; i < sp; i++) {
+        zellen.mitten.push(punktAuf((i + 0.5) / sp, (j + 0.5) / re));
+      }
+    }
+    // Wie gross eine Zelle ungefaehr ist - fuer die Groesse der Lichtflecken.
+    const a = punktAuf(0, 0.5);
+    const c = punktAuf(1, 0.5);
+    zellen.zellBreite = Math.hypot((c[0] - a[0]) * seiten, c[1] - a[1]) / sp;
+    const o = punktAuf(0.5, 0);
+    const u = punktAuf(0.5, 1);
+    zellen.zellHoehe = Math.hypot((u[0] - o[0]) * seiten, u[1] - o[1]) / re;
+  }
+
+  return {
+    ...b,
+    mitte: [mx, my],
+    kasten: { links, rechts, oben, unten, breite: rechts - links, hoehe: unten - oben },
+    umfang,
+    abschnitte,
+    punktAuf,
+    zellen,
+    /**
+     * Ein Punkt auf dem Rand, bei Anteil t des Umfangs.
+     *
+     * Damit laeuft eine Lichtlinie den Rahmen entlang, und zwar mit
+     * gleichmaessiger Geschwindigkeit - nicht mit gleich vielen Punkten je
+     * Kante, was an kurzen Kanten schnell und an langen langsam waere.
+     */
+    aufDemRand(t) {
+      let rest = ((t % 1) + 1) % 1 * umfang;
+      for (let i = 0; i < p.length; i++) {
+        if (rest <= abschnitte[i] || i === p.length - 1) {
+          const a = p[i];
+          const c = p[(i + 1) % p.length];
+          const f = abschnitte[i] > 1e-9 ? rest / abschnitte[i] : 0;
+          return [a[0] + (c[0] - a[0]) * f, a[1] + (c[1] - a[1]) * f];
+        }
+        rest -= abschnitte[i];
+      }
+      return p[0];
+    },
+    drin: (q) => imVieleck(q, p),
+  };
+}
+
+/** Die gespeicherte Messung dieses Geraets. */
+function buehnenbildLaden(breite, hoehe) {
+  let roh = null;
+  try { roh = JSON.parse(localStorage.getItem(SCHLUESSEL) ?? 'null'); } catch { roh = null; }
+  return buehnenbildBauen(roh, breite, hoehe);
+}
+
+/**
+ * Die Verzerrung an eine Leinwand haengen.
+ *
+ * `transform-origin: 0 0` ist Pflicht: Ohne das rechnet der Browser die
+ * Matrix um den Mittelpunkt des Elements, und die perspektivischen Glieder
+ * ergeben dann etwas ganz anderes. Das ist der Fehler, den man an dieser
+ * Stelle einmal macht.
+ */
+function verzerrungAnlegen(element, bild) {
+  if (!bild.an) {
+    element.style.transform = '';
+    element.style.transformOrigin = '';
+    element.style.width = '';
+    element.style.height = '';
+    element.style.left = '';
+    element.style.top = '';
+    element.style.right = '';
+    element.style.bottom = '';
+    return;
+  }
+  element.style.transformOrigin = '0 0';
+  /*
+   * `right` und `bottom` muessen ausdruecklich zurueckgenommen werden.
+   *
+   * Die Leinwand steht im Stilblatt auf `inset: 0`, also alle vier Seiten am
+   * Rand. Zusammen mit einer festen Breite widerspricht sich das, und der
+   * Browser loest den Widerspruch nach eigenen Regeln auf - was hier hiesse,
+   * dass die Groesse nicht die ist, mit der die Matrix gerechnet wurde.
+   */
+  element.style.left = '0';
+  element.style.top = '0';
+  element.style.right = 'auto';
+  element.style.bottom = 'auto';
+  element.style.width = `${bild.breite}px`;
+  element.style.height = `${bild.hoehe}px`;
+  element.style.transform = bild.css;
 }
 
 
@@ -11046,7 +11603,13 @@ let mandelSeitAufgabe = 1e9;
  */
 let mandelEbeneDrin = false;
 
-function mandelEbeneSichern(sichtbar) {
+/*
+ * Merkt sich, fuer welche Messung die Fraktalebene zuletzt ausgerichtet
+ * wurde - das Verziehen soll nicht je Bild neu passieren.
+ */
+let mandelEbeneFuer = null;
+
+function mandelEbeneSichern(sichtbar, bild = null) {
   const leinwand = gpuLeinwand();
   if (!leinwand) return;
   if (!mandelEbeneDrin) {
@@ -11069,9 +11632,37 @@ function mandelEbeneSichern(sichtbar) {
       ziel.style.zIndex = '1';
       ziel.parentNode.insertBefore(leinwand, ziel);
       mandelEbeneDrin = true;
+      mandelEbeneFuer = null;
     }
   }
   leinwand.style.visibility = sichtbar ? 'visible' : 'hidden';
+
+  /*
+   * Die Fraktalebene mit derselben Verzerrung wie alles andere.
+   *
+   * Sie lag als eigene Leinwand ueber den ganzen Bildschirm - `inset: 0`,
+   * Breite und Hoehe hundert Prozent - und hat die Einmessung schlicht
+   * ignoriert. Auf einem Monitor faellt das nicht auf, weil dort Bildschirm
+   * und Bild dasselbe sind. Auf einer eingemessenen Wand ist es ein Fehler
+   * mit zwei Folgen: Das Fraktal sitzt nicht auf der Wand, sondern im
+   * Beamerbild, und es leuchtet ueber den vermessenen Bereich hinaus - also
+   * genau dorthin, wo gar nichts hingehoert.
+   *
+   * Gefunden beim Nachsehen, warum neben der verzogenen Leinwand ueberhaupt
+   * etwas Buntes steht.
+   */
+  if (bild !== mandelEbeneFuer) {
+    mandelEbeneFuer = bild;
+    if (bild && bild.an) {
+      verzerrungAnlegen(leinwand, bild);
+    } else {
+      // Ohne Messung zurueck auf Vollbild - `verzerrungAnlegen` raeumt die
+      // Masse nur ab, es kennt die Vorgabe dieser Ebene nicht.
+      verzerrungAnlegen(leinwand, { an: false });
+      leinwand.style.width = '100%';
+      leinwand.style.height = '100%';
+    }
+  }
 }
 const MANDEL_SCHONZEIT = 5;
 /*
@@ -12368,7 +12959,7 @@ function mandelbrotZeichnen(stift, lage) {
       };
     }
 
-    mandelEbeneSichern(true);
+    mandelEbeneSichern(true, lage.buehnenbild ?? null);
     // Auf die 2D-Leinwand kommt nur noch, was ueber dem Fraktal liegt: die
     // Ueberblendung beim Stellenwechsel und der Schleier fuer die Schrift.
     mandelUeberlagern(stift, breite, hoehe, sekunden, bild.leinwand, bild.breite, bild.hoehe);
@@ -14612,555 +15203,6 @@ function schattenStand() {
 }
 
 
-// ===== public/gemeinsam/homographie.js =====
-// Die projektive Abbildung zwischen Beamer, Foto und Wand.
-//
-// --- Das Problem ------------------------------------------------------------
-//
-// Ein Beamer steht nie genau senkrecht vor der Wand. Was er als Rechteck
-// wirft, kommt dort als Trapez an - und je schraeger er steht, desto
-// schiefer. Damit ein Mandala genau in ein Fenster passt, muss das Bild
-// *vorher* gegengebogen werden.
-//
-// --- Warum ein Foto reicht --------------------------------------------------
-//
-// Der naheliegende Gedanke ist, die Kamera an einen genau vermessenen Ort zu
-// stellen. Das ist nicht noetig, und es waere sogar der schwierigere Weg.
-//
-// Solange die Wand *eben* ist, gibt es zwischen je zwei Ansichten davon eine
-// projektive Abbildung mit acht Freiheitsgraden - und vier Punktpaare legen
-// sie eindeutig fest. Steht auf einem einzigen Foto sowohl das Testbild des
-// Beamers als auch die Fassade, dann steckt darin alles:
-//
-//   Beamer -> Foto   aus den vier Marken des Testbildes
-//   Foto -> Beamer   die Umkehrung davon
-//   Fassade          ist schon im Foto, also schon in derselben Rechnung
-//
-// Wo die Kamera stand, kuerzt sich heraus. Das ist keine Naeherung, sondern
-// eine Eigenschaft ebener Flaechen.
-//
-// --- Und warum das Foto der Entwurfsraum ist --------------------------------
-//
-// Entzerrt wird nicht auf die *echte* Wand, sondern auf das *Foto*. Das
-// klingt nach einem Kompromiss und ist die richtige Wahl: Eine Projektion auf
-// eine Fassade sieht nur von einem Ort wirklich richtig aus, und dieser Ort
-// soll dort sein, wo die Gaeste stehen. Steht die Kamera dort, dann ist
-// "sieht im Foto rechteckig aus" genau das gewuenschte Ergebnis.
-//
-// Nebenwirkung, und eine sehr angenehme: Das Foto ist damit die Zeichenflaeche.
-// Ein Mandala, das im Foto ueber der Tuer sitzt, sitzt an dem Abend ueber der
-// Tuer.
-//
-// --- Was es kostet ----------------------------------------------------------
-//
-// Nichts je Bild. Die Abbildung wird einmal beim Kalibrieren geloest und
-// danach als CSS-Matrix an die Leinwand gehaengt; das Verziehen macht der
-// Compositor auf der Grafikkarte. Die Visualisierung rechnet weiter in einem
-// glatten Rechteck und weiss von alldem nichts.
-
-/* --- Lineares Gleichungssystem ---------------------------------------------
- *
- * Acht Unbekannte, acht Gleichungen. Geloest mit Gauss und Spaltenpivotisierung
- * - ohne Pivotisierung kippt das Verfahren, sobald eine Zeile mit einer Null
- * an der Diagonalen anfaengt, und das passiert bei achsenparallelen Marken
- * sofort.
- */
-function loesen(A, b) {
-  const n = b.length;
-  const M = A.map((zeile, i) => [...zeile, b[i]]);
-  for (let s = 0; s < n; s++) {
-    let beste = s;
-    for (let z = s + 1; z < n; z++) if (Math.abs(M[z][s]) > Math.abs(M[beste][s])) beste = z;
-    if (Math.abs(M[beste][s]) < 1e-12) return null; // entartet
-    [M[s], M[beste]] = [M[beste], M[s]];
-    for (let z = 0; z < n; z++) {
-      if (z === s) continue;
-      const f = M[z][s] / M[s][s];
-      if (!f) continue;
-      for (let k = s; k <= n; k++) M[z][k] -= f * M[s][k];
-    }
-  }
-  /*
-   * Nach der Elimination steht in Zeile i nur noch das Diagonalglied und die
-   * rechte Seite. Die Loesung ist also M[i][n] / M[i][i] - und weil `zeile`
-   * hier schon die Zeile *ist*, heisst das `zeile[n] / zeile[i]`. Ein Index
-   * zu viel an dieser Stelle macht aus allem stillschweigend NaN.
-   */
-  return M.map((zeile, i) => zeile[n] / zeile[i]);
-}
-
-/**
- * Die projektive Abbildung aus vier Punktpaaren.
- *
- * Gesucht ist H mit  [x' y' w]ᵀ = H · [x y 1]ᵀ  und  (u,v) = (x'/w, y'/w).
- * h33 wird auf 1 gesetzt - eine Homographie ist nur bis auf einen Faktor
- * bestimmt, und diese Normierung ist die uebliche.
- *
- * Je Punktpaar zwei Gleichungen:
- *   u = (h11 x + h12 y + h13) / (h31 x + h32 y + 1)
- *   v = (h21 x + h22 y + h23) / (h31 x + h32 y + 1)
- * ausmultipliziert und nach den acht Unbekannten sortiert.
- *
- * @param {Array<[number,number]>} von  vier Punkte
- * @param {Array<[number,number]>} nach vier Punkte, in derselben Reihenfolge
- * @returns {number[]|null} neun Zahlen zeilenweise, oder null bei entarteter Lage
- */
-function homographie(von, nach) {
-  if (von.length !== 4 || nach.length !== 4) throw new Error('Vier Punktpaare, nicht mehr und nicht weniger');
-  const A = [];
-  const b = [];
-  for (let i = 0; i < 4; i++) {
-    const [x, y] = von[i];
-    const [u, v] = nach[i];
-    A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
-    b.push(u);
-    A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
-    b.push(v);
-  }
-  const h = loesen(A, b);
-  return h ? [...h, 1] : null;
-}
-
-/** Einen Punkt durch die Abbildung schicken. */
-function anwenden(H, [x, y]) {
-  const w = H[6] * x + H[7] * y + H[8];
-  // Ein Punkt auf der Fluchtlinie hat kein Bild. In der Praxis heisst das:
-  // Er liegt hinter dem Beamer. Statt Unendlich zurueckzugeben wird geklemmt -
-  // ein NaN in der Zeichenkette waere schlimmer als ein weit entfernter Punkt.
-  const n = Math.abs(w) < 1e-12 ? (w < 0 ? -1e-12 : 1e-12) : w;
-  return [(H[0] * x + H[1] * y + H[2]) / n, (H[3] * x + H[4] * y + H[5]) / n];
-}
-
-/** Die Umkehrabbildung. */
-function umkehren(H) {
-  const [a, b, c, d, e, f, g, h, i] = H;
-  const A = e * i - f * h;
-  const B = -(d * i - f * g);
-  const C = d * h - e * g;
-  const det = a * A + b * B + c * C;
-  if (Math.abs(det) < 1e-12) return null;
-  const inv = [
-    A, -(b * i - c * h), b * f - c * e,
-    B, a * i - c * g, -(a * f - c * d),
-    C, -(a * h - b * g), a * e - b * d,
-  ].map((v) => v / det);
-  // Wieder auf h33 = 1 normieren, damit die Zahlen vergleichbar bleiben.
-  return Math.abs(inv[8]) > 1e-12 ? inv.map((v) => v / inv[8]) : inv;
-}
-
-/**
- * Als CSS-Transformation.
- *
- * `matrix3d` nimmt eine 4x4-Matrix spaltenweise. Eine ebene Homographie
- * steckt darin an genau den Stellen, an denen die dritte Zeile und Spalte
- * die Einheitsmatrix bleiben: Aus h31 und h32 wird die perspektivische
- * Verjuengung.
- *
- * Der Grund, das ueberhaupt so zu machen: Der Compositor des Browsers
- * verzieht das Element auf der Grafikkarte, und zwar einmal beim Zeichnen und
- * nicht je Bildpunkt in JavaScript. Die Verzerrung kostet damit *nichts* -
- * und die Visualisierung dahinter rechnet weiter in einem glatten Rechteck,
- * ohne von der schiefen Wand zu wissen.
- *
- * `transform-origin: 0 0` ist Pflicht. Ohne das rechnet der Browser die
- * Matrix um den Mittelpunkt des Elements herum, und die perspektivischen
- * Glieder ergeben dann etwas ganz anderes.
- */
-function alsCss(H) {
-  const [a, b, c, d, e, f, g, h, i] = H;
-  const m = [
-    a, d, 0, g,
-    b, e, 0, h,
-    0, 0, 1, 0,
-    c, f, 0, i,
-  ];
-  /*
-   * Volle Genauigkeit, keine festen Nachkommastellen.
-   *
-   * Zuerst stand hier toFixed(9). Das klingt grosszuegig und ist es fuer die
-   * grossen Glieder auch - aber die perspektivischen h31 und h32 sind bei
-   * einer Leinwand von tausend Bildpunkten in der Groessenordnung 1e-7, und
-   * neun feste Nachkommastellen lassen davon zwei uebrig. Gemessen kam die
-   * CSS-Matrix damit auf 1,5 Tausendstel Bildpunkte anders heraus als die
-   * Rechnung. Das ist physikalisch belanglos und trotzdem der falsche Weg:
-   * Eine Zahl abzuschneiden, um eine Zeichenkette zu kuerzen, spart hier
-   * nichts.
-   */
-  return `matrix3d(${m.map((v) => (Math.abs(v) < 1e-14 ? 0 : v)).join(',')})`;
-}
-
-/**
- * Liegt ein Punkt in einem Vieleck?
- *
- * Strahlverfahren. Gebraucht wird das an zwei Stellen: um zu pruefen, ob eine
- * Stelle der Wand ueberhaupt vom Beamer erreicht wird, und um Totzonen
- * auszusparen.
- */
-function imVieleck([x, y], punkte) {
-  let drin = false;
-  for (let i = 0, j = punkte.length - 1; i < punkte.length; j = i++) {
-    const [xi, yi] = punkte[i];
-    const [xj, yj] = punkte[j];
-    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) drin = !drin;
-  }
-  return drin;
-}
-
-/**
- * Wie gut passt eine Abbildung zu ihren eigenen Punktpaaren?
- *
- * Bei genau vier Paaren ist der Fehler rechnerisch null - die Abbildung geht
- * durch alle vier hindurch. Das macht die Zahl aber nicht wertlos: Ist sie
- * *nicht* null, ist etwas mit der Rechnung faul, und das faellt sonst erst
- * an der Wand auf.
- *
- * Bei mehr als vier Paaren wird es eine echte Aussage. Deshalb steht die
- * Funktion hier und nicht in der Abnahme.
- */
-function passfehler(H, von, nach) {
-  let schlimmster = 0;
-  for (let i = 0; i < von.length; i++) {
-    const [u, v] = anwenden(H, von[i]);
-    schlimmster = Math.max(schlimmster, Math.hypot(u - nach[i][0], v - nach[i][1]));
-  }
-  return schlimmster;
-}
-
-/**
- * Ist ein Viereck brauchbar - oder hat jemand die Marken vertauscht?
- *
- * Geprueft wird die Konvexitaet ueber das Vorzeichen der Kreuzprodukte an den
- * vier Ecken. Sind sie nicht alle gleich, ist das Viereck ueberschlagen, und
- * die Abbildung daraus klappt das Bild an einer Achse um. Das sieht an der
- * Wand aus wie ein Fehler im Zeichner und ist in Wahrheit ein
- * Bedienungsfehler beim Anklicken - deshalb wird es hier abgefangen und
- * nicht dort gesucht.
- */
-function viereckPruefen(punkte) {
-  if (punkte.length !== 4) return 'Es braucht genau vier Ecken';
-  let positiv = 0;
-  let negativ = 0;
-  for (let i = 0; i < 4; i++) {
-    const a = punkte[i];
-    const b = punkte[(i + 1) % 4];
-    const c = punkte[(i + 2) % 4];
-    const kreuz = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
-    if (kreuz > 0) positiv++;
-    else if (kreuz < 0) negativ++;
-  }
-  if (positiv && negativ) return 'Die Ecken sind ueberschlagen – Reihenfolge oben links, oben rechts, unten rechts, unten links';
-  // Flaeche ueber die Schnuersenkelformel: ein sehr flaches Viereck heisst,
-  // dass zwei Marken fast aufeinanderliegen.
-  let flaeche = 0;
-  for (let i = 0, j = 3; i < 4; j = i++) {
-    flaeche += (punkte[j][0] + punkte[i][0]) * (punkte[j][1] - punkte[i][1]);
-  }
-  if (Math.abs(flaeche / 2) < 1e-6) return 'Die vier Ecken liegen fast auf einer Linie';
-  return null;
-}
-
-
-// ===== public/gemeinsam/buehnenbild.js =====
-// Die Wand als Teil des Bildes.
-//
-// Was hier steht, verbindet zwei Welten: die Kalibrierung, die einmal vor Ort
-// gemessen wurde, und die Visualisierung, die jeden Abend laeuft. Dazwischen
-// liegen zwei Aufgaben.
-//
-// --- 1. Das Bild gegenbiegen ------------------------------------------------
-//
-// Der Beamer steht schief, also kommt sein Rechteck als Trapez an der Wand
-// an. Damit ein Mandala genau in ein Fenster passt, muss das Bild vorher
-// gegenverzerrt werden.
-//
-// Gemacht wird das *nicht* im Zeichner, sondern mit einer CSS-Matrix an der
-// Leinwand. Der Compositor des Browsers verzieht das fertige Bild auf der
-// Grafikkarte - das kostet nichts je Bild, und die ganze Visualisierung
-// dahinter rechnet weiter in einem glatten Rechteck, ohne von der schiefen
-// Wand zu wissen. Waere die Verzerrung im Zeichner, muesste jede einzelne
-// Linie durch eine projektive Abbildung, und jedes Mandala haette sie zu
-// beruecksichtigen.
-//
-// --- 2. Die Architektur weiterreichen ---------------------------------------
-//
-// Die Bereiche - Fenster, Tueren, Kanten, Totzonen - werden in Anteilen der
-// Entwurfsflaeche gespeichert. Die Visualisierung fragt sie ab und kann
-// damit etwas anfangen:
-//
-//   Fenster   Inhalt hineinsetzen, oder den Rahmen als Lichtlinie ziehen
-//   Tuer      ein Ursprung, aus dem etwas herauswaechst
-//   Kante     eine Linie, an der etwas entlanglaeuft
-//   Flaeche   gute Projektionsflaeche, hier darf das Grosse hin
-//   Totzone   Glas, dunkler Stein, ein Baum davor - hier ist Licht verloren
-//
-// --- Der Entwurfsraum -------------------------------------------------------
-//
-// Alles rechnet in "Entwurfskoordinaten": ein Rechteck mit denselben
-// Seitenverhaeltnissen wie das Foto, in Anteilen von 0 bis 1. Das ist genau
-// das Foto - was dort ueber der Tuer sitzt, sitzt abends ueber der Tuer.
-
-
-const SCHLUESSEL = 'djBeamerKalibrierung';
-
-/** Wie eine leere, unverzerrte Buehne aussieht. */
-const OHNE = {
-  an: false,
-  seitenverhaeltnis: 16 / 9,
-  bereiche: [],
-  css: 'none',
-  imBild: () => true,
-};
-
-/**
- * Eine gespeicherte Kalibrierung einlesen und in Betriebsform bringen.
- *
- * @param {object|null} roh   was die Einmessseite abgelegt hat
- * @param {number} breite     Breite der Anzeige in Bildpunkten
- * @param {number} hoehe      Hoehe der Anzeige in Bildpunkten
- */
-function buehnenbildBauen(roh, breite, hoehe) {
-  if (!roh || roh.fassung !== 1 || !Array.isArray(roh.marken) || roh.marken.length !== 4) return { ...OHNE };
-
-  const seiten = roh.fotoSeitenverhaeltnis || 16 / 9;
-
-  /*
-   * Die Groesse der Entwurfsleinwand.
-   *
-   * Sie hat das Seitenverhaeltnis des Fotos und ungefaehr so viele
-   * Bildpunkte wie die Anzeige. "Ungefaehr" reicht: Was der Compositor
-   * hinterher verzieht, wird ohnehin neu abgetastet, und eine Leinwand, die
-   * deutlich groesser waere als das Beamerbild, kostete Rechenzeit fuer
-   * Bildpunkte, die niemand sieht.
-   */
-  const flaeche = breite * hoehe;
-  const entwurfBreite = Math.round(Math.sqrt(flaeche * seiten));
-  const entwurfHoehe = Math.round(entwurfBreite / seiten);
-
-  /*
-   * Die Abbildung, die an die Leinwand kommt: von *Entwurfsbildpunkten* nach
-   * *Anzeigebildpunkten*.
-   *
-   * Sie wird in einem Schritt aus vier Punktpaaren geloest und nicht aus
-   * mehreren Teilabbildungen zusammengesetzt. Zusammensetzen waere derselbe
-   * Rechenweg mit mehr Gelegenheiten, eine Einheit zu verwechseln.
-   *
-   *   von:  wo die Marken im Entwurf liegen  = Anteil im Foto mal Entwurfsgroesse
-   *   nach: wo die Marken im Beamerbild liegen = Anteil mal Anzeigegroesse
-   */
-  const von = roh.marken.map(([x, y]) => [x * entwurfBreite, y * entwurfHoehe]);
-  const nach = (roh.markenImBeamer ?? [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]])
-    .map(([x, y]) => [x * breite, y * hoehe]);
-  const H = homographie(von, nach);
-  if (!H) return { ...OHNE };
-
-  /*
-   * Welcher Teil des Entwurfs wird ueberhaupt vom Beamer erreicht? Das ist
-   * das Beamerbild, in den Entwurf zurueckgerechnet. Was ausserhalb liegt,
-   * bleibt an der Wand dunkel - die Visualisierung soll dort nichts
-   * Wichtiges hinlegen.
-   */
-  const R = umkehren(H);
-  const sichtbar = R
-    ? [[0, 0], [breite, 0], [breite, hoehe], [0, hoehe]]
-      .map((p) => anwenden(R, p).map((v, i) => v / (i ? entwurfHoehe : entwurfBreite)))
-    : [[0, 0], [1, 0], [1, 1], [0, 1]];
-
-  const bereiche = (roh.bereiche ?? []).map((b) => aufbereiten(b, seiten));
-
-  return {
-    an: true,
-    seitenverhaeltnis: seiten,
-    breite: entwurfBreite,
-    hoehe: entwurfHoehe,
-    /*
-     * Die gemessene Farbe der Hauptflaeche geht mit durch.
-     *
-     * Sie hat hier zuerst gefehlt, und der Ausfall war lautlos: Die
-     * Einmessseite hat gemessen und gespeichert, `flaechenLesen` hat
-     * nachgesehen, nichts gefunden und die neutrale Vorgabe geliefert - also
-     * genau das Verhalten von vorher. Die ganze Farbanpassung an die Wand
-     * war damit zur Laufzeit wirkungslos, ohne dass irgendwo etwas
-     * schiefging.
-     *
-     * Die Abnahme hat es auch nicht gefunden, weil sie `oberflaecheLesen`
-     * direkt gefuettert hat statt ueber diese Kette. Ein Test, der das
-     * Bauteil prueft und nicht den Einbau, findet einen fehlenden Draht nie.
-     */
-    grundfarbe: roh.grundfarbe ?? null,
-    css: alsCss(H),
-    bereiche,
-    sichtbar,
-    /** Liegt ein Punkt (in Anteilen) im Beamerbild? */
-    imBild: (p) => imVieleck(p, sichtbar),
-    /** Alle Bereiche einer Art. */
-    art: (art) => bereiche.filter((b) => b.art === art),
-    /** Welcher Bereich liegt an dieser Stelle? */
-    bei: (p) => bereiche.find((b) => imVieleck(p, b.punkte)) ?? null,
-  };
-}
-
-/**
- * Einen Bereich um alles ergaenzen, was die Visualisierung sonst je Bild neu
- * ausrechnen muesste.
- *
- * Mitte, Umfang, Hoehe und Breite stehen fest, sobald die Messung steht - sie
- * je Bild neu zu bestimmen waere Arbeit fuer ein Ergebnis, das sich nie
- * aendert.
- */
-function aufbereiten(b, seiten) {
-  const p = b.punkte;
-  let mx = 0;
-  let my = 0;
-  for (const [x, y] of p) { mx += x; my += y; }
-  mx /= p.length;
-  my /= p.length;
-
-  const xs = p.map((q) => q[0]);
-  const ys = p.map((q) => q[1]);
-  const links = Math.min(...xs);
-  const rechts = Math.max(...xs);
-  const oben = Math.min(...ys);
-  const unten = Math.max(...ys);
-
-  /*
-   * Der Umfang wird in *Seitenverhaeltnis-treuen* Einheiten gemessen: Ein
-   * Foto ist breiter als hoch, und in reinen Anteilen waere eine waagerechte
-   * Strecke sonst kuerzer als eine gleich lange senkrechte. Fuer eine
-   * Lichtlinie, die mit gleichmaessiger Geschwindigkeit an einem
-   * Fensterrahmen entlanglaeuft, macht das den Unterschied zwischen "laeuft"
-   * und "ruckelt an den Ecken".
-   */
-  let umfang = 0;
-  const abschnitte = [];
-  for (let i = 0; i < p.length; i++) {
-    const a = p[i];
-    const c = p[(i + 1) % p.length];
-    const l = Math.hypot((c[0] - a[0]) * seiten, c[1] - a[1]);
-    abschnitte.push(l);
-    umfang += l;
-  }
-
-  /*
-   * Die Abbildung vom Einheitsquadrat auf das Viereck.
-   *
-   * Damit laesst sich jeder Punkt eines Bereiches ueber zwei Zahlen von 0 bis
-   * 1 ansprechen - und zwar *perspektivisch richtig*. Ein Gitterkasten, der
-   * schraeg im Bild steht, hat oben schmalere Zellen als unten; wer da linear
-   * teilt, trifft die unteren Reihen nicht mehr.
-   *
-   * Es ist dieselbe Rechnung wie fuer die ganze Wand, nur eine Stufe kleiner,
-   * und sie benutzt denselben geprueften Loeser. Bei Bereichen, die keine
-   * vier Ecken haben, gibt es sie nicht - dann bleibt `punktAuf` null, und
-   * wer sie braucht, muss vorher fragen.
-   */
-  let aufsViereck = null;
-  if (p.length === 4) aufsViereck = homographie([[0, 0], [1, 0], [1, 1], [0, 1]], p);
-  const punktAuf = aufsViereck ? (u, v) => anwenden(aufsViereck, [u, v]) : null;
-
-  /*
-   * Die Zellen eines Gitterkastens.
-   *
-   * Sie werden hier einmal ausgerechnet und nicht je Bild: Ein Kasten mit
-   * zwoelf mal acht Faechern hat 96 Zellen, und die stehen fest, sobald die
-   * Messung steht.
-   */
-  let zellen = null;
-  if (b.art === 'gitterbox' && punktAuf) {
-    const sp = Math.max(1, Math.round(b.spalten ?? 10));
-    const re = Math.max(1, Math.round(b.reihen ?? 6));
-    zellen = { spalten: sp, reihen: re, mitten: [] };
-    for (let j = 0; j < re; j++) {
-      for (let i = 0; i < sp; i++) {
-        zellen.mitten.push(punktAuf((i + 0.5) / sp, (j + 0.5) / re));
-      }
-    }
-    // Wie gross eine Zelle ungefaehr ist - fuer die Groesse der Lichtflecken.
-    const a = punktAuf(0, 0.5);
-    const c = punktAuf(1, 0.5);
-    zellen.zellBreite = Math.hypot((c[0] - a[0]) * seiten, c[1] - a[1]) / sp;
-    const o = punktAuf(0.5, 0);
-    const u = punktAuf(0.5, 1);
-    zellen.zellHoehe = Math.hypot((u[0] - o[0]) * seiten, u[1] - o[1]) / re;
-  }
-
-  return {
-    ...b,
-    mitte: [mx, my],
-    kasten: { links, rechts, oben, unten, breite: rechts - links, hoehe: unten - oben },
-    umfang,
-    abschnitte,
-    punktAuf,
-    zellen,
-    /**
-     * Ein Punkt auf dem Rand, bei Anteil t des Umfangs.
-     *
-     * Damit laeuft eine Lichtlinie den Rahmen entlang, und zwar mit
-     * gleichmaessiger Geschwindigkeit - nicht mit gleich vielen Punkten je
-     * Kante, was an kurzen Kanten schnell und an langen langsam waere.
-     */
-    aufDemRand(t) {
-      let rest = ((t % 1) + 1) % 1 * umfang;
-      for (let i = 0; i < p.length; i++) {
-        if (rest <= abschnitte[i] || i === p.length - 1) {
-          const a = p[i];
-          const c = p[(i + 1) % p.length];
-          const f = abschnitte[i] > 1e-9 ? rest / abschnitte[i] : 0;
-          return [a[0] + (c[0] - a[0]) * f, a[1] + (c[1] - a[1]) * f];
-        }
-        rest -= abschnitte[i];
-      }
-      return p[0];
-    },
-    drin: (q) => imVieleck(q, p),
-  };
-}
-
-/** Die gespeicherte Messung dieses Geraets. */
-function buehnenbildLaden(breite, hoehe) {
-  let roh = null;
-  try { roh = JSON.parse(localStorage.getItem(SCHLUESSEL) ?? 'null'); } catch { roh = null; }
-  return buehnenbildBauen(roh, breite, hoehe);
-}
-
-/**
- * Die Verzerrung an eine Leinwand haengen.
- *
- * `transform-origin: 0 0` ist Pflicht: Ohne das rechnet der Browser die
- * Matrix um den Mittelpunkt des Elements, und die perspektivischen Glieder
- * ergeben dann etwas ganz anderes. Das ist der Fehler, den man an dieser
- * Stelle einmal macht.
- */
-function verzerrungAnlegen(element, bild) {
-  if (!bild.an) {
-    element.style.transform = '';
-    element.style.transformOrigin = '';
-    element.style.width = '';
-    element.style.height = '';
-    element.style.left = '';
-    element.style.top = '';
-    element.style.right = '';
-    element.style.bottom = '';
-    return;
-  }
-  element.style.transformOrigin = '0 0';
-  /*
-   * `right` und `bottom` muessen ausdruecklich zurueckgenommen werden.
-   *
-   * Die Leinwand steht im Stilblatt auf `inset: 0`, also alle vier Seiten am
-   * Rand. Zusammen mit einer festen Breite widerspricht sich das, und der
-   * Browser loest den Widerspruch nach eigenen Regeln auf - was hier hiesse,
-   * dass die Groesse nicht die ist, mit der die Matrix gerechnet wurde.
-   */
-  element.style.left = '0';
-  element.style.top = '0';
-  element.style.right = 'auto';
-  element.style.bottom = 'auto';
-  element.style.width = `${bild.breite}px`;
-  element.style.height = `${bild.hoehe}px`;
-  element.style.transform = bild.css;
-}
-
-
 // ===== public/gemeinsam/architektur.js =====
 // Das Haus spielt mit.
 //
@@ -16398,37 +16440,13 @@ class Visualisierung {
       anteilB: uebergang ? uebergang.fortschritt : 0,
     });
 
-    /*
-     * Der Schatten-DJ - vor dem Bild, hinter der Schrift.
-     *
-     * Die Stelle ist gewaehlt und nicht zufaellig. Vor dem Modus stuende er
-     * hinter dem Fraktal und waere unsichtbar; nach dem Schleier laege er
-     * ueber der Schrift. Hier steht er da, wo ein echter DJ auch steht:
-     * zwischen der Projektion und dem Publikum.
-     *
-     * Er bekommt dieselben Zahlen wie der Modus. Damit bewegt er sich zu
-     * *dieser* Musik und nicht zu einem Zufallsgenerator - und im Breakdown
-     * hoert er wirklich den naechsten Track vor, waehrend die Buehne ihn
-     * wirklich laedt.
-     */
-    schattenZeichnen(stift, breite, hoehe, {
-      sekunden,
-      takt,
-      spannung,
-      abbau,
-      wucht,
-      drop: dropJetzt,
-      anteilB: uebergang ? uebergang.fortschritt : 0,
-      palette: this.paletteFuer(aktiv?.track),
-      guetestufe: this.guetestufe,
-    });
 
     /*
      * Und darueber das Haus.
      *
-     * Die Stelle ist bewusst *nach* dem Schatten-DJ: Fensterrahmen und
-     * Lichtlinien gehoeren zur Wand, und die Wand liegt hinter niemandem.
-     * Der DJ steht davor, die Rahmen leuchten um ihn herum.
+     * Fensterrahmen, Lichtlinien und der Kantenblitz gehoeren zur Wand, und
+     * die Wand liegt hinter der Figur - der Schatten-DJ kommt deshalb ganz
+     * zuletzt, siehe unten.
      *
      * Sie bekommt dieselben Zahlen wie alles andere - und wenn nichts
      * eingemessen ist, tut sie nichts.
@@ -16468,6 +16486,49 @@ class Visualisierung {
       this.funken.length = 0;
     }
     if (this.stossHalt > 0) this.stossHalt = Math.max(0, this.stossHalt - sekunden * 3.5);
+
+    /*
+     * Der Schatten-DJ - ganz vorn, nach allem anderen.
+     *
+     * Er stand lange zwischen Modus und Architektur, mit der Begruendung,
+     * die Wand liege hinter niemandem und die Fensterrahmen sollten um ihn
+     * herum leuchten. Auf einer Wand stimmt das nicht mehr: Dort ist er
+     * kein Bildelement, sondern ein *Schatten*, und ein Schatten liegt
+     * ueber allem, was hinter ihm leuchtet - sonst ist er keiner.
+     *
+     * Praktisch ist das auch der staerkste Kontrast, den dieser Raum
+     * hergibt. Ein Beamer kann Schwarz nicht werfen; wo die Figur steht,
+     * bleibt die Wand unbeleuchtet. Eine grosse zusammenhaengende Form aus
+     * gar keinem Licht, vor allem anderen - staerker geht es nicht.
+     *
+     * Dass er jetzt auch das weisse Aufblitzen nach dem Drop ueberdeckt,
+     * ist kein Nebeneffekt, sondern der beste Moment der Figur: eine
+     * schwarze Silhouette vor einer weissen Wand.
+     *
+     * `source-over` ausdruecklich: Vorher lief er im Windschatten dessen,
+     * was der Modus gerade eingestellt hatte. Steht dort `lighter`, ist
+     * Schwarz nichts - die Figur waere unsichtbar, ohne dass irgendwo ein
+     * Fehler auftaucht.
+     *
+     * Er bekommt dieselben Zahlen wie der Modus. Damit bewegt er sich zu
+     * *dieser* Musik und nicht zu einem Zufallsgenerator - und im Breakdown
+     * hoert er wirklich den naechsten Track vor, waehrend die Buehne ihn
+     * wirklich laedt.
+     */
+    stift.globalCompositeOperation = 'source-over';
+    stift.globalAlpha = 1;
+    schattenZeichnen(stift, breite, hoehe, {
+      sekunden,
+      takt,
+      spannung,
+      abbau,
+      wucht,
+      drop: dropJetzt,
+      anteilB: uebergang ? uebergang.fortschritt : 0,
+      palette: this.paletteFuer(aktiv?.track),
+      guetestufe: this.guetestufe,
+    });
+
 
     // Wie lange ein Bild wirklich braucht. Traege geglaettet, damit die
     // Anzeige lesbar bleibt statt zu zappeln.

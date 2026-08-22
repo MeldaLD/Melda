@@ -1,6 +1,14 @@
 :root {
   color-scheme: dark;
-  --grund: #07070c;
+  /*
+   * Echtes Schwarz, nicht fast-schwarz.
+   *
+   * Das ist der Hintergrund *hinter* der Leinwand, also alles, was der
+   * Beamer neben dem eingemessenen Bereich trifft. #07070c sieht auf einem
+   * Monitor aus wie Schwarz und beleuchtet auf einer Wand die ganze Flaeche
+   * schwach - dieselbe Falle wie bei der Lava, nur eine Ebene hoeher.
+   */
+  --grund: #000;
   --text: #f2f2f8;
   --leise: #9a9ab4;
   --akzent: #ff3d7f;
