@@ -84,8 +84,50 @@
  * schmales Band durch und schluckt den Rest - das *ist* hohe Saettigung.
  * Haut streut breit und bleibt deshalb blass.
  */
-const SAETTIGUNG_MINDESTENS = 0.67;
-const GRUEN_HOECHSTENS = 0.45; // Anteil von Rot
+/*
+ * --- Nachtrag: die richtige Einsicht, das falsche Mass -----------------------
+ *
+ * Alles oben Gesagte ueber den Farbwinkel stimmt. Die Umsetzung stimmte
+ * nicht: Gemessen wurde Saettigung und Gruen/Rot, und beide sind an dem einen
+ * Beispielfoto abgelesen, auf dem die Scheiben kraeftig ausgeleuchtet sind.
+ *
+ * An fuenf Fotos nachgemessen - Anteil der Punkte, die die Regel markiert,
+ * einmal auf den Glaesern, einmal auf Stirn und Wangen:
+ *
+ *   Foto          Glas   Haut
+ *   beispiel      0,85   0,00
+ *   64d071b9      0,85   0,14
+ *   f9faf208      0,00   0,00
+ *   664ebfb3      0,00   0,00
+ *   31153039      0,96   0,24
+ *
+ * Auf zwei Fotos findet die Regel *kein einziges* Glaspunkt und markiert
+ * gleichzeitig bis zu einem Viertel der Haut. Die Luecke ist negativ: Es gibt
+ * keine Schwelle, die das trennt.
+ *
+ * Der Grund steht in den Zahlen der Scheiben selbst. Der Farbwinkel ist auf
+ * allen fuenf Fotos praktisch derselbe (332 bis 353 Grad), die Saettigung
+ * schwankt von 0,39 bis 1,00 und Gruen/Rot von 0,00 bis 0,61 - und 0,61
+ * liegt mitten im Hautbereich (0,54 bis 0,70). Gemessen wurde also
+ * ausgerechnet das, was sich aendert, und nicht das, was bleibt.
+ *
+ * Was bleibt, ist der Farbwinkel, und der laesst sich ohne jede
+ * Winkelrechnung pruefen: Ein Farbwinkel oberhalb von 300 Grad heisst nichts
+ * anderes als **Blau groesser als Gruen**. Das ist die Magentaseite von Rot.
+ * Haut liegt auf der Orangeseite, dort ist Gruen groesser als Blau.
+ *
+ *   Regel                       schlechtestes Glas   schlimmste Haut   Luecke
+ *   Saettigung >= 0,67                        0,00              0,24    -0,24
+ *   B >= G, Saettigung >= 0,30                0,97              0,20    +0,77
+ *
+ * Ein einziger Kanalvergleich, keine Schwelle, und er trennt siebenmal
+ * besser. Die Saettigung bleibt als Nebenbedingung stehen - sie haelt
+ * graue und fast graue Punkte heraus, bei denen der Vergleich B gegen G nur
+ * noch Rauschen ist -, aber sie entscheidet nicht mehr.
+ */
+
+/** Untergrenze gegen Rauschen in fast grauen Punkten - keine Trennschwelle. */
+const SAETTIGUNG_MINDESTENS = 0.3;
 const HELLIGKEIT_MINDESTENS = 15; // darunter ist es Schatten, kein Glas
 
 /**
@@ -118,7 +160,9 @@ export function rotMaske(daten, breite, hoehe, bereich = null) {
     if (r <= g || r <= b) continue;
     const tief = g < b ? g : b;
     if ((r - tief) / r < SAETTIGUNG_MINDESTENS) continue;
-    if (g > r * GRUEN_HOECHSTENS) continue;
+    // Die Magentaseite von Rot. Siehe den Nachtrag oben - das ist die
+    // eigentliche Trennung, und sie kommt ohne Schwelle aus.
+    if (b < g) continue;
     maske[q] = 1;
   }
   return maske;
@@ -198,6 +242,16 @@ export function fleckenFinden(maske, breite, hoehe, mindestens = 40) {
     let anzahl = 0;
     let summeX = 0;
     let summeY = 0;
+    /*
+     * Die Punkte selbst mitschreiben und nicht nur ihre Summen.
+     *
+     * Aus den Summen kommt die Hauptachse, und die reichte, solange die
+     * Brille als *ein* Balken behandelt wurde. Fuer die beiden Glasmitten
+     * muss der Fleck aber noch einmal geteilt werden, und dafuer braucht es
+     * die Punkte. Sie hier einzusammeln kostet nichts extra - der Durchgang
+     * laeuft ohnehin ueber jeden von ihnen.
+     */
+    const punkte = [];
     // Zweite Momente gleich mitzaehlen - daraus kommt spaeter die Achse,
     // und ein zweiter Durchgang ueber hunderttausend Punkte waere schade.
     let summeXX = 0;
@@ -211,6 +265,7 @@ export function fleckenFinden(maske, breite, hoehe, mindestens = 40) {
       const q = halde[--oben];
       const x = q % breite;
       const y = (q - x) / breite;
+      punkte.push(q);
       anzahl++;
       summeX += x;
       summeY += y;
@@ -232,6 +287,7 @@ export function fleckenFinden(maske, breite, hoehe, mindestens = 40) {
     flecken.push({
       anzahl,
       summen,
+      punkte: Int32Array.from(punkte),
       mitte: [summeX / anzahl, summeY / anzahl],
       kasten: { links, rechts, oben: obenY, unten: untenY },
       breite: rechts - links + 1,
@@ -313,6 +369,126 @@ export function achseBestimmen(summen) {
 }
 
 /**
+ * Die beiden Glasmitten aus den Teilen der Brille bestimmen.
+ *
+ * --- Warum nicht die Hauptachse reicht ---------------------------------------
+ *
+ * Die Hauptachse beschreibt den Fleck als Ganzes: Schwerpunkt, Richtung,
+ * Ausdehnung. Fuer "ungefaehr da, ungefaehr so gedreht" ist das genug. Fuer
+ * "millimetergenau an derselben Stelle" ist es das nicht, und zwar aus einem
+ * bestimmten Grund:
+ *
+ *   Der Schwerpunkt haengt daran, *wieviel* von jedem Glas markiert ist.
+ *
+ * Ein Glas im Schatten wird schwaecher markiert als das andere, und schon
+ * wandert der Schwerpunkt zum helleren hin - obwohl die Brille sich nicht
+ * bewegt hat. Dasselbe gilt fuer die Laenge: Sie ist vier Standardabweichungen
+ * und waechst mit jedem Randpunkt, den die Maske mehr oder weniger erwischt.
+ *
+ * Die beiden *Glasmitten* haben diese Schwaeche nicht. Jede ist der
+ * Schwerpunkt ihrer eigenen Haelfte; wird eine Haelfte schwaecher markiert,
+ * bleibt ihr Schwerpunkt trotzdem dort, wo das Glas ist. Aus den beiden
+ * Punkten kommen dann alle drei Groessen sauberer:
+ *
+ *   ihre Mitte     →  Lage
+ *   ihre Richtung  →  Drehung
+ *   ihr Abstand    →  Groesse
+ *
+ * Genau das, was ganz oben in dieser Datei als Plan stand - nur dass es
+ * bisher aus dem Fleck als Ganzem gerechnet wurde statt aus den Glaesern.
+ *
+ * Geteilt wird an der Mitte: Jeder Punkt wird auf die Hauptachse projiziert,
+ * und weil der Schwerpunkt der Nullpunkt dieser Projektion ist, trennt das
+ * Vorzeichen die beiden Haelften. Ueber die Nasenbruecke laeuft die Trennung
+ * mitten hindurch - das ist richtig so, denn die Bruecke gehoert zu keinem
+ * der beiden Glaeser und soll sich zwischen ihnen aufheben.
+ */
+export function glasmittenBestimmen(teile, lage, breite) {
+  const cos = Math.cos(lage.winkel);
+  const sin = Math.sin(lage.winkel);
+  const [mx, my] = lage.mitte;
+  /*
+   * Erst grob an der Hauptachse teilen, dann nachziehen.
+   *
+   * Nur an der Hauptachse zu teilen war die erste Fassung, und sie hat einen
+   * Fehler weitergereicht statt ihn abzufangen: Faengt der Fleck irgendwo
+   * etwas Zusaetzliches ein - ein Stueck Haut, eine Strehne, eine Fransen-
+   * spitze -, dann kippt die Hauptachse, und mit ihr kippt die Trennlinie.
+   * Die beiden "Glasmitten" liegen dann schraeg im Fleck statt in den
+   * Glaesern. Gemessen an einem ausgerichteten Bild kam so ein Winkel von
+   * 14 Grad heraus, obwohl die Brille waagerecht stand.
+   *
+   * Deshalb ist die Achsenteilung nur noch der Startwert. Danach laeuft ein
+   * paarmal die einfachste Form von Zwei-Mittelpunkt-Suche: Jeder Punkt
+   * geht zu dem der beiden Mittelpunkte, der naeher liegt, danach werden die
+   * Mittelpunkte neu gemittelt. Das findet die beiden Glaeser als das, was
+   * sie sind - zwei Anhaeufungen -, ganz ohne Vorgabe einer Richtung.
+   */
+  const haelfte = [
+    { n: 0, sx: 0, sy: 0 },
+    { n: 0, sx: 0, sy: 0 },
+  ];
+  for (const t of teile) {
+    for (const q of t.punkte) {
+      const x = q % breite;
+      const y = (q - x) / breite;
+      const laengs = (x - mx) * cos + (y - my) * sin;
+      const h = haelfte[laengs < 0 ? 0 : 1];
+      h.n++;
+      h.sx += x;
+      h.sy += y;
+    }
+  }
+  if (!haelfte[0].n || !haelfte[1].n) return null;
+  let punkt = haelfte.map((h) => [h.sx / h.n, h.sy / h.n]);
+  /*
+   * Fuenf Durchgaenge. Mehr bringt nichts: Der Startwert liegt schon nah,
+   * und gemessen bewegen sich die Mittelpunkte ab dem dritten Durchgang um
+   * weniger als einen Bildpunkt.
+   */
+  for (let runde = 0; runde < 5; runde++) {
+    const neu = [
+      { n: 0, sx: 0, sy: 0 },
+      { n: 0, sx: 0, sy: 0 },
+    ];
+    for (const t of teile) {
+      for (const q of t.punkte) {
+        const x = q % breite;
+        const y = (q - x) / breite;
+        const d0 = (x - punkt[0][0]) ** 2 + (y - punkt[0][1]) ** 2;
+        const d1 = (x - punkt[1][0]) ** 2 + (y - punkt[1][1]) ** 2;
+        const h = neu[d0 <= d1 ? 0 : 1];
+        h.n++;
+        h.sx += x;
+        h.sy += y;
+      }
+    }
+    if (!neu[0].n || !neu[1].n) break;
+    haelfte[0] = neu[0];
+    haelfte[1] = neu[1];
+    punkt = neu.map((h) => [h.sx / h.n, h.sy / h.n]);
+  }
+  // Beide Haelften muessen nennenswert besetzt sein. Ist eine fast leer, war
+  // es kein Brillenfleck, sondern ein einzelner Klumpen - dann lieber die
+  // Hauptachse behalten als zwei Punkte erfinden.
+  const klein = Math.min(haelfte[0].n, haelfte[1].n);
+  const gross = Math.max(haelfte[0].n, haelfte[1].n);
+  if (klein < 20 || klein < gross * 0.25) return null;
+  // Nach links und rechts sortiert ausgeben, damit der Winkel nicht je nach
+  // Zufall der Teilung um 180 Grad springt.
+  return punkt[0][0] <= punkt[1][0] ? punkt : [punkt[1], punkt[0]];
+}
+
+/*
+ * Wie lang die Brille im Verhaeltnis zum Abstand der beiden Glasmitten ist.
+ *
+ * Gemessen an den fuenf Probefotos als Verhaeltnis zwischen der bisherigen
+ * Hauptachsenlaenge und dem neuen Abstand - siehe die Abnahme. Der Wert
+ * ersetzt die Hauptachsenlaenge, weil er an der stabileren Groesse haengt.
+ */
+const GLASABSTAND_ZU_LAENGE = 2.2;
+
+/**
  * Die Brille in einem Bild finden.
  *
  * @param {ImageData} bild
@@ -368,6 +544,25 @@ export function brilleFinden(bild, bereich = null) {
   }
   const lage = achseBestimmen(g);
   if (!lage) return null;
+  /*
+   * Und jetzt die Feinarbeit: aus dem Fleck die beiden Glasmitten holen und
+   * Lage, Drehung und Groesse daraus neu bestimmen. Schlaegt das fehl, bleibt
+   * es bei der Hauptachse - schlechter, aber nicht falsch.
+   */
+  const glaeser = glasmittenBestimmen(teile, lage, breite);
+  if (glaeser) {
+    const [a, c] = glaeser;
+    const dx = c[0] - a[0];
+    const dy = c[1] - a[1];
+    const abstand = Math.hypot(dx, dy);
+    if (abstand > 2) {
+      lage.mitte = [(a[0] + c[0]) / 2, (a[1] + c[1]) / 2];
+      lage.winkel = Math.atan2(dy, dx);
+      lage.laenge = abstand * GLASABSTAND_ZU_LAENGE;
+      lage.glaeser = glaeser;
+      lage.glasabstand = abstand;
+    }
+  }
   /*
    * Wie sicher der Fund ist. Drei Dinge muessen stimmen, und jedes davon
    * kann ein Fehlfund verletzen:
@@ -466,4 +661,191 @@ export function helligkeitMessen(stift, breite, hoehe) {
     n++;
   }
   return [r / n, g / n, bl / n];
+}
+
+/* --- Die Feinausrichtung: Glaeser um die Augen herum -------------------------
+ *
+ * Alles oberhalb sucht die Brille im ganzen Bild oder im Gesichtskasten. Das
+ * genuegt fuer "die Brille ist gefunden". Es genuegt nicht fuer die
+ * Rueckmeldung, um die es hier geht: *Die Brille muss auf allen Bildern
+ * exakt an derselben Stelle sitzen.*
+ *
+ * Drei Dinge standen dem im Weg, und alle drei sind gemessen:
+ *
+ * 1. **Die Schwelle war fest.** Eine getoente Scheibe ist mal grell
+ *    ausgeleuchtet und mal im Schatten; eine Schwelle, die an einem Foto
+ *    abgelesen ist, passt auf dem naechsten nicht. Gemessen lag die jeweils
+ *    beste Schwelle zwischen 0,42 und 0,66 - ein fester Wert von 0,55 frisst
+ *    entweder die dunklen Glaeser weg oder markiert das halbe Gesicht mit.
+ *
+ * 2. **Das Mass war falsch normiert.** Der naheliegende Wert `r + b - 2g`
+ *    waechst mit der Helligkeit: Helle Haut bekommt einen groesseren Wert als
+ *    ein dunkles Glas, und keine Schwelle trennt das mehr. Durch `r` geteilt
+ *    ist er von der Helligkeit unabhaengig - Haut liegt dann bei etwa 0,15,
+ *    ein Glas bei etwa 0,95.
+ *
+ * 3. **Der Wedel war manchmal *im* Gesichtskasten.** Auf zwei Fotos haelt
+ *    jemand ihn direkt neben den Kopf; er verschmilzt dann mit einem Glas zu
+ *    einem Fleck, und die gefundene Brille wird zu breit und schief.
+ *
+ * Der Ausweg fuer alle drei ist derselbe Gedanke: **Ein Brillenglas sitzt um
+ * ein Auge herum.** Also wird nicht mehr in einem Rechteck gesucht, sondern
+ * in zwei Kreisscheiben um die beiden Augenlandmarken. Darin ist die
+ * Schwelle nach Otsu bestimmt (die Verteilung ist dort wirklich zweigipflig:
+ * Glas und Haut), und der Wedel liegt schlicht draussen.
+ *
+ * Die Augen machen dabei genau das, was sie koennen - grob zeigen, wo zu
+ * suchen ist - und genau das nicht, was sie nicht koennen: die Stelle
+ * bestimmen. BlazeFace rechnet intern auf 128 mal 128 Bildpunkten; im
+ * Kontrollbild liegen seine Augenpunkte sichtbar neben den Glasmitten,
+ * waehrend die aus der Maske gerechneten mitten darin sitzen.
+ */
+
+/**
+ * Wie roetlich-magenta ein Punkt ist, unabhaengig von seiner Helligkeit.
+ *
+ * -1 heisst "kommt nicht in Frage" (zu dunkel, oder Rot ist nicht der
+ * staerkste Kanal). Sonst 0 bis 1; Haut liegt bei etwa 0,15, ein getoentes
+ * Glas bei etwa 0,95.
+ */
+export function roetung(r, g, b) {
+  if (r < HELLIGKEIT_MINDESTENS || r <= g || r <= b) return -1;
+  const v = (r + b - 2 * g) / r;
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
+/** Wie weit um jedes Auge herum gesucht wird, in Augenabstaenden. */
+const SCHEIBE = 0.9;
+
+/** Wieviele Faecher das Histogramm fuer die Schwellensuche hat. */
+const FAECHER = 128;
+
+/**
+ * Schwelle nach Otsu: die Trennung, die die beiden Gruppen am weitesten
+ * auseinanderzieht. Kein Vorwissen ueber Belichtung noetig.
+ */
+function otsuSchwelle(hist, anzahl) {
+  let summe = 0;
+  for (let t = 0; t < hist.length; t++) summe += t * hist[t];
+  let unten = 0;
+  let gewichtUnten = 0;
+  let bestes = -1;
+  let fach = 0;
+  for (let t = 0; t < hist.length; t++) {
+    gewichtUnten += hist[t];
+    if (!gewichtUnten) continue;
+    const gewichtOben = anzahl - gewichtUnten;
+    if (!gewichtOben) break;
+    unten += t * hist[t];
+    const mittelUnten = unten / gewichtUnten;
+    const mittelOben = (summe - unten) / gewichtOben;
+    const zwischen = gewichtUnten * gewichtOben * (mittelUnten - mittelOben) ** 2;
+    if (zwischen > bestes) {
+      bestes = zwischen;
+      fach = t;
+    }
+  }
+  return (fach + 1) / hist.length;
+}
+
+/**
+ * Die beiden Glasmitten bestimmen - die genaueste Angabe, die es hier gibt.
+ *
+ * @param {ImageData} bild
+ * @param {number[][]} augen  die beiden Augenlandmarken
+ * @returns {{glaeser:number[][], mitte:number[], winkel:number, laenge:number,
+ *   dicke:number, glasabstand:number, schwelle:number, punkte:number}|null}
+ */
+export function glaeserFinden(bild, augen) {
+  if (!augen || augen.length !== 2) return null;
+  const { width: breite, height: hoehe, data } = bild;
+  const [e1, e2] = augen;
+  const augenAbstand = Math.hypot(e2[0] - e1[0], e2[1] - e1[1]);
+  if (!(augenAbstand > 4)) return null;
+  const radius = augenAbstand * SCHEIBE;
+  const radius2 = radius * radius;
+  const links = Math.max(0, Math.floor(Math.min(e1[0], e2[0]) - radius));
+  const oben = Math.max(0, Math.floor(Math.min(e1[1], e2[1]) - radius));
+  const rechts = Math.min(breite, Math.ceil(Math.max(e1[0], e2[0]) + radius));
+  const unten = Math.min(hoehe, Math.ceil(Math.max(e1[1], e2[1]) + radius));
+
+  const inScheibe = (x, y) => (x - e1[0]) ** 2 + (y - e1[1]) ** 2 < radius2
+    || (x - e2[0]) ** 2 + (y - e2[1]) ** 2 < radius2;
+
+  // Erster Durchgang: Histogramm der Roetung in den beiden Scheiben.
+  const hist = new Float64Array(FAECHER);
+  let anzahl = 0;
+  for (let y = oben; y < unten; y++) {
+    for (let x = links; x < rechts; x++) {
+      if (!inScheibe(x, y)) continue;
+      const i = (y * breite + x) * 4;
+      const v = roetung(data[i], data[i + 1], data[i + 2]);
+      if (v < 0) continue;
+      hist[Math.min(FAECHER - 1, Math.floor(v * FAECHER))]++;
+      anzahl++;
+    }
+  }
+  if (anzahl < 200) return null;
+  const schwelle = otsuSchwelle(hist, anzahl);
+
+  // Zweiter Durchgang: die Punkte einsammeln, die drueber liegen.
+  const punkte = [];
+  for (let y = oben; y < unten; y++) {
+    for (let x = links; x < rechts; x++) {
+      if (!inScheibe(x, y)) continue;
+      const i = (y * breite + x) * 4;
+      const v = roetung(data[i], data[i + 1], data[i + 2]);
+      if (v >= 0 && v > schwelle) punkte.push(x, y);
+    }
+  }
+  if (punkte.length < 200) return null;
+
+  /*
+   * Zwei Mittelpunkte, gestartet auf den beiden Augen.
+   *
+   * Der Startwert entscheidet hier nur, *welche* Loesung gefunden wird, nicht
+   * wo sie liegt: Zwei getrennte Anhaeufungen haben genau ein sinnvolles
+   * Ergebnis, und von den Augen aus wird es gefunden statt einer Teilung
+   * quer durch beide Glaeser hindurch.
+   */
+  let mitten = [[...e1], [...e2]];
+  for (let runde = 0; runde < 6; runde++) {
+    const neu = [{ n: 0, sx: 0, sy: 0 }, { n: 0, sx: 0, sy: 0 }];
+    for (let i = 0; i < punkte.length; i += 2) {
+      const x = punkte[i];
+      const y = punkte[i + 1];
+      const d0 = (x - mitten[0][0]) ** 2 + (y - mitten[0][1]) ** 2;
+      const d1 = (x - mitten[1][0]) ** 2 + (y - mitten[1][1]) ** 2;
+      const h = neu[d0 <= d1 ? 0 : 1];
+      h.n++;
+      h.sx += x;
+      h.sy += y;
+    }
+    if (!neu[0].n || !neu[1].n) return null;
+    // Ein Glas darf nicht ein Vielfaches des anderen sein - dann war es kein
+    // Paar, sondern ein Klumpen mit einem Anhaengsel.
+    if (runde === 5) {
+      const klein = Math.min(neu[0].n, neu[1].n);
+      const gross = Math.max(neu[0].n, neu[1].n);
+      if (klein < gross * 0.3) return null;
+    }
+    mitten = neu.map((h) => [h.sx / h.n, h.sy / h.n]);
+  }
+
+  const geordnet = mitten[0][0] <= mitten[1][0] ? mitten : [mitten[1], mitten[0]];
+  const dx = geordnet[1][0] - geordnet[0][0];
+  const dy = geordnet[1][1] - geordnet[0][1];
+  const glasabstand = Math.hypot(dx, dy);
+  if (!(glasabstand > 4)) return null;
+  return {
+    glaeser: geordnet,
+    mitte: [(geordnet[0][0] + geordnet[1][0]) / 2, (geordnet[0][1] + geordnet[1][1]) / 2],
+    winkel: Math.atan2(dy, dx),
+    laenge: glasabstand * GLASABSTAND_ZU_LAENGE,
+    dicke: glasabstand * 0.55,
+    glasabstand,
+    augenAbstand,
+    schwelle,
+    punkte: punkte.length / 2,
+  };
 }

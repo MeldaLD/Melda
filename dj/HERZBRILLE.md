@@ -254,6 +254,83 @@ Band** statt eines Schleiers. Sie tun es.
 > Fehler zweimal hintereinander sieht aus wie kein Fehler. Erst der Vergleich
 > gegen die *bekannte* Transformation hat es gezeigt.
 
+## Millimeter: die Feinausrichtung
+
+Rückmeldung nach dem ersten Durchlauf: *„Die Brille muss noch exakter
+aufeinander sitzen."* Zu Recht. Der Anker saß bis dahin auf drei von fünf
+Fotos auf den **Augenlandmarken**, und die sind für diesen Zweck grob —
+BlazeFace rechnet intern auf 128 × 128 Bildpunkten. Im Kontrollbild sieht man
+es direkt: Die Augenpunkte liegen sichtbar **neben** den Glasmitten.
+
+Der Weg dahin ging über drei Messungen, und jede hat etwas anderes gefunden,
+als ich erwartet hatte.
+
+### 1. Die Schwelle war das falsche Maß
+
+Die Rotmaske prüfte Sättigung ≥ 0,67 und Grün/Rot ≤ 0,45. Beide Werte sind an
+*einem* Foto abgelesen, auf dem die Scheiben kräftig ausgeleuchtet sind.
+Nachgemessen an allen fünf:
+
+| | Glas | Haut |
+|---|---|---|
+| Sättigung ≥ 0,67 | **0,00** im schlechtesten Fall | bis 0,24 |
+| B ≥ G (Magentaseite) | 0,97 | bis 0,20 |
+
+Die alte Regel hat eine **negative** Lücke: Auf zwei Fotos findet sie keinen
+einzigen Glaspunkt und markiert gleichzeitig ein Viertel der Haut. Der
+Farbwinkel dagegen ist auf allen fünf praktisch derselbe (332–353°), während
+Sättigung von 0,39 bis 1,00 schwankt. Gemessen wurde also ausgerechnet das,
+was sich ändert.
+
+### 2. …und er war falsch normiert
+
+Der nächste Versuch war der Punktwert `r + b − 2g` mit einer Schwelle nach
+Otsu. Das Ergebnis markierte das ganze Gesicht. Der Grund: Der Wert **wächst
+mit der Helligkeit**, also schlägt helle Haut ein dunkles Glas. Durch `r`
+geteilt ist er helligkeitsunabhängig — Haut liegt dann bei ≈ 0,15, ein Glas
+bei ≈ 0,95 — und Otsu findet je Foto genau die Schwelle, die man von Hand
+gewählt hätte: 0,42 / 0,45 / 0,55 / 0,62 / 0,66. Ein fester Wert kann das
+nicht: 0,55 frisst die dunklen Gläser weg, 0,40 markiert zu viel.
+
+### 3. Der Wedel war manchmal *im* Gesicht
+
+Auf zwei Fotos hält jemand ihn direkt neben den Kopf. Er verschmilzt dann mit
+einem Glas zu einem Fleck, und die gefundene Brille wird zu breit und schief.
+
+Alle drei löst derselbe Gedanke: **Ein Brillenglas sitzt um ein Auge herum.**
+Gesucht wird deshalb nicht mehr in einem Rechteck, sondern in **zwei
+Kreisscheiben** um die Augenlandmarken (Radius 0,9 Augenabstände). Darin
+bestimmt Otsu die Schwelle, und der Wedel liegt schlicht draußen. Zwei
+Mittelpunkte, von den Augen aus gestartet, finden dann die beiden Glasmitten.
+
+Die Augen machen damit genau das, was sie können — grob zeigen, wo zu suchen
+ist — und genau das nicht, was sie nicht können: die Stelle bestimmen.
+
+### Was es gebracht hat
+
+Gemessen wird, ohne den Sucher sich selbst prüfen zu lassen: In jedem
+Quellbild wird die Gläsermaske bestimmt, jede Maske durch *ihre* Ausrichtung
+geschickt und die ausgerichteten Masken paarweise verglichen
+(Schnitt ÷ Vereinigung).
+
+| | über die Augen | über die Gläser |
+|---|---|---|
+| mittlere Deckung | 0,474 | **0,760** |
+| schlechtestes Paar | 0,239 | **0,661** |
+| Saum im Stapel | 84,4 % | **46,4 %** |
+
+Im gestapelten Bild ist der Unterschied ohne Zahlen zu sehen: links ein roter
+Schleier, rechts scharfe Herzkonturen.
+
+Eins ist nicht erreichbar, und das ist kein Mangel: Die Köpfe sind
+unterschiedlich gedreht, und eine Ähnlichkeitsabbildung — verschieben, drehen,
+skalieren — kann eine perspektivisch andere Ansicht nicht zurechtbiegen. Sie
+soll es auch nicht; ein verzerrtes Gesicht sieht sofort falsch aus.
+
+Nebenbei ist die Suche **vier- bis fünfmal schneller** geworden (13–22 ms statt
+55–70 ms je Foto): Zwei Kreisscheiben sind erheblich weniger Fläche als ein
+Gesichtskasten mit Flutfüllung darin.
+
 ## Reihenfolge
 
 Bewusst ein Textfeld und keine Zieh-und-Ablege-Oberfläche. Eine Liste aus

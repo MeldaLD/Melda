@@ -13,7 +13,7 @@
  * nicht auf, weil der eigene Server genau die Adresse bedient, die im Code
  * steht. Dieselbe Ueberlegung steht beim Messstand.
  */
-import { brilleFinden, ausrichtungLegen, helligkeitMessen } from '../gemeinsam/brille.js';
+import { brilleFinden, glaeserFinden, ausrichtungLegen, helligkeitMessen } from '../gemeinsam/brille.js';
 import { fundBestimmen, gesichtssucherLaden } from './gesichtssucher.js';
 
 const $ = (id) => document.getElementById(id);
@@ -67,7 +67,7 @@ $('dateien').addEventListener('change', async (e) => {
       such.height = Math.max(1, Math.round(bild.naturalHeight * (SUCH_BREITE / bild.naturalWidth)));
       stift.drawImage(bild, 0, 0, such.width, such.height);
       const daten = stift.getImageData(0, 0, such.width, such.height);
-      const fund = await fundBestimmen(such, daten, brilleFinden);
+      const fund = await fundBestimmen(such, daten, brilleFinden, glaeserFinden);
       bilder.push({
         name: datei.name, bild, fund,
         suchBreite: such.width,

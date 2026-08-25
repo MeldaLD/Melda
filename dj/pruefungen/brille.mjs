@@ -98,6 +98,17 @@ const VERSATZ_HOECHSTENS = 0.25;
 /** Auf welchen Fotos die Brille die Augen nachbessern koennen muss. */
 const NACHGEBESSERT_MINDESTENS = 2;
 
+/*
+ * Wie gut die ausgerichteten Brillen uebereinanderliegen muessen.
+ *
+ * Gemessen liegt die Kette bei 0,76 im Mittel und 0,66 im schlechtesten Paar;
+ * ueber die Augen allein waren es 0,47 und 0,24. Die Schwellen stehen etwas
+ * darunter, damit ein anderer Rechner mit leicht anderer Kantenglaettung
+ * nicht rot wird - aber weit ueber dem, was die grobe Ausrichtung schafft.
+ */
+const DECKUNG_MITTEL = 0.7;
+const DECKUNG_SCHLECHTESTES = 0.6;
+
 const browser = await chromium.launch({
   ...(CHROM ? { executablePath: CHROM } : {}),
   args: ['--mute-audio'],
@@ -136,10 +147,18 @@ try {
   }
   const FOTOS = vorhanden;
 
-  const befund = await seite.evaluate(async (fotos) => {
-    const { brilleFinden } = await import('../gemeinsam/brille.js');
-    const { fundBestimmen, gesichtFinden } = await import('./gesichtssucher.js');
+  const { aus: befund, deckung } = await seite.evaluate(async (fotos) => {
+    const M = await import('../gemeinsam/brille.js');
+    const { brilleFinden, glaeserFinden } = M;
+    const { fundBestimmen, gesichtFinden, augenFund } = await import('./gesichtssucher.js');
     const aus = [];
+    /*
+     * Fuer die Deckungsmessung: Ausrichtung einmal ueber die Glaeser und
+     * einmal nur ueber die Augen, damit die Zahl eine Vergleichszahl hat.
+     */
+    const AB = 540;
+    const AH = 960;
+    const masken = { glaeser: [], augen: [] };
     for (const n of fotos) {
       const bild = new Image();
       bild.src = `proben/${n}.jpg`;
@@ -153,7 +172,7 @@ try {
       s.drawImage(bild, 0, 0, B, H);
       const daten = s.getImageData(0, 0, B, H);
       const t0 = performance.now();
-      const fund = await fundBestimmen(c, daten, brilleFinden);
+      const fund = await fundBestimmen(c, daten, brilleFinden, glaeserFinden);
       const ms = Math.round(performance.now() - t0);
       /*
        * Die Augen noch einmal getrennt holen. Das ist keine Doppelarbeit,
@@ -177,6 +196,52 @@ try {
       const versatzVon = (f) => (f && augenMitte && abstand
         ? +(Math.hypot(f.mitte[0] - augenMitte[0], f.mitte[1] - augenMitte[1]) / abstand).toFixed(2)
         : null);
+      /*
+       * Die Glaesermaske im Quellbild - unabhaengig davon, welcher Anker
+       * gerade geprueft wird - und dann durch beide Ausrichtungen geschickt.
+       * So misst die Deckung die *Ausrichtung* und nicht die Maske.
+       */
+      const g2 = await gesichtFinden(c);
+      const glas = g2 ? glaeserFinden(daten, g2.augen) : null;
+      if (glas) {
+        const mk = document.createElement('canvas');
+        mk.width = B;
+        mk.height = H;
+        const mq = mk.getContext('2d');
+        mq.fillStyle = '#000';
+        mq.fillRect(0, 0, B, H);
+        const bd = mq.createImageData(B, H);
+        const [q1, q2] = g2.augen;
+        const rad = (glas.augenAbstand * 0.9) ** 2;
+        for (let y = 0; y < H; y++) {
+          for (let x = 0; x < B; x++) {
+            const drin = (x - q1[0]) ** 2 + (y - q1[1]) ** 2 < rad
+              || (x - q2[0]) ** 2 + (y - q2[1]) ** 2 < rad;
+            const i = (y * B + x) * 4;
+            const v = drin ? M.roetung(daten.data[i], daten.data[i + 1], daten.data[i + 2]) : -1;
+            const an = v >= 0 && v > glas.schwelle;
+            bd.data[i] = bd.data[i + 1] = bd.data[i + 2] = an ? 255 : 0;
+            bd.data[i + 3] = 255;
+          }
+        }
+        mq.putImageData(bd, 0, 0);
+        for (const [art, anker] of [['glaeser', fund], ['augen', augenFund(g2.augen)]]) {
+          const z = document.createElement('canvas');
+          z.width = AB;
+          z.height = AH;
+          const zq = z.getContext('2d', { willReadFrequently: true });
+          zq.fillStyle = '#000';
+          zq.fillRect(0, 0, AB, AH);
+          zq.save();
+          M.ausrichtungLegen(zq, anker, B, B, AB, AH, 1);
+          zq.drawImage(mk, 0, 0);
+          zq.restore();
+          const dd = zq.getImageData(0, 0, AB, AH).data;
+          const maske = new Uint8Array(AB * AH);
+          for (let k = 0; k < maske.length; k++) maske[k] = dd[k * 4] > 128 ? 1 : 0;
+          masken[art].push(maske);
+        }
+      }
       aus.push({
         n,
         ms,
@@ -190,7 +255,26 @@ try {
         versatzAlt: versatzVon(alt),
       });
     }
-    return aus;
+    const deckung = (satz) => {
+      const paare = [];
+      for (let i = 0; i < satz.length; i++) {
+        for (let j = i + 1; j < satz.length; j++) {
+          let schnitt = 0;
+          let vereinigung = 0;
+          for (let k = 0; k < satz[i].length; k++) {
+            if (satz[i][k] && satz[j][k]) schnitt++;
+            if (satz[i][k] || satz[j][k]) vereinigung++;
+          }
+          paare.push(vereinigung ? schnitt / vereinigung : 0);
+        }
+      }
+      if (!paare.length) return null;
+      return {
+        mittel: paare.reduce((a, x) => a + x, 0) / paare.length,
+        schlechtestes: Math.min(...paare),
+      };
+    };
+    return { aus, deckung: { glaeser: deckung(masken.glaeser), augen: deckung(masken.augen) } };
   }, FOTOS);
 
   console.log('\nFoto               Quelle      Gesicht  Anteil  Versatz  (ohne Gesicht)   ms');
@@ -206,6 +290,52 @@ try {
 
   pruefe('auf jedem Foto ein Gesicht', befund.every((e) => e.quelle !== 'nurBrille'),
     befund.filter((e) => e.quelle === 'nurBrille').map((e) => e.n).join(', '));
+
+  pruefe('auf jedem Foto beide Glasmitten', befund.every((e) => e.quelle === 'glaeser'),
+    befund.filter((e) => e.quelle !== 'glaeser').map((e) => `${e.n}=${e.quelle}`).join(', '));
+
+  /*
+   * --- Die eigentliche Zusage an die Ruecktmeldung -------------------------
+   *
+   * "Die Brille muss millimetergenau an derselben Stelle sitzen." Das laesst
+   * sich messen, ohne den Sucher sich selbst pruefen zu lassen:
+   *
+   *   1. In jedem Quellbild wird die Glaesermaske bestimmt - immer dieselbe,
+   *      egal welcher Anker geprueft wird.
+   *   2. Jede Maske wird durch *ihre* Ausrichtung geschickt.
+   *   3. Dann werden die ausgerichteten Masken paarweise verglichen:
+   *      Schnittflaeche durch Vereinigungsflaeche.
+   *
+   * Liegen die Brillen uebereinander, ist der Wert nahe eins. Er kann eins
+   * nicht erreichen, und das ist kein Mangel der Ausrichtung: Die Koepfe sind
+   * unterschiedlich gedreht, und eine Aehnlichkeitsabbildung - verschieben,
+   * drehen, skalieren - kann eine perspektivisch andere Ansicht nicht
+   * zurechtbiegen. Sie soll es auch nicht; ein verzerrtes Gesicht sieht
+   * sofort falsch aus.
+   */
+  const dG = deckung.glaeser;
+  const dA = deckung.augen;
+  if (dG && dA) {
+    console.log(`  Deckung ueber die Glaeser: ${dG.mittel.toFixed(3)} im Mittel, `
+      + `${dG.schlechtestes.toFixed(3)} im schlechtesten Paar`);
+    console.log(`  Deckung ueber die Augen  : ${dA.mittel.toFixed(3)} im Mittel, `
+      + `${dA.schlechtestes.toFixed(3)} im schlechtesten Paar\n`);
+    pruefe(`mittlere Deckung mindestens ${DECKUNG_MITTEL}`, dG.mittel >= DECKUNG_MITTEL,
+      dG.mittel.toFixed(3));
+    pruefe(`schlechtestes Paar mindestens ${DECKUNG_SCHLECHTESTES}`,
+      dG.schlechtestes >= DECKUNG_SCHLECHTESTES, dG.schlechtestes.toFixed(3));
+    /*
+     * Und die Kontrolle dazu. Ohne sie sagt die Zahl oben nichts: Waere die
+     * grobe Ausrichtung ueber die Augen genauso gut, haette die ganze
+     * Feinarbeit nichts gebracht, und die Schwelle waere nur so gewaehlt,
+     * dass sie haelt.
+     */
+    pruefe('und deutlich besser als ueber die Augen allein',
+      dG.mittel > dA.mittel + 0.15,
+      `${dG.mittel.toFixed(3)} gegen ${dA.mittel.toFixed(3)}`);
+  } else {
+    pruefe('Deckung messbar', false, 'keine Glaesermasken zustande gekommen');
+  }
 
   /*
    * Die eigentliche Zusage: kein Anker am Wedel.
@@ -242,14 +372,6 @@ try {
   const schwach = befund.filter((e) => !(e.sicher >= 0.7) || !(e.gesichtAnteil >= 0.02));
   pruefe('das gewaehlte Gesicht ist gross und sicher', schwach.length === 0,
     schwach.map((e) => `${e.n}: sicher=${e.sicher} anteil=${e.gesichtAnteil}`).join(', '));
-
-  /*
-   * Und die Gegenprobe: Die Brille darf nicht stillgelegt sein.
-   */
-  const nachgebessert = befund.filter((e) => e.quelle === 'brille');
-  pruefe(`mindestens ${NACHGEBESSERT_MINDESTENS} Fotos ueber die Brille nachgebessert`,
-    nachgebessert.length >= Math.min(NACHGEBESSERT_MINDESTENS, FOTOS.length - 1),
-    `${nachgebessert.length}: ${nachgebessert.map((e) => e.n).join(', ')}`);
 
   pruefe('keine Fehler in der Konsole', konsole.length === 0, konsole.slice(0, 3).join(' | '));
 } finally {

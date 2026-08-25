@@ -240,12 +240,41 @@ export function augenFund(augen) {
  */
 const DARF_NACHBESSERN = {
   /** Grad Winkelunterschied zur Augenachse. */
-  winkel: 10,
+  winkel: 40,
   /** Versatz der Mitte, in Augenabstaenden. */
-  versatz: 0.2,
+  versatz: 0.5,
   /** Erlaubtes Laengenverhaeltnis zum Augenabstand. */
-  skala: [2.1, 3.1],
+  skala: [1.9, 3.2],
 };
+
+/*
+ * --- Warum diese Schwellen weit sind, und warum das kein Nachlassen ist -----
+ *
+ * Sie standen einmal bei 10 Grad und 0,2 Augenabstaenden. Das war richtig
+ * gerechnet und trotzdem falsch: Damals fand die Rotmaske auf zwei von fuenf
+ * Fotos ueberhaupt keine Glaeser, die Brille war also tatsaechlich der
+ * schwaechere der beiden Anker. Seit die Maske auf der Magentaseite trennt
+ * (siehe brille.js), findet sie auf allen fuenf - und jetzt zeigt die
+ * Messung ins Gegenteil.
+ *
+ * Nachgemessen wird im *ausgerichteten* Bild: Steht die Brille dort schief
+ * oder falsch gross, war der Anker schlecht. Ueber die Augen ausgerichtet:
+ *
+ *   64d071b9   die Brille steht 16 Grad schief
+ *   f9faf208   die Brille ist 33 Prozent zu gross
+ *
+ * Beide Male hat der enge Winkeltest die Brille verworfen und auf die Augen
+ * zurueckgefallen - also ausgerechnet auf die schlechtere Angabe. Der Grund
+ * ist kein Fehler im Modell, sondern seine Aufloesung: BlazeFace rechnet
+ * intern auf 128 mal 128 Bildpunkten. Fuer "wo ist das Gesicht" ist das
+ * reichlich, fuer "wo genau sitzt die Pupille" nicht.
+ *
+ * Die Augen bleiben deshalb, was sie koennen: der Wachhund gegen den Wedel.
+ * Dafuer reichen weite Schwellen locker - ein Wedelfund lag 1,52
+ * Augenabstaende daneben, die echten Funde liegen bei 0,14 bis 0,37. Und die
+ * Rueckfallebene bleiben sie auch: Wo gar keine Glaeser gefunden werden, ist
+ * ein grober Anker immer noch besser als keiner.
+ */
 
 /**
  * Augenfund und Brillenfund zusammenbringen.
@@ -291,7 +320,7 @@ export function fundVereinen(ausAugen, ausBrille) {
  * @returns {object|null} ein Fund wie aus `brilleFinden`, zusaetzlich mit
  *   `quelle` ('brille' | 'augen' | 'nurBrille') und `sicher`.
  */
-export async function fundBestimmen(leinwand, daten, brilleFinden) {
+export async function fundBestimmen(leinwand, daten, brilleFinden, glaeserFinden) {
   const gesicht = await gesichtFinden(leinwand);
   if (!gesicht) {
     /*
@@ -302,8 +331,45 @@ export async function fundBestimmen(leinwand, daten, brilleFinden) {
     const f = brilleFinden(daten);
     return f ? { ...f, quelle: 'nurBrille', sicher: 0 } : null;
   }
+
+  /*
+   * Der genaue Weg zuerst: die beiden Glasmitten in zwei Kreisscheiben um
+   * die Augen. Siehe glaeserFinden() - das ist die Stufe, an der die
+   * Millimeter haengen.
+   */
+  if (glaeserFinden) {
+    const glas = glaeserFinden(daten, gesicht.augen);
+    if (glas && plausibel(glas)) {
+      return {
+        ...glas,
+        guete: 1,
+        quelle: 'glaeser',
+        sicher: gesicht.sicher,
+        augen: gesicht.augen,
+      };
+    }
+  }
+
+  /*
+   * Sonst der grobe Weg: Brillensuche im Gesichtskasten, gegen die Augen
+   * geprueft, und im Zweifel die Augen selbst.
+   */
   const bereich = brillenBereich(gesicht.kasten, leinwand.width, leinwand.height);
   const vereint = fundVereinen(augenFund(gesicht.augen), brilleFinden(daten, bereich));
   if (!vereint) return null;
-  return { ...vereint, sicher: gesicht.sicher, bereich };
+  return { ...vereint, sicher: gesicht.sicher, bereich, augen: gesicht.augen };
+}
+
+/*
+ * Sitzt das gefundene Glaeserpaar plausibel zum Gesicht?
+ *
+ * Gemessen an den fuenf Probefotos liegt der Abstand der beiden Glasmitten
+ * zwischen dem 1,09- und dem 1,23-fachen des Augenabstands - die Glaeser
+ * sind ja etwas weiter auseinander als die Pupillen. Der erlaubte Bereich
+ * ist absichtlich viel weiter: Er soll grobe Ausreisser abfangen, nicht die
+ * Messung nachkorrigieren. Wo er zuschlaegt, uebernimmt der grobe Weg.
+ */
+function plausibel(glas) {
+  const v = glas.glasabstand / glas.augenAbstand;
+  return v > 0.7 && v < 1.8;
 }
