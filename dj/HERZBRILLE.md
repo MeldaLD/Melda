@@ -342,6 +342,78 @@ Dazu vier Sortierungen auf Knopfdruck. Die interessanteste ist **nach
 Kopfneigung**: Läuft die Neigung durch, kippt der Kopf über das ganze Video
 langsam durch — eine Bewegung, die kein Einzelbild hat.
 
+## Musik
+
+Die Musik wird hochgeladen wie die Bilder, und sie tut zwei Dinge: Sie legt
+fest, **wann geschnitten wird**, und sie landet **gleich mit im Video**.
+
+Die Analyse dafür liegt schon im Projekt — `analysiere()` misst Tempo, Raster,
+Phrasengrenzen und Marken, `beatZeit()` gibt die Sekunde jedes einzelnen
+Schlags. Sie ist für den DJ gebaut und wird hier unverändert benutzt: Der
+Schnitt eines Bildes und der Einsatz eines Übergangs sind dasselbe Problem.
+
+### Warum nicht einfach die BPM-Zahl übernehmen
+
+Weil eine feste Zahl über die Länge auseinanderläuft. Ist ein Stück in
+Wahrheit 123,6 statt 124 BPM, sind das nach dreißig Sekunden schon ein Sechstel
+Schlag — und die Bildwechsel sitzen sichtbar neben der Musik. `beatZeit()`
+rechnet stattdessen **jeden Schlag einzeln** aus der gemessenen Tempokarte und
+trifft auch den letzten noch. Die Abnahme prüft genau das, mit 5 ms Toleranz
+über die ganze Länge.
+
+### Was eingestellt wird
+
+* **Start** — die erste Phrase, oder eine der Marken aus der Analyse (Drop,
+  Breakdown, Wechsel). Auf einem Drop anzufangen ist der billigste Weg zu
+  einem Video, das nicht mit einem Intro beginnt.
+* **Schläge je Bild** — vorgeschlagen wird die Unterteilung, deren Videolänge
+  der Musik am nächsten kommt. Bei 45 Bildern und 128 BPM sind das zwei
+  Schläge: 45 × 0,94 s = 42 s. Ein Schlag je Bild wäre 21 s, halb so lang.
+* **Ton ins Video** — Bild und Ton gehen in denselben Strom, der Rekorder
+  schneidet beides in *eine* Datei. Der Gleichlauf muss nicht nachträglich
+  hergestellt werden, er entsteht beim Mitschnitt.
+
+Ist die Musik länger als die Bilder — der Normalfall, und so soll es sein —,
+wird sie über die letzten anderthalb Sekunden ausgeblendet. Reicht sie nicht,
+werden Bilder weggelassen statt in die Stille weiterzulaufen; die Seite sagt
+dann, wie viele.
+
+Sobald Musik vermessen ist, sind die Regler *Tempo* und *Bilder je Schlag* von
+Hand stillgelegt. Sie werden nicht mehr gelesen — sie bedienbar zu lassen wäre
+die unangenehmste Sorte Fehler: Man dreht daran, und nichts passiert.
+
+### Gezeichnet wird nach der Tonuhr
+
+Nicht nach `performance.now()`. Zeichnet man nach der Systemuhr und spielt den
+Ton daneben ab, laufen beide auseinander — der Bildschirm lässt ein Bild aus,
+der Ton nicht. `AudioContext.currentTime` ist dieselbe Uhr, nach der der Ton
+läuft; wer danach zeichnet, kann nicht wegdriften.
+
+### Ein Fehler, den erst die Abnahme gefunden hat
+
+Die erste Fassung hat zwei Fragen in einem Zug entschieden: *Ist das Raster
+sicher?* und *Kommt der Ton mit?* Bei einer Klickspur, deren Tempo auf ein
+Zehntel genau erkannt wird, deren Vertrauen aber unter der Schwelle bleibt,
+kam die Datei **ohne Ton** heraus — und nirgends stand etwas dazu. Es sind
+zwei Fragen: Woher die Schnittzeiten kommen, und ob Musik da ist. Die zweite
+hängt nur an der zweiten. Beide Fälle stehen jetzt in `npm run musikpruefen`.
+
+### Wie genau der Schnitt in der Datei sitzt
+
+Der Schnittplan ist auf die Millisekunde genau. Die *Datei* ist es nicht ganz,
+und das liegt nicht am Plan: Ein Schnitt kann nur auf einer Bildgrenze liegen.
+Von Hand nachgemessen (ffmpeg, Bildunterschiede gegen die Anschläge im Ton
+derselben Datei) lagen die Schnitte 18 bis 55 ms neben dem Schlag — bei einem
+Bildabstand von 88 ms in dieser Umgebung, also **innerhalb eines Bildes**. Auf
+einem Rechner mit Grafikkarte sind es 33 ms.
+
+> Zwei Messfehler auf dem Weg dahin, beide meine. Der erste Versuch hat die
+> Bilder mit `-r 60` neu abgetastet — damit erfindet ffmpeg Zwischenbilder und
+> verschiebt die Zeitstempel; die „Abweichung" war meine eigene Umrechnung.
+> Der zweite lief mit eingeschaltetem langsamen Zoom: Dann ändert sich *jedes*
+> Bild ein wenig, und ein Verfahren, das Schnitte an Bildunterschieden
+> erkennt, findet die falschen Stellen. Es meldete 225 ms, wo 55 ms waren.
+
 ## Die Regler
 
 | Regler | Was er tut |

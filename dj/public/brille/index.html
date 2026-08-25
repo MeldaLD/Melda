@@ -62,7 +62,27 @@
   </section>
 
   <section class="schritt">
-    <h2>4 · Video</h2>
+    <h2>4 · Musik</h2>
+    <input type="file" id="musik" accept="audio/*" />
+    <span class="stand" id="musikStand"></span>
+    <p class="fussnote">
+      Optional. Wird die Musik vermessen, laufen die Bildwechsel exakt auf
+      ihren Schlägen, und der Ton landet gleich mit im fertigen Video.
+    </p>
+    <div class="regler" id="musikRegler" hidden>
+      <label>Start
+        <select id="startStelle"></select>
+      </label>
+      <label>Schläge je Bild
+        <select id="jeBild"></select>
+      </label>
+      <label class="schalter"><input type="checkbox" id="tonMit" checked /> Ton ins Video</label>
+    </div>
+    <p class="fussnote" id="passung"></p>
+  </section>
+
+  <section class="schritt">
+    <h2>5 · Video</h2>
     <div class="regler">
       <label>Tempo <input type="number" id="bpm" value="128" min="60" max="200" step="1" /> BPM</label>
       <label>Bilder je Schlag
@@ -86,6 +106,10 @@
         </select>
       </label>
     </div>
+    <p class="fussnote" id="vonHandHinweis" hidden>
+      Tempo und Bilder je Schlag kommen aus der vermessenen Musik – die beiden
+      Regler oben sind deshalb stillgelegt.
+    </p>
     <div class="knopfreihe">
       <button id="vorschau" class="gross">Vorschau abspielen</button>
       <button id="rendern" class="gross">Video aufnehmen</button>

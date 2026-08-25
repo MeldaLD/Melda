@@ -15,6 +15,7 @@
  */
 import { brilleFinden, glaeserFinden, ausrichtungLegen, helligkeitMessen } from '../gemeinsam/brille.js';
 import { fundBestimmen, gesichtssucherLaden } from './gesichtssucher.js';
+import { beatZeit, beatBei } from '../gemeinsam/takt.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -80,16 +81,24 @@ $('dateien').addEventListener('change', async (e) => {
     }
   }
   const zaehle = (pruefe) => bilder.filter(pruefe).length;
-  const ueberBrille = zaehle((b) => b.fund?.quelle === 'brille');
-  const ueberAugen = zaehle((b) => b.fund?.quelle === 'augen');
+  /*
+   * Die Zaehlung haengt an den Quellennamen, und die haben sich mit der
+   * Feinausrichtung geaendert - 'glaeser' kam dazu. Beim ersten Lauf danach
+   * stand hier "5 Bilder · 0 über die Brille", obwohl alle fünf sauber
+   * ausgerichtet waren. Eine Anzeige, die stillschweigend null meldet, ist
+   * schlimmer als gar keine.
+   */
+  const ueberGlaeser = zaehle((b) => b.fund?.quelle === 'glaeser');
+  const grob = zaehle((b) => b.fund?.quelle === 'brille' || b.fund?.quelle === 'augen');
   const ohneGesicht = zaehle((b) => b.fund?.quelle === 'nurBrille');
   const fehlt = zaehle((b) => !b.fund);
-  $('ladeStand').textContent = `${bilder.length} Bilder · ${ueberBrille} über die Brille`
-    + (ueberAugen ? ` · ${ueberAugen} über die Augen` : '')
+  $('ladeStand').textContent = `${bilder.length} Bilder · ${ueberGlaeser} genau ausgerichtet`
+    + (grob ? ` · ${grob} nur grob (gelb)` : '')
     + (ohneGesicht ? ` · ${ohneGesicht} ohne Gesicht (gelb, bitte ansehen)` : '')
     + (fehlt ? ` · ${fehlt} nicht gefunden (rot)` : '');
   reihenfolgeSchreiben(bilder.map((_, i) => i));
   galerieBauen();
+  if (musik) unterteilungenFuellen();
 });
 
 function bildLaden(datei) {
@@ -206,10 +215,9 @@ function galerieBauen() {
      *   'nurBrille'  gar kein Gesicht gefunden - hier lohnt ein Blick
      */
     const stand = !b.fund ? ' fehlt'
-      : b.fund.vonHand ? ''
+      : b.fund.vonHand || b.fund.quelle === 'glaeser' ? ''
       : b.fund.quelle === 'nurBrille' && b.fund.guete < GUETE_FRAGLICH ? ' fraglich'
-      : b.fund.quelle === 'nurBrille' ? ' ohneGesicht'
-      : '';
+      : ' ohneGesicht';
     kachel.className = `kachel${stand}`;
     kachel.dataset.nummer = String(i);
     const c = document.createElement('canvas');
@@ -306,6 +314,222 @@ function vonHandSetzen(i, kachel) {
   document.body.append(gross, hinweis);
 }
 
+
+/* --- Musik ----------------------------------------------------------------
+ *
+ * Die Analyse liegt schon da: `analysiere()` misst Tempo, Raster und
+ * Phrasengrenzen, `beatZeit()` gibt die Sekunde jedes einzelnen Schlags. Sie
+ * ist fuer den DJ gebaut und wird hier unveraendert benutzt - der Schnitt
+ * eines Bildes und der Einsatz eines Uebergangs sind dasselbe Problem.
+ *
+ * Der Unterschied zum Regler "Tempo" von Hand ist nicht Bequemlichkeit,
+ * sondern Genauigkeit ueber die Laenge. Eine getippte Zahl wie 128 stimmt am
+ * Anfang und laeuft am Ende auseinander: Ist das Stueck in Wahrheit 127,6
+ * BPM, sind das nach dreissig Sekunden schon ein Sechstel Schlag Versatz -
+ * und die Bildwechsel sitzen sichtbar neben der Musik. `beatZeit()` rechnet
+ * jeden Schlag einzeln aus dem gemessenen Raster.
+ */
+
+/** Der dekodierte Ton und seine Vermessung. */
+let musik = null;
+
+/** Welche Unterteilungen zur Wahl stehen, in Schlaegen je Bild. */
+const UNTERTEILUNGEN = [
+  { wert: 0.5, name: 'halber Schlag (doppelt so schnell)' },
+  { wert: 1, name: '1 Schlag' },
+  { wert: 2, name: '2 Schläge (halber Takt)' },
+  { wert: 4, name: '4 Schläge (1 Takt)' },
+  { wert: 8, name: '8 Schläge (2 Takte)' },
+];
+
+$('musik').addEventListener('change', async (e) => {
+  const datei = e.target.files?.[0];
+  if (!datei) return;
+  musik = null;
+  $('musikRegler').hidden = true;
+  $('passung').textContent = '';
+  $('musikStand').textContent = 'wird gelesen …';
+  try {
+    const roh = await datei.arrayBuffer();
+    const hof = new AudioContext();
+    $('musikStand').textContent = 'wird dekodiert …';
+    await new Promise((f) => setTimeout(f, 0));
+    const puffer = await hof.decodeAudioData(roh);
+    await hof.close();
+    const { analysiere } = await import('../gemeinsam/analyse.js');
+    const befund = await analysiere(puffer, (schritt) => {
+      $('musikStand').textContent = `${datei.name}: ${schritt}`;
+    });
+    musik = { name: datei.name, puffer, befund };
+    /*
+     * Die Messung von aussen erreichbar machen.
+     *
+     * Nicht als Bequemlichkeit, sondern damit die Abnahme den Schnittplan
+     * gegen ein Tempo pruefen kann, das sie selbst erzeugt hat - sonst
+     * bliebe ihr nur, die Messung gegen sich selbst zu halten. In der
+     * Konsole ist es nebenbei nuetzlich: `brille.befund.marken` zeigt, was
+     * die Analyse im Stueck gefunden hat.
+     */
+    window.brille = { befund, spur: { abschnitte: befund.abschnitte }, puffer };
+    musikMelden();
+    reglerVonHand(befund.ohneRaster);
+  } catch (grund) {
+    $('musikStand').textContent = `geht nicht: ${grund.message}`;
+    musik = null;
+    reglerVonHand(true);
+  }
+});
+
+function musikMelden() {
+  const { befund, puffer } = musik;
+  const sicher = befund.bpmVertrauen;
+  $('musikStand').textContent = `${musik.name} · ${zeitText(puffer.duration)} · `
+    + `${befund.bpm} BPM`
+    + (befund.ohneRaster
+      ? ' · kein sicherer Takt gefunden, die Bildwechsel laufen dann gleichmäßig'
+      : ` · Takt sicher (${Math.round(sicher * 100)} %)`);
+
+  /*
+   * Startstellen: der Anfang der ersten Phrase, dazu die Marken aus der
+   * Analyse. Die Marken sind dieselben, an denen der DJ seine Uebergaenge
+   * setzt - meistens Drops. Auf einem davon anzufangen ist der billigste
+   * Weg zu einem Video, das nicht mit einem Intro beginnt.
+   */
+  const stellen = [{ zeit: startZeitErstePhrase(), name: 'Anfang (erste Phrase)' }];
+  /*
+   * Die Marken der Analyse heissen `name` und `sekunde` - nicht `art` und
+   * `zeit`. Der erste Anlauf hat geraten und "Marke bei –" in die Auswahl
+   * geschrieben: eine Liste, die aussieht, als waere sie gefuellt, und in der
+   * jeder Eintrag dasselbe Nichts sagt.
+   */
+  const BENENNUNG = { drop: 'Drop', breakdown: 'Breakdown', wechsel: 'Wechsel', outro: 'Outro' };
+  for (const m of befund.marken ?? []) {
+    if (!Number.isFinite(m.sekunde) || m.sekunde > puffer.duration - 3) continue;
+    stellen.push({
+      zeit: m.sekunde,
+      name: `${BENENNUNG[m.name] ?? m.name} bei ${zeitText(m.sekunde)}`,
+    });
+  }
+  // Nach Zeit sortiert und ohne Doppelte innerhalb einer Sekunde.
+  stellen.sort((a, c) => a.zeit - c.zeit);
+  for (let i = stellen.length - 1; i > 0; i--) {
+    if (Math.abs(stellen[i].zeit - stellen[i - 1].zeit) < 1) stellen.splice(i, 1);
+  }
+  const anfang = startZeitErstePhrase();
+  $('startStelle').innerHTML = stellen
+    .map((s) => `<option value="${s.zeit}"${s.zeit === anfang ? ' selected' : ''}>${s.name}</option>`)
+    .join('');
+  $('musikRegler').hidden = false;
+  unterteilungenFuellen();
+}
+
+/**
+ * Wo die erste Achttaktphrase beginnt.
+ *
+ * Nicht bei Sekunde null: Fast jede Datei faengt mit etwas Stille oder einem
+ * Anspieler an, und `raster` ist genau der gemessene Versatz dazu.
+ */
+function startZeitErstePhrase() {
+  const { befund } = musik;
+  if (befund.ohneRaster) return 0;
+  const spur = { abschnitte: befund.abschnitte };
+  try {
+    return Math.max(0, beatZeit(spur, befund.phrasenVersatz ?? 0));
+  } catch {
+    return Math.max(0, befund.raster ?? 0);
+  }
+}
+
+/**
+ * Die Auswahl fuellen und die passendste Unterteilung vorschlagen.
+ *
+ * Vorgeschlagen wird die, deren Videolaenge der verbleibenden Musik am
+ * naechsten kommt. Bei 45 Bildern und 128 BPM sind das zwei Schlaege je Bild:
+ * 45 mal 0,94 Sekunden sind 42 Sekunden. Ein Schlag je Bild waere 21 - halb
+ * so lang wie die Musik.
+ */
+function unterteilungenFuellen() {
+  const folge = reihenfolgeLesen();
+  const anzahl = folge.length || bilder.length;
+  if (!musik || !anzahl) return;
+  const uebrig = musik.puffer.duration - Number($('startStelle').value);
+  const schlag = 60 / musik.befund.bpm;
+  let beste = 0;
+  let bestesMass = Infinity;
+  $('jeBild').innerHTML = UNTERTEILUNGEN.map((u, i) => {
+    const laenge = anzahl * u.wert * schlag;
+    const mass = Math.abs(laenge - uebrig);
+    if (mass < bestesMass) { bestesMass = mass; beste = i; }
+    return `<option value="${u.wert}">${u.name} → ${zeitText(laenge)}</option>`;
+  }).join('');
+  $('jeBild').selectedIndex = beste;
+  passungMelden();
+}
+
+function passungMelden() {
+  if (!musik) { $('passung').textContent = ''; return; }
+  const anzahl = reihenfolgeLesen().length;
+  const uebrig = musik.puffer.duration - Number($('startStelle').value);
+  const laenge = videoLaenge();
+  const rest = uebrig - laenge;
+  const wie = musik.befund.ohneRaster
+    ? `${anzahl} Bilder gleichmäßig`
+    : `${anzahl} Bilder × ${$('jeBild').value} Schläge`;
+  $('passung').textContent = `${wie} = `
+    + `${zeitText(laenge)} · Musik ab Start ${zeitText(uebrig)} · `
+    + (rest >= 0
+      ? `${zeitText(rest)} Musik bleibt übrig (wird ausgeblendet)`
+      : `${zeitText(-rest)} zu wenig Musik – das Video wird an der Musik gekürzt`);
+}
+
+/** Die Videolaenge, die sich aus Musik und Bildzahl ergibt. */
+function videoLaenge() {
+  const anzahl = reihenfolgeLesen().length;
+  if (musik.befund.ohneRaster) {
+    return anzahl * (60 / zahl('bpm') / Number($('proSchlag').value));
+  }
+  return anzahl * Number($('jeBild').value) * (60 / musik.befund.bpm);
+}
+
+$('startStelle').addEventListener('change', unterteilungenFuellen);
+$('jeBild').addEventListener('change', passungMelden);
+/*
+ * Die Reihenfolge bestimmt die Bildzahl und damit die Laenge. Wer eine Zeile
+ * auskommentiert, soll sofort sehen, was das mit der Passung macht - sonst
+ * stimmt die Anzeige stillschweigend nicht mehr.
+ */
+$('reihenfolge').addEventListener('input', () => { if (musik) unterteilungenFuellen(); });
+
+/**
+ * Die Regler von Hand stilllegen, sobald Musik da ist.
+ *
+ * Sie werden dann nicht mehr gelesen - das Raster kommt aus der Messung. Sie
+ * weiter bedienbar stehen zu lassen waere die unangenehmste Sorte Fehler:
+ * Man dreht daran, und nichts passiert.
+ */
+function reglerVonHand(an) {
+  for (const id of ['bpm', 'proSchlag']) {
+    $(id).disabled = !an;
+    $(id).closest('label').style.opacity = an ? '' : '0.45';
+  }
+  $('vonHandHinweis').hidden = an;
+  /*
+   * Umgekehrt gilt dasselbe: Ohne sicheres Raster hat "Schläge je Bild"
+   * nichts zu sagen, denn dann rechnet der Schnittplan gleichmaessig. Der
+   * Regler bleibt sichtbar, damit man sieht, dass es ihn gibt - aber
+   * stillgelegt, damit niemand daran dreht und sich wundert.
+   */
+  $('jeBild').disabled = an;
+  $('jeBild').closest('label').style.opacity = an ? '0.45' : '';
+}
+
+function zeitText(sekunden) {
+  if (!Number.isFinite(sekunden)) return '–';
+  const m = Math.floor(sekunden / 60);
+  const s = sekunden - m * 60;
+  return m ? `${m}:${s.toFixed(1).padStart(4, '0')} min` : `${s.toFixed(1)} s`;
+}
+
 /* --- Video ---------------------------------------------------------------- */
 
 const zahl = (id) => Number($(id).value);
@@ -321,13 +545,98 @@ $('aufloesung').addEventListener('change', () => {
   $('buehne').height = h;
 });
 
-/** Die Zeitachse: wann welches Bild dran ist. */
+/**
+ * Die Zeitachse: wann welches Bild dran ist.
+ *
+ * Zwei Faelle, und der Unterschied ist mehr als Bequemlichkeit.
+ *
+ * **Ohne Musik** kommt ein fester Abstand aus der getippten BPM-Zahl. Der
+ * reicht, solange niemand mitzaehlt.
+ *
+ * **Mit Musik** wird jeder Bildwechsel einzeln aus dem gemessenen Raster
+ * gerechnet. Das ist nicht dasselbe wie "Abstand aus der gemessenen BPM":
+ * Eine feste Zahl laeuft ueber die Laenge auseinander. Bei 127,6 statt 128
+ * BPM sind das nach dreissig Sekunden ein Sechstel Schlag - genug, dass man
+ * es sieht. `beatZeit()` folgt stattdessen der Tempokarte und trifft auch
+ * den letzten Schlag noch.
+ */
 function drehbuchBauen() {
   const folge = reihenfolgeLesen();
   if (!folge.length) return null;
+
+  if (musik && !musik.befund.ohneRaster) {
+    const spur = { abschnitte: musik.befund.abschnitte };
+    const jeBild = Number($('jeBild').value);
+    // Auf einen ganzen Schlag einrasten: Die Startstellen aus den Marken
+    // liegen nicht zwangslaeufig auf einem.
+    const startBeat = Math.round(beatBei(spur, Number($('startStelle').value)));
+    const startZeit = beatZeit(spur, startBeat);
+    const zeiten = [];
+    for (let k = 0; k <= folge.length; k++) {
+      zeiten.push(beatZeit(spur, startBeat + k * jeBild) - startZeit);
+    }
+    /*
+     * Reicht die Musik nicht bis zum letzten Bild, wird gekuerzt statt in
+     * die Stille hinein weiterzulaufen. Lieber ein Bild weniger als ein
+     * Video, das hinten ohne Ton dasteht.
+     */
+    const uebrig = musik.puffer.duration - startZeit;
+    let anzahl = folge.length;
+    while (anzahl > 1 && zeiten[anzahl] > uebrig) anzahl--;
+    return {
+      folge: folge.slice(0, anzahl),
+      zeiten: zeiten.slice(0, anzahl + 1),
+      dauer: zeiten[anzahl],
+      musikStart: startZeit,
+      gekuerzt: folge.length - anzahl,
+    };
+  }
+
+  /*
+   * Der gleichmaessige Weg - und er heisst ausdruecklich *nicht* "ohne Musik".
+   *
+   * Die erste Fassung hat beides in einem Zug entschieden: Kein sicheres
+   * Raster hiess kein Tonanschluss, und damit lag die hochgeladene Musik
+   * stillschweigend gar nicht im fertigen Video. Aufgefallen ist das an einer
+   * Klickspur, deren Tempo auf 123,5 genau erkannt wurde, deren Vertrauen aber
+   * unter der Schwelle blieb - die Datei kam ohne Ton heraus, ohne dass
+   * irgendwo etwas dazu stand.
+   *
+   * Es sind zwei verschiedene Fragen: *Woher kommen die Schnittzeiten?* und
+   * *Kommt der Ton mit?* Die zweite haengt nur daran, ob Musik da ist.
+   */
   const proSchlag = Number($('proSchlag').value);
   const proBild = 60 / zahl('bpm') / proSchlag;
-  return { folge, proBild, dauer: folge.length * proBild };
+  const zeiten = folge.map((_, i) => i * proBild);
+  zeiten.push(folge.length * proBild);
+  const start = musik ? Number($('startStelle').value) || 0 : null;
+  return {
+    folge,
+    zeiten,
+    dauer: folge.length * proBild,
+    musikStart: start,
+    gekuerzt: 0,
+  };
+}
+
+/** Welches Bild laeuft zur Zeit t, und wie weit ist es? */
+function drehbuchMerken(drehbuch) {
+  // Damit die Abnahme den *wirklich benutzten* Plan pruefen kann und nicht
+  // eine Nachrechnung davon. Eine Pruefung, die den Plan selbst noch einmal
+  // aufstellt, bestaetigt nur ihre eigene Arithmetik.
+  window.brille = { ...(window.brille ?? {}), drehbuch };
+  return drehbuch;
+}
+
+function stelleFinden(drehbuch, t) {
+  const { zeiten } = drehbuch;
+  let nummer = 0;
+  // Vorwaerts suchen reicht: dreissig bis fuenfzig Eintraege, und der Aufruf
+  // kommt einmal je Bild der Anzeige.
+  while (nummer < zeiten.length - 2 && t >= zeiten[nummer + 1]) nummer++;
+  const von = zeiten[nummer];
+  const bis = zeiten[nummer + 1];
+  return { nummer, imBild: bis > von ? (t - von) / (bis - von) : 0, dauer: bis - von };
 }
 
 /**
@@ -336,10 +645,8 @@ function drehbuchBauen() {
  * @param {number} t  Zeit in Sekunden seit Anfang
  */
 function bildZeichnen(stift, drehbuch, t, breite, hoehe) {
-  const { folge, proBild } = drehbuch;
-  const stelle = t / proBild;
-  const nummer = Math.min(folge.length - 1, Math.floor(stelle));
-  const imBild = stelle - nummer;
+  const { folge } = drehbuch;
+  const { nummer, imBild } = stelleFinden(drehbuch, t);
   const blende = zahl('blende') / 100;
 
   stift.fillStyle = '#000';
@@ -425,19 +732,84 @@ function helligkeitAngleichen(stift, breite, hoehe) {
 
 let laeuft = false;
 
+/**
+ * Den Ton starten und eine Uhr zurueckgeben, die an ihm haengt.
+ *
+ * Die Uhr ist der Punkt. Zeichnet man nach `performance.now()` und spielt den
+ * Ton daneben ab, laufen beide auseinander - der Bildschirm laesst ein Bild
+ * aus, der Ton nicht, und nach einer halben Minute sitzt der Schnitt neben
+ * dem Schlag. `AudioContext.currentTime` ist dagegen dieselbe Uhr, nach der
+ * der Ton laeuft. Wer danach zeichnet, kann nicht wegdriften.
+ *
+ * Ohne Musik gibt es keinen Ton und also auch keine Tonuhr; dann bleibt es
+ * bei `performance.now()`.
+ *
+ * @param {object} drehbuch
+ * @param {boolean} fuerAufnahme  zusaetzlich einen Tonstrom bereitstellen
+ */
+function tonStarten(drehbuch, fuerAufnahme) {
+  if (!musik || drehbuch.musikStart === null || (fuerAufnahme && !$('tonMit').checked)) {
+    const start = performance.now();
+    return { jetzt: () => (performance.now() - start) / 1000, stoppen: () => {}, spuren: [] };
+  }
+  const hof = new AudioContext();
+  const quelle = hof.createBufferSource();
+  quelle.buffer = musik.puffer;
+  const regler = hof.createGain();
+  quelle.connect(regler);
+
+  /*
+   * Am Ende ausblenden.
+   *
+   * Die Musik ist in aller Regel laenger als die Bilder - so soll es auch
+   * sein -, und sie wird deshalb mitten im Stueck abgeschnitten. Ohne
+   * Ausblendung ist das ein hoerbarer Knacks. Anderthalb Sekunden reichen,
+   * um es als Schluss zu lesen, und sind kurz genug, dass das letzte Gesicht
+   * nicht in Stille steht.
+   */
+  const AUSBLENDEN = 1.5;
+  const ende = hof.currentTime + drehbuch.dauer;
+  regler.gain.setValueAtTime(1, hof.currentTime);
+  regler.gain.setValueAtTime(1, Math.max(hof.currentTime, ende - AUSBLENDEN));
+  regler.gain.linearRampToValueAtTime(0.0001, ende);
+
+  const spuren = [];
+  if (fuerAufnahme) {
+    const ziel = hof.createMediaStreamDestination();
+    regler.connect(ziel);
+    spuren.push(...ziel.stream.getAudioTracks());
+    // Bei der Aufnahme *nicht* zusaetzlich auf die Lautsprecher: Sonst hoert
+    // man das Video beim Rendern laut mit, und das ist beim zweiten Anlauf
+    // nur noch laestig.
+  } else {
+    regler.connect(hof.destination);
+  }
+  const nullpunkt = hof.currentTime + 0.12;
+  quelle.start(nullpunkt, drehbuch.musikStart);
+  return {
+    jetzt: () => hof.currentTime - nullpunkt,
+    stoppen: () => { try { quelle.stop(); } catch { /* schon aus */ } hof.close(); },
+    spuren,
+  };
+}
+
 $('vorschau').addEventListener('click', () => {
   const drehbuch = drehbuchBauen();
   if (!drehbuch) return melden('Erst Bilder laden.');
+  drehbuchMerken(drehbuch);
   if (laeuft) { laeuft = false; return; }
   laeuft = true;
+  if (drehbuch.gekuerzt) {
+    melden(`${drehbuch.gekuerzt} Bild(er) weggelassen – die Musik reicht nicht weiter.`);
+  }
   const stift = $('buehne').getContext('2d');
   const { width: B, height: H } = $('buehne');
-  const start = performance.now();
+  const ton = tonStarten(drehbuch, false);
   const schleife = () => {
-    if (!laeuft) return;
-    const t = (performance.now() - start) / 1000;
-    if (t >= drehbuch.dauer) { laeuft = false; return; }
-    bildZeichnen(stift, drehbuch, t, B, H);
+    if (!laeuft) { ton.stoppen(); return; }
+    const t = ton.jetzt();
+    if (t >= drehbuch.dauer) { laeuft = false; ton.stoppen(); return; }
+    if (t >= 0) bildZeichnen(stift, drehbuch, t, B, H);
     requestAnimationFrame(schleife);
   };
   schleife();
@@ -446,6 +818,7 @@ $('vorschau').addEventListener('click', () => {
 $('rendern').addEventListener('click', async () => {
   const drehbuch = drehbuchBauen();
   if (!drehbuch) return melden('Erst Bilder laden.');
+  drehbuchMerken(drehbuch);
   if (laeuft) { laeuft = false; return; }
   const leinwand = $('buehne');
   const stift = leinwand.getContext('2d');
@@ -471,9 +844,20 @@ $('rendern').addEventListener('click', async () => {
    */
   const BILDRATE = 30;
   const strom = leinwand.captureStream(BILDRATE);
-  const art = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm']
+  const ton = tonStarten(drehbuch, true);
+  /*
+   * Die Tonspur kommt in denselben Strom wie das Bild. Damit schneidet der
+   * Rekorder beides in *eine* Datei, und zwar mit den Zeitstempeln, die er
+   * beim Aufnehmen sieht - der Gleichlauf muss also nicht nachtraeglich
+   * hergestellt werden, er entsteht beim Mitschnitt.
+   */
+  for (const spur of ton.spuren) strom.addTrack(spur);
+  const mitTon = ton.spuren.length > 0;
+  const art = (mitTon
+    ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'])
     .find((a) => MediaRecorder.isTypeSupported(a));
-  if (!art) return melden('Dieser Browser kann kein WebM aufnehmen.');
+  if (!art) { ton.stoppen(); return melden('Dieser Browser kann kein WebM aufnehmen.'); }
   const stuecke = [];
   const rekorder = new MediaRecorder(strom, { mimeType: art, videoBitsPerSecond: 12_000_000 });
   rekorder.ondataavailable = (e) => { if (e.data.size) stuecke.push(e.data); };
@@ -486,13 +870,12 @@ $('rendern').addEventListener('click', async () => {
   // das Video mit einer schwarzen Leinwand an.
   bildZeichnen(stift, drehbuch, 0, B, H);
   rekorder.start();
-  const start = performance.now();
   await new Promise((fertigGezeichnet) => {
     const schleife = () => {
-      const t = (performance.now() - start) / 1000;
+      const t = ton.jetzt();
       if (!laeuft || t >= drehbuch.dauer) return fertigGezeichnet();
-      bildZeichnen(stift, drehbuch, t, B, H);
-      melden(`${t.toFixed(1)} von ${drehbuch.dauer.toFixed(1)} s`);
+      if (t >= 0) bildZeichnen(stift, drehbuch, t, B, H);
+      melden(`${Math.max(0, t).toFixed(1)} von ${drehbuch.dauer.toFixed(1)} s`);
       requestAnimationFrame(schleife);
     };
     requestAnimationFrame(schleife);
@@ -506,6 +889,7 @@ $('rendern').addEventListener('click', async () => {
   laeuft = false;
   rekorder.stop();
   await fertig;
+  ton.stoppen();
   $('rendern').disabled = false;
   $('vorschau').disabled = false;
 
@@ -519,7 +903,7 @@ $('rendern').addEventListener('click', async () => {
   a.href = url;
   a.download = 'herzbrille.webm';
   a.textContent = `herzbrille.webm herunterladen (${(blob.size / 1048576).toFixed(1)} MB, `
-    + `${drehbuch.dauer.toFixed(1)} s, ${stuecke.length} Stuecke)`;
+    + `${drehbuch.dauer.toFixed(1)} s${mitTon ? ', mit Ton' : ''})`;
   $('ergebnis').innerHTML = '';
   $('ergebnis').appendChild(a);
   melden('fertig');
