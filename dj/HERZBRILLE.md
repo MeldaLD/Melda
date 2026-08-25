@@ -398,6 +398,31 @@ kam die Datei **ohne Ton** heraus — und nirgends stand etwas dazu. Es sind
 zwei Fragen: Woher die Schnittzeiten kommen, und ob Musik da ist. Die zweite
 hängt nur an der zweiten. Beide Fälle stehen jetzt in `npm run musikpruefen`.
 
+### Auf dem iPhone
+
+Zwei Dinge, die Safari anders macht und die beide erst am Gerät auffielen:
+
+* **Die Musikauswahl hatte `accept="audio/*"`.** Damit bietet iOS Safari nur
+  die *Fotoauswahl* an — man kommt gar nicht an die eigene Musik heran. Das
+  Feld hat jetzt keine Einschränkung mehr; dann erscheint „Datei auswählen"
+  und damit die Dateien-App. Der Preis ist eine ungefilterte Liste am
+  Rechner, und das ist der bessere Tausch als eine Auswahl, in der das
+  Gesuchte nicht vorkommt. Wer eine ungeeignete Datei erwischt, bekommt jetzt
+  einen brauchbaren Satz statt „Unable to decode audio data".
+  (Titel aus Apple Music sind kopiergeschützt und lassen sich nicht lesen —
+  die Datei muss in der Dateien-App liegen.)
+* **Safari kann kein WebM aufnehmen**, weder auf dem Mac noch auf dem iPhone.
+  Mit einer reinen WebM-Liste wäre der ganze Ablauf auf der letzten Stufe
+  gescheitert — nachdem die Bilder ausgerichtet und die Musik vermessen sind.
+  Dahinter steht jetzt MP4, und die Dateiendung richtet sich nach dem, was
+  wirklich aufgenommen wurde; auf dem Telefon hängt am Namen, welche App die
+  Datei bekommt.
+
+Für Safari gibt es hier keine Testumgebung. Nachgestellt wird deshalb die
+Eigenschaft, an der es hängt: `MediaRecorder.isTypeSupported` lehnt im dritten
+Prüffall jedes WebM ab. Eine Zusage für ein Gerät, das nie geprüft wird, ist
+keine.
+
 ### Wie genau der Schnitt in der Datei sitzt
 
 Der Schnittplan ist auf die Millisekunde genau. Die *Datei* ist es nicht ganz,

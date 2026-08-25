@@ -63,11 +63,23 @@
 
   <section class="schritt">
     <h2>4 · Musik</h2>
-    <input type="file" id="musik" accept="audio/*" />
+    <!--
+      Bewusst ohne accept-Angabe.
+
+      Mit accept="audio/*" bietet iOS Safari nur die Fotoauswahl an - man kommt
+      gar nicht an die eigene Musik heran. Ohne die Angabe erscheint "Datei
+      auswählen", und damit die Dateien-App, in der die Musik liegt. Der Preis
+      ist eine ungefilterte Liste am Rechner; das ist der bessere Tausch als
+      eine Auswahl, in der das Gesuchte nicht vorkommt.
+    -->
+    <input type="file" id="musik" />
     <span class="stand" id="musikStand"></span>
     <p class="fussnote">
       Optional. Wird die Musik vermessen, laufen die Bildwechsel exakt auf
       ihren Schlägen, und der Ton landet gleich mit im fertigen Video.
+      MP3, M4A, WAV, AAC oder OGG – auf dem iPhone über
+      <b>Datei auswählen</b> aus der Dateien-App (Titel aus Apple Music sind
+      kopiergeschützt und lassen sich nicht lesen).
     </p>
     <div class="regler" id="musikRegler" hidden>
       <label>Start

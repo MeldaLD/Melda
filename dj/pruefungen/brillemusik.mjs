@@ -162,8 +162,20 @@ const browser = await chromium.launch({
  * mitzuschleppen waere hier besonders tueckisch, weil genau das geprueft wird,
  * was beim Laden der Musik eingestellt wird.
  */
-async function durchgang(musikWeg) {
+async function durchgang(musikWeg, ohneWebm = false) {
   const seite = await browser.newPage({ viewport: { width: 900, height: 700 } });
+  if (ohneWebm) {
+    /*
+     * Safari nachstellen. Es kann kein WebM aufnehmen - weder auf dem Mac noch
+     * auf dem iPhone -, und diese Umgebung hat kein Safari zum Ausprobieren.
+     * Eine Zusage fuer ein Geraet, das nie gepruefte wird, ist keine; also
+     * wird wenigstens die Eigenschaft nachgestellt, an der es haengt.
+     */
+    await seite.addInitScript(() => {
+      const echt = MediaRecorder.isTypeSupported.bind(MediaRecorder);
+      MediaRecorder.isTypeSupported = (t) => (/webm/i.test(t) ? false : echt(t));
+    });
+  }
   const konsole = [];
   seite.on('pageerror', (e) => konsole.push(`pageerror: ${e.message}`));
   seite.on('console', (n) => {
@@ -284,6 +296,29 @@ try {
       `Spanne ${(spanne * 1000).toFixed(3)} ms`);
   }
   pruefe('keine Fehler in der Konsole', b.konsole.length === 0, b.konsole.slice(0, 3).join(' | '));
+
+  /* --- Fall 3: ein Browser ohne WebM (Safari, iPhone) -------------------- */
+  console.log('\n=== Browser ohne WebM (Safari nachgestellt)');
+  const c = await durchgang(REFERENZ, true);
+  console.log(`  ${c.ergebnis}\n`);
+  pruefe('es wird trotzdem aufgenommen', /herunterladen/.test(c.ergebnis), c.ergebnis);
+  pruefe('als MP4 und nicht als WebM', /herzbrille\.mp4/.test(c.ergebnis), c.ergebnis);
+  pruefe('auch hier mit Ton', /mit Ton/.test(c.ergebnis), c.ergebnis);
+  pruefe('keine Fehler in der Konsole', c.konsole.length === 0, c.konsole.slice(0, 3).join(' | '));
+
+  /*
+   * Und die Auswahl selbst: Auf iOS bietet Safari bei accept="audio/*" nur
+   * die Fotoauswahl an - man kommt gar nicht an die eigene Musik. Deshalb
+   * steht dort keine Einschraenkung mehr, und das gehoert festgehalten:
+   * Ein gut gemeintes accept, das jemand spaeter wieder eintraegt, sperrt
+   * genau die Nutzer aus, fuer die diese Seite gebaut ist.
+   */
+  const seite = await browser.newPage();
+  await seite.goto(`${ADRESSE}/brille/`, { waitUntil: 'domcontentloaded' });
+  const accept = await seite.$eval('#musik', (e) => e.getAttribute('accept'));
+  await seite.close();
+  pruefe('die Musikauswahl ist nicht auf Tondateien eingeschraenkt',
+    accept === null, `accept=${JSON.stringify(accept)}`);
 } finally {
   await browser.close();
   server?.kill();

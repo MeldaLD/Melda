@@ -354,7 +354,20 @@ $('musik').addEventListener('change', async (e) => {
     const hof = new AudioContext();
     $('musikStand').textContent = 'wird dekodiert …';
     await new Promise((f) => setTimeout(f, 0));
-    const puffer = await hof.decodeAudioData(roh);
+    /*
+     * Die Auswahl ist nicht mehr auf Tondateien eingeschraenkt (siehe die
+     * Anmerkung am Eingabefeld), also kann hier auch ein Foto ankommen.
+     * `decodeAudioData` wirft dann - und zwar mit einer Meldung, die niemandem
+     * hilft ("Unable to decode audio data"). Deshalb wird sie hier ersetzt.
+     */
+    let puffer;
+    try {
+      puffer = await hof.decodeAudioData(roh);
+    } catch {
+      throw new Error(`"${datei.name}" ist keine lesbare Tondatei. `
+        + 'MP3, M4A, WAV, AAC oder OGG gehen; Titel aus Apple Music sind '
+        + 'kopiergeschützt.');
+    }
     await hof.close();
     const { analysiere } = await import('../gemeinsam/analyse.js');
     const befund = await analysiere(puffer, (schritt) => {
@@ -753,6 +766,13 @@ function tonStarten(drehbuch, fuerAufnahme) {
     return { jetzt: () => (performance.now() - start) / 1000, stoppen: () => {}, spuren: [] };
   }
   const hof = new AudioContext();
+  /*
+   * Auf iOS startet ein frischer AudioContext angehalten und laeuft erst nach
+   * einer Nutzerhandlung an. Dieser Aufruf steht in einem Klickhandler und
+   * *vor* jedem await - damit gilt die Handlung noch, und resume() greift.
+   * Nach einem await waere die Handlung verbraucht und es bliebe still.
+   */
+  hof.resume?.();
   const quelle = hof.createBufferSource();
   quelle.buffer = musik.puffer;
   const regler = hof.createGain();
@@ -853,11 +873,32 @@ $('rendern').addEventListener('click', async () => {
    */
   for (const spur of ton.spuren) strom.addTrack(spur);
   const mitTon = ton.spuren.length > 0;
-  const art = (mitTon
-    ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
-    : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'])
-    .find((a) => MediaRecorder.isTypeSupported(a));
-  if (!art) { ton.stoppen(); return melden('Dieser Browser kann kein WebM aufnehmen.'); }
+  /*
+   * Erst WebM, dann MP4 - und der zweite Teil ist kein Beiwerk.
+   *
+   * Safari kann kein WebM aufnehmen, weder auf dem Mac noch auf dem iPhone.
+   * Mit einer reinen WebM-Liste bleibt dort nur die Meldung "dieser Browser
+   * kann kein WebM" stehen, und der ganze Ablauf endet auf der letzten Stufe -
+   * nachdem die Bilder ausgerichtet und die Musik vermessen sind. Safari
+   * nimmt MP4 auf (H.264 mit AAC), also steht das dahinter.
+   *
+   * Die Reihenfolge ist Absicht: WebM zuerst, weil VP9 bei gleicher Groesse
+   * besser aussieht und ueberall dort laeuft, wo es angeboten wird.
+   */
+  const kandidaten = mitTon
+    ? ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm',
+      'video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4']
+    : ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm',
+      'video/mp4;codecs=avc1.42E01E', 'video/mp4'];
+  const art = kandidaten.find((a) => MediaRecorder.isTypeSupported?.(a));
+  if (!art) {
+    ton.stoppen();
+    return melden('Dieser Browser kann keine Videos aufnehmen. Mit Chrome, '
+      + 'Edge oder Safari 17 aufwärts geht es.');
+  }
+  // Die Endung muss zum Behaelter passen, sonst laesst sich die Datei auf dem
+  // Telefon nicht oeffnen - dort haengt am Namen, welche App sie bekommt.
+  const endung = art.startsWith('video/mp4') ? 'mp4' : 'webm';
   const stuecke = [];
   const rekorder = new MediaRecorder(strom, { mimeType: art, videoBitsPerSecond: 12_000_000 });
   rekorder.ondataavailable = (e) => { if (e.data.size) stuecke.push(e.data); };
@@ -901,8 +942,8 @@ $('rendern').addEventListener('click', async () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'herzbrille.webm';
-  a.textContent = `herzbrille.webm herunterladen (${(blob.size / 1048576).toFixed(1)} MB, `
+  a.download = `herzbrille.${endung}`;
+  a.textContent = `herzbrille.${endung} herunterladen (${(blob.size / 1048576).toFixed(1)} MB, `
     + `${drehbuch.dauer.toFixed(1)} s${mitTon ? ', mit Ton' : ''})`;
   $('ergebnis').innerHTML = '';
   $('ergebnis').appendChild(a);
