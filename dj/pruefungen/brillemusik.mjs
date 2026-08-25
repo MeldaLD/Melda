@@ -72,6 +72,17 @@ const REFERENZ_BPM = 124;
  */
 const SCHNITT_TOLERANZ = 0.005;
 
+/*
+ * Wie weit sich die mittlere Leuchtdichte durch den Puls bewegen darf.
+ *
+ * Der erste Entwurf - Aufhellen auf jedem Schlag - lag bei 0,029 und las sich
+ * als Flackern. Kontrast und Saettigung kommen bei der Voreinstellung auf
+ * 0,0033, also ein Neuntel davon. Die Grenze hier liegt bewusst naeher am
+ * gemessenen Wert als an der alten Fassung: Wer den Puls wieder ueber die
+ * Helligkeit baut, soll hier aufgehalten werden, nicht erst am Auge.
+ */
+const MITTEL_HOECHSTENS = 0.012;
+
 /** Das Tempo der erzeugten Klickspur. Krumm, damit gerundete Werte auffallen. */
 const TEMPO = 123.5;
 /** Wie lang die Klickspur ist. Lang genug, dass sich ein Versatz aufsummiert. */
@@ -217,6 +228,123 @@ async function durchgang(musikWeg, ohneWebm = false) {
   }
 }
 
+/**
+ * Die Referenzmusik auf ein Zieltempo beschleunigen und vermessen.
+ *
+ * Beschleunigt wird im Browser ueber einen OfflineAudioContext mit
+ * `playbackRate` - dasselbe, was ein Plattenspieler tut. Die Tonhoehe wandert
+ * dabei mit, und das ist hier egal: Geprueft wird das Raster, nicht der Klang.
+ */
+async function ebenenPruefen(ziele) {
+  const seite = await browser.newPage();
+  try {
+    await seite.goto(`${ADRESSE}/brille/`, { waitUntil: 'domcontentloaded' });
+    // Die Datei aus node hineinreichen: Der DJ-Server liefert /vortanz/ nicht
+    // aus, und ein Prueffall soll nicht an einer Route haengen, die es nur
+    // zufaellig gaebe.
+    const bytes = [...new Uint8Array(await fs.readFile(REFERENZ))];
+    return await seite.evaluate(async ({ ziele: z, vonBpm, bytes: b }) => {
+      const roh = new Uint8Array(b).buffer;
+      const hof = new AudioContext();
+      const quelle = await hof.decodeAudioData(roh);
+      await hof.close();
+      const { analysiere } = await import('../gemeinsam/analyse.js');
+      const aus = [];
+      for (const ziel of z) {
+        const rate = ziel / vonBpm;
+        const laenge = Math.floor(quelle.length / rate);
+        const off = new OfflineAudioContext(quelle.numberOfChannels, laenge, quelle.sampleRate);
+        const knoten = off.createBufferSource();
+        knoten.buffer = quelle;
+        knoten.playbackRate.value = rate;
+        knoten.connect(off.destination);
+        knoten.start();
+        const schnell = await off.startRendering();
+        const befund = await analysiere(schnell, () => {});
+        aus.push({ ziel, bpm: befund.bpm, vertrauen: befund.bpmVertrauen });
+      }
+      return aus;
+    }, { ziele, vonBpm: REFERENZ_BPM, bytes });
+  } finally {
+    await seite.close();
+  }
+}
+
+/**
+ * Den Puls einmal auf dem Schlag und einmal dazwischen ausmessen.
+ *
+ * Gezeichnet wird ueber `brille.zeichne(t)` - ein einzelnes Bild zu einem
+ * gewaehlten Zeitpunkt, ohne laufende Schleife. Anders liesse sich der
+ * Hoehepunkt gar nicht treffen: Man saehe immer nur, was gerade zufaellig
+ * auf der Leinwand steht.
+ */
+async function pulsMessen() {
+  const seite = await browser.newPage({ viewport: { width: 900, height: 700 } });
+  try {
+    await seite.goto(`${ADRESSE}/brille/`, { waitUntil: 'networkidle' });
+    await seite.setInputFiles('#dateien', fotos);
+    await seite.waitForFunction(
+      () => /Bilder ·/.test(document.getElementById('ladeStand').textContent),
+      null, { timeout: 120000 },
+    );
+    await seite.setInputFiles('#musik', REFERENZ);
+    await seite.waitForFunction(
+      () => /BPM/.test(document.getElementById('musikStand').textContent),
+      null, { timeout: 300000 },
+    );
+    return await seite.evaluate(async () => {
+      const c = document.getElementById('buehne');
+      const B = c.width;
+      const H = c.height;
+      const stift = c.getContext('2d', { willReadFrequently: true });
+      document.getElementById('vorschau').click();
+      await new Promise((f) => setTimeout(f, 150));
+      document.getElementById('vorschau').click();
+      const d = window.brille.drehbuch;
+      const bpm = window.brille.befund.bpm;
+      const spur = { abschnitte: window.brille.befund.abschnitte };
+      const { beatBei, beatZeit } = await import('../gemeinsam/takt.js');
+      const proPuls = bpm > 150 ? 2 : 1;
+      const t0 = (d.zeiten[1] + d.zeiten[2]) / 2;
+      const stelle = beatBei(spur, d.musikStart + t0) / proPuls;
+      const aufPuls = beatZeit(spur, Math.ceil(stelle) * proPuls) - d.musikStart;
+      const dazwischen = aufPuls + (60 / bpm) * proPuls * 0.5;
+      const messen = () => {
+        const px = stift.getImageData(0, 0, B, H).data;
+        const f = (v) => {
+          const u = v / 255;
+          return u <= 0.03928 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4;
+        };
+        const L = [];
+        for (let i = 0; i < px.length; i += 4 * 37) {
+          L.push(0.2126 * f(px[i]) + 0.7152 * f(px[i + 1]) + 0.0722 * f(px[i + 2]));
+        }
+        const m = L.reduce((a, b) => a + b, 0) / L.length;
+        const sd = Math.sqrt(L.reduce((a, b) => a + (b - m) ** 2, 0) / L.length);
+        return { m, sd };
+      };
+      window.brille.zeichne(dazwischen);
+      const ruhe = messen();
+      window.brille.zeichne(aufPuls);
+      const spitze = messen();
+      return {
+        bpm,
+        jeSekunde: +(bpm / 60 / proPuls).toFixed(2),
+        mittelRuhe: ruhe.m,
+        mittelPuls: spitze.m,
+        mittelDiff: spitze.m - ruhe.m,
+        sdRuhe: ruhe.sd,
+        sdPuls: spitze.sd,
+        sdAnteil: spitze.sd / ruhe.sd - 1,
+      };
+    });
+  } catch {
+    return null;
+  } finally {
+    await seite.close();
+  }
+}
+
 try {
   /* --- Fall 1: echte Musik mit sicherem Raster --------------------------- */
   console.log('\n=== Referenzmusik (vortanz/00-durchlauf.mp3, erzeugt mit 124 BPM)');
@@ -305,6 +433,88 @@ try {
   pruefe('als MP4 und nicht als WebM', /herzbrille\.mp4/.test(c.ergebnis), c.ergebnis);
   pruefe('auch hier mit Ton', /mit Ton/.test(c.ergebnis), c.ergebnis);
   pruefe('keine Fehler in der Konsole', c.konsole.length === 0, c.konsole.slice(0, 3).join(' | '));
+
+  /* --- Fall 4: die metrische Ebene ---------------------------------------- */
+  console.log('\n=== Metrische Ebene: dieselbe Musik auf 180 BPM beschleunigt');
+  /*
+   * Warum dieser Fall existiert.
+   *
+   * An einem Hardstyle-Remix meldete die Analyse 119,24 BPM bei Vertrauen
+   * null - der wahre Grundschlag lag bei 180. 119,24 ist genau zwei Drittel
+   * davon, also eine Triolenverwechslung. Die Grobschaetzung landete auf der
+   * falschen metrischen Ebene, und die Feinsuche durfte nur zwei BPM um sie
+   * herum wandern; herauskommen konnte sie da nicht mehr.
+   *
+   * Nachgestellt wird das ohne fremde Datei: Die Referenzmusik dieses
+   * Projekts laeuft mit 124 BPM, und schneller abgespielt ergibt sie ein
+   * Stueck mit bekanntem hoeherem Tempo. Die Wahrheit steht damit fest, ohne
+   * dass eine geschuetzte Aufnahme im Repository liegen muss.
+   *
+   * Geprueft werden mehrere Ziele, nicht nur 180. Ein Verfahren, das
+   * ausgerechnet bei einer Zahl richtig liegt, hat nichts bewiesen.
+   */
+  const ebenen = await ebenenPruefen([150, 168, 180]);
+  for (const e of ebenen) {
+    console.log(`  ${String(e.ziel).padStart(3)} BPM erzeugt  ->  gemessen `
+      + `${String(e.bpm).padStart(6)}  Vertrauen ${e.vertrauen}`);
+  }
+  for (const e of ebenen) {
+    /*
+     * Halb oder doppelt zaehlt als richtig: Welche der beiden Ebenen ein
+     * Mensch mitzaehlt, ist bei schneller Musik Geschmackssache, und fuer den
+     * Schnitt macht es keinen Unterschied - die Schlaege liegen auf demselben
+     * Raster. Zwei Drittel oder drei Viertel dagegen sind schlicht falsch:
+     * Dann sitzt jeder zweite Schnitt neben der Musik.
+     */
+    const v = e.bpm / e.ziel;
+    const gut = [0.5, 1, 2].some((f) => Math.abs(v - f) < 0.02);
+    pruefe(`${e.ziel} BPM wird auf der richtigen Ebene gefunden`, gut,
+      `gemessen ${e.bpm} (Verhaeltnis ${v.toFixed(3)})`);
+    pruefe(`${e.ziel} BPM: das Raster gilt als sicher`, e.vertrauen >= 0.35,
+      `Vertrauen ${e.vertrauen}`);
+  }
+
+  /* --- Fall 5: der Puls darf nicht blinken -------------------------------- */
+  console.log('\n=== Der Puls zum Beat');
+  /*
+   * Was hier gemessen wird und warum ausgerechnet das.
+   *
+   * Der erste Entwurf hat auf jedem Schlag aufgehellt. Gemessen 0,029
+   * relativer Leuchtdichte - weit unter der WCAG-Blitzschwelle von 0,10 -,
+   * und trotzdem las es sich als Flackern. Der Grund ist nicht die Staerke,
+   * sondern *welche* Groesse sich bewegt: Aufhellen verschiebt den
+   * Mittelwert, und darauf reagiert das Auge am empfindlichsten.
+   *
+   * Kontrast und Saettigung lassen den Mittelwert stehen und bewegen die
+   * Verteilung darum herum. Genau das wird hier festgehalten:
+   *
+   *   die mittlere Leuchtdichte bleibt fast stehen  (das Nicht-Flackern)
+   *   die Streuung steigt sichtbar                  (der Puls ist ueberhaupt da)
+   *
+   * Ohne die zweite Zusage koennte man die erste erfuellen, indem man den
+   * Puls abschaltet.
+   */
+  const puls = await pulsMessen();
+  if (!puls) {
+    pruefe('Puls messbar', false, 'keine Werte zustande gekommen');
+  } else {
+    console.log(`  mittlere Leuchtdichte  ${puls.mittelRuhe.toFixed(5)} -> `
+      + `${puls.mittelPuls.toFixed(5)}  (${puls.mittelDiff >= 0 ? '+' : ''}${puls.mittelDiff.toFixed(5)})`);
+    console.log(`  Streuung (Kontrast)    ${puls.sdRuhe.toFixed(5)} -> `
+      + `${puls.sdPuls.toFixed(5)}  (+${(puls.sdAnteil * 100).toFixed(1)} %)`);
+    console.log(`  Pulse je Sekunde       ${puls.jeSekunde}\n`);
+    pruefe(`die mittlere Helligkeit bewegt sich unter ${MITTEL_HOECHSTENS}`,
+      Math.abs(puls.mittelDiff) < MITTEL_HOECHSTENS, puls.mittelDiff.toFixed(5));
+    pruefe('der Kontrast steigt trotzdem messbar', puls.sdAnteil > 0.02,
+      `+${(puls.sdAnteil * 100).toFixed(1)} %`);
+    /*
+     * Und die Rate. Die WCAG-Regel sieht ab drei Blitzen je Sekunde hin; bei
+     * 180 BPM waeren es genau drei. Deshalb wird oberhalb von 150 BPM nur
+     * jeder zweite Schlag genommen.
+     */
+    pruefe('hoechstens zweieinhalb Pulse je Sekunde', puls.jeSekunde <= 2.5,
+      `${puls.jeSekunde} je Sekunde bei ${puls.bpm} BPM`);
+  }
 
   /*
    * Und die Auswahl selbst: Auf iOS bietet Safari bei accept="audio/*" nur

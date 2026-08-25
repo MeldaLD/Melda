@@ -398,6 +398,93 @@ kam die Datei **ohne Ton** heraus — und nirgends stand etwas dazu. Es sind
 zwei Fragen: Woher die Schnittzeiten kommen, und ob Musik da ist. Die zweite
 hängt nur an der zweiten. Beide Fälle stehen jetzt in `npm run musikpruefen`.
 
+### Die metrische Ebene — ein echter Fehlgriff
+
+An einem Hardstyle-Remix von 38 Sekunden meldete die Analyse **119,24 BPM bei
+Vertrauen null**. Das Video lief damit auf dem gleichmäßigen Notpfad mit den
+eingestellten 128 BPM — völlig unabhängig von der Musik. Genau so sah es auch
+aus.
+
+Der wahre Grundschlag liegt bei **180**. Nachweisbar ohne jede Vorannahme:
+Alle starken Gipfel der Autokorrelation sind ganzzahlige Vielfache von
+0,3338 s.
+
+| Gipfel | 0,3425 | 0,6676 | 0,9985 | 1,3351 | 1,6660 | 2,3336 |
+|---|---|---|---|---|---|---|
+| entspricht | ×1 | ×2 | ×3 | ×4 | ×5 | ×7 |
+
+119,24 ist genau zwei Drittel davon — eine Triolenverwechslung.
+
+Der Fehler saß nicht in der Erkennung, sondern in ihrem **Ablauf**. Die
+Grobschätzung (Autokorrelation, gewichtet mit einer Glocke um 128 BPM) landete
+auf 119,7, und die Feinsuche durfte danach nur ±2 BPM wandern. `oktaveKlaeren`
+kann verdoppeln, aber keine zwei Drittel nehmen — herauskommen konnte sie da
+nicht mehr.
+
+Das Bemerkenswerte: **Ein Kammfilter über den ganzen Bereich findet auf beiden
+Kurven 90 BPM.** Die Antwort war die ganze Zeit da, sie wurde nur nie gefragt.
+
+Also werden jetzt die musikalisch verwandten Ebenen mitgeprüft — halb, doppelt,
+und die Drittel- und Viertelbeziehungen, aus denen Triolen- und
+Punktierungsfehler entstehen. Entschieden wird zwischen ihnen nicht mit einem
+Kamm (der trifft bei halbem Tempo *immer* genauso gut), sondern mit der Frage:
+**Welcher Grundschlag erklärt alle Selbstähnlichkeiten?** Liegt bei jedem
+Vielfachen ein Gipfel, stimmt die Ebene; fällt jeder zweite weg, nicht.
+
+Ergebnis auf dem Song: **180,02 BPM, Vertrauen 100 %** statt 119,24 bei null.
+
+> Zur Kontrolle lief der komplette Stundenmix-Test mit: *„in der Mitte jedes
+> Stücks stimmt das Tempo — 0 von 16 daneben."* Die Änderung bricht den DJ
+> nicht. Die Abnahme prüft zusätzlich dieselbe Referenzmusik auf 150, 168 und
+> 180 BPM beschleunigt — ein Verfahren, das ausgerechnet bei einer Zahl
+> richtig liegt, hat nichts bewiesen.
+
+Und zur Frage, ob das Tempo *innerhalb* des Stücks wechselt: Fensterweise
+nachgemessen ist es über alle 38 Sekunden stabil. Die Maschinerie dafür gibt
+es ohnehin — die Tempokarte teilt bei Dateien ab zweieinhalb Minuten in
+Abschnitte, jeder mit eigenem Tempo und eigenem Raster.
+
+### Der Beat im Bild
+
+Erster Entwurf: ein Aufhellen auf jedem Schlag. Gemessen 0,029 relativer
+Leuchtdichte — weit unter der WCAG-Blitzschwelle von 0,10 — und trotzdem las
+es sich als Flackern, selbst auf ein Drittel heruntergedreht.
+
+Der Grund ist nicht die Stärke, sondern *welche* Größe sich bewegt: Aufhellen
+verschiebt den **Mittelwert**, und darauf reagiert das Auge am
+empfindlichsten. Jede Änderung des Mittelwerts sieht aus wie eine Lampe, die
+flackert.
+
+Was Schnittleute stattdessen benutzen, lässt den Mittelwert stehen:
+
+| | Wirkung | hier |
+|---|---|---|
+| **Kontrast** | Tiefen tiefer, Lichter heller, Mitte bleibt | ✓ |
+| **Sättigung** | Farben kurz satter — die roten Herzen pulsen mit | ✓ |
+| Zoomstoß | ein winziges Aufziehen je Schlag | ✗ |
+
+Der Zoomstoß fällt bewusst weg: Der ganze Aufwand dieser Seite geht dahin,
+dass die Brille stillsteht. Etwas, das sie im Takt bewegt, arbeitet dagegen.
+
+Gemessen bei der Voreinstellung (40 %):
+
+```
+mittlere Leuchtdichte   0,2396 -> 0,2445   (+0,0049)   vorher +0,029
+Streuung (Kontrast)     0,2334 -> 0,2457   (+5,3 %)
+Pulse je Sekunde        2,07
+```
+
+Der Mittelwert bewegt sich also **ein Neuntel** dessen, was das Aufhellen tat,
+während der Kontrast sichtbar anzieht. Die Rate bleibt unter 2,5 je Sekunde:
+Bei 180 BPM wären es drei — genau der Wert, ab dem die WCAG-Regel überhaupt
+hinsieht —, deshalb wird oberhalb von 150 BPM nur jeder zweite Schlag genommen.
+Musikalisch ist das ohnehin richtiger; bei schnellen Stücken zählt niemand die
+Viertel mit.
+
+Ein- und ausschaltbar über **Puls zum Beat**, dazu ein Stärkeregler von 0 bis
+100 %. „Dezent" ist kein messbarer Wert, sondern Geschmack — und zwei Runden
+Nachjustieren aus der Ferne sind eine Runde zu viel.
+
 ### Auf dem iPhone
 
 Zwei Dinge, die Safari anders macht und die beide erst am Gerät auffielen:

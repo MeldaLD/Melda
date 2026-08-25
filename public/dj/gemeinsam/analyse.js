@@ -1395,7 +1395,53 @@ function tempoFinden(kurve, hops) {
   const grob = periodeSchaetzen(kurve, hops);
   const bpmGrob = (hops * 60) / grob;
 
-  const fein = kammSuche(
+  /*
+   * --- Die Verwandten mitfragen ---------------------------------------------
+   *
+   * Bis hierher stand nur die Grobschaetzung zur Wahl, und die Feinsuche
+   * durfte zwei BPM um sie herum wandern. Liegt sie auf der falschen
+   * metrischen Ebene, kommt sie da nie wieder heraus - `oktaveKlaeren` kann
+   * verdoppeln, aber nicht zwei Drittel nehmen.
+   *
+   * Aufgefallen an einem Hardstyle-Remix von 38 Sekunden:
+   *
+   *   Grobschaetzung        119,7 BPM
+   *   Feinsuche              120,0 BPM   (zwei BPM Spielraum, mehr nicht)
+   *   nach Oktavklaerung     120,0 BPM
+   *   gemeldetes Vertrauen    0
+   *
+   * Der wahre Grundschlag liegt bei 180. Alle starken Gipfel der
+   * Autokorrelation sind ganzzahlige Vielfache von 0,3338 s - 0,6676 / 0,9985
+   * / 1,3351 / 1,6660 / 2,3336 -, und 120 ist genau zwei Drittel davon. Eine
+   * Triolenverwechslung also, und zwar eine, die das Verfahren selbst bemerkt
+   * hat: Vertrauen null heisst "dieses Raster faengt die Anschlaege nicht
+   * ein". Es hatte nur keine Moeglichkeit, etwas anderes vorzuschlagen.
+   *
+   * Bemerkenswert dabei: Ein Kamm ueber den *ganzen* Bereich findet auf
+   * beiden Kurven 90 BPM. Die Antwort war die ganze Zeit da, sie wurde nur
+   * nie gefragt.
+   *
+   * Also werden jetzt die musikalisch verwandten Ebenen mitgeprueft. Nicht
+   * beliebige Tempi - genau die Brueche, die beim Zaehlen von Musik
+   * entstehen: halb, doppelt, und die Drittel- und Viertelbeziehungen, aus
+   * denen Triolen- und Punktierungsfehler kommen.
+   */
+  const VERWANDTE = [1, 1 / 2, 2, 2 / 3, 3 / 2, 3 / 4, 4 / 3];
+  let bester = null;
+  for (const bruch of VERWANDTE) {
+    const ziel = bpmGrob * bruch;
+    if (ziel < BPM_VON || ziel > BPM_BIS + 20) continue;
+    const scharf = kammSuche(
+      kurve,
+      Math.max(BPM_VON, ziel - 2),
+      Math.min(BPM_BIS + 40, ziel + 2),
+      0.02,
+      hops,
+    );
+    const punkte = ebenenPunkte(kurve, scharf.bpm, hops) * ebenenErwartung(scharf.bpm);
+    if (!bester || punkte > bester.punkte) bester = { ...scharf, punkte };
+  }
+  const fein = bester ?? kammSuche(
     kurve,
     Math.max(BPM_VON, bpmGrob - 2),
     Math.min(BPM_BIS + 40, bpmGrob + 2),
@@ -1403,6 +1449,63 @@ function tempoFinden(kurve, hops) {
     hops,
   );
   return oktaveKlaeren(kurve, fein, hops);
+}
+
+/**
+ * Wie gut erklaert ein Grundschlag *alle* Selbstaehnlichkeiten der Kurve?
+ *
+ * Das ist die Frage, an der sich die metrische Ebene entscheidet, und sie ist
+ * eine andere als "wie gut trifft ein Kamm die Anschlaege". Ein Kamm bei
+ * halbem Tempo trifft immer genauso gut - wer jeden zweiten Schlag anvisiert,
+ * liegt auf jedem davon richtig. Deshalb kann ein Kamm die Ebene gar nicht
+ * entscheiden.
+ *
+ * Die Autokorrelation kann es: Ist 0,3338 s der Grundschlag, dann liegen
+ * Gipfel bei 0,3338, 0,6676, 1,0014, 1,3352 und so weiter - bei *jedem*
+ * Vielfachen. Ist in Wahrheit 0,5007 s der Grundschlag (zwei Drittel des
+ * Tempos), dann faellt jeder zweite dieser Gipfel weg. Die Summe ueber die
+ * Vielfachen sieht das, ein einzelner Wert nicht.
+ *
+ * Die Gewichtung 1/k ist Absicht: Der erste Gipfel wiegt am meisten, weite
+ * Vielfache tragen nur noch wenig bei - sie sind ohnehin verrauschter, weil
+ * bei grossem Abstand weniger Ueberlappung uebrig bleibt.
+ */
+function ebenenPunkte(kurve, bpm, hops) {
+  const periode = (hops * 60) / bpm;
+  if (!Number.isFinite(periode) || periode < 2) return 0;
+  const mittel = kurve.reduce((s, v) => s + v, 0) / Math.max(1, kurve.length);
+  let summe = 0;
+  for (let k = 1; k <= 8; k++) {
+    const lag = Math.round(periode * k);
+    const n = kurve.length - lag;
+    if (n <= 0) break;
+    let r = 0;
+    for (let i = 0; i < n; i++) r += (kurve[i] - mittel) * (kurve[i + lag] - mittel);
+    summe += Math.max(0, r / n) / k;
+  }
+  return summe;
+}
+
+/*
+ * Dieselbe Erwartung wie bei der Grobsuche, aber viel weiter.
+ *
+ * Bei der Grobsuche haelt die enge Glocke Artefakte heraus, die es nur im
+ * Signal gibt - zwei Drittel oder vier Fuenftel eines Tempos. Hier geht es um
+ * etwas anderes: Zur Wahl stehen nur noch echte metrische Ebenen desselben
+ * Stuecks, und zwischen denen soll das *Signal* entscheiden, nicht die
+ * Erwartung. Mit der engen Glocke (0,32) gewaenne 120 gegen 180, obwohl die
+ * Kurve deutlich fuer 180 spricht - gemessen 0,95 gegen 0,31 Gewicht, also
+ * mehr als das Dreifache.
+ *
+ * Ganz weglassen kann man sie trotzdem nicht: Sonst gewaenne bei jedem Stueck
+ * die halbe Ebene, weil ein weiterer Abstand mehr Vielfache im Fenster hat.
+ */
+const EBENEN_BREITE = 0.9;
+
+function ebenenErwartung(bpm) {
+  if (!Number.isFinite(bpm) || bpm <= 0) return 0;
+  const oktaven = Math.log2(bpm / TEMPO_MITTE);
+  return Math.exp(-0.5 * (oktaven / EBENEN_BREITE) ** 2);
 }
 
 // Autokorrelation: Wie sehr aehnelt die Anschlagskurve sich selbst, wenn man

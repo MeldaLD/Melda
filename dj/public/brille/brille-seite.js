@@ -552,6 +552,10 @@ $('blende').addEventListener('input', () => {
   $('blendeWert').textContent = v === 0 ? 'hart' : `${v} %`;
 });
 $('zoom').addEventListener('input', () => { $('zoomWert').textContent = `${zahl('zoom')} %`; });
+$('pulsStaerke').addEventListener('input', () => {
+  const v = zahl('pulsStaerke');
+  $('pulsWert').textContent = v === 0 ? 'aus' : `${v} %`;
+});
 $('aufloesung').addEventListener('change', () => {
   const [b, h] = $('aufloesung').value.split('x').map(Number);
   $('buehne').width = b;
@@ -634,10 +638,24 @@ function drehbuchBauen() {
 
 /** Welches Bild laeuft zur Zeit t, und wie weit ist es? */
 function drehbuchMerken(drehbuch) {
-  // Damit die Abnahme den *wirklich benutzten* Plan pruefen kann und nicht
-  // eine Nachrechnung davon. Eine Pruefung, die den Plan selbst noch einmal
-  // aufstellt, bestaetigt nur ihre eigene Arithmetik.
-  window.brille = { ...(window.brille ?? {}), drehbuch };
+  /*
+   * Damit die Abnahme den *wirklich benutzten* Plan pruefen kann und nicht
+   * eine Nachrechnung davon. Eine Pruefung, die den Plan selbst noch einmal
+   * aufstellt, bestaetigt nur ihre eigene Arithmetik.
+   *
+   * `zeichne` gibt dazu einen einzelnen Zeitpunkt aus, ohne die Schleife zu
+   * starten. Anders laesst sich nicht messen, wie stark das Flackern
+   * wirklich aufhellt - man saehe immer nur, was gerade zufaellig auf der
+   * Leinwand steht.
+   */
+  window.brille = {
+    ...(window.brille ?? {}),
+    drehbuch,
+    zeichne: (t) => {
+      const l = $('buehne');
+      bildZeichnen(l.getContext('2d'), drehbuch, t, l.width, l.height);
+    },
+  };
   return drehbuch;
 }
 
@@ -675,11 +693,20 @@ function bildZeichnen(stift, drehbuch, t, breite, hoehe) {
   const fortschritt = drehbuch.dauer > 0 ? t / drehbuch.dauer : 0;
   const zoom = 1 + (zahl('zoom') / 100) * fortschritt;
 
+  const filter = pulsFilter(drehbuch, t);
   const eines = (index, deckung) => {
     const e = bilder[folge[index]];
     if (!e || !e.fund) return;
     stift.save();
     stift.globalAlpha = deckung;
+    /*
+     * Der Puls wird beim Zeichnen des Fotos angewandt und nicht hinterher auf
+     * die fertige Leinwand. Das ist der Unterschied zwischen "dieses Bild hat
+     * mehr Kontrast" und "die ganze Leinwand hat mehr Kontrast" - bei einer
+     * Ueberblendung liegen zwei Bilder uebereinander, und nur so bekommt
+     * jedes seinen eigenen Anteil.
+     */
+    if (filter !== 'none') stift.filter = filter;
     ausrichtungLegen(stift, e.fund, e.suchBreite, e.bild.naturalWidth, breite, hoehe, zoom);
     if ($('wackeln').checked) {
       /*
@@ -739,6 +766,96 @@ function helligkeitAngleichen(stift, breite, hoehe) {
   stift.fillStyle = `rgb(${wert} ${wert} ${wert})`;
   stift.fillRect(0, 0, breite, hoehe);
   stift.restore();
+}
+
+/* --- Der Beat im Bild ------------------------------------------------------
+ *
+ * Erster Versuch war ein Aufhellen auf jedem Schlag. Gemessen 0,029 relativer
+ * Leuchtdichte, und selbst auf ein Drittel heruntergedreht las es sich als
+ * Blinken. Der Grund ist nicht die Staerke, sondern die Art: Aufhellen
+ * verschiebt die *mittlere* Helligkeit des Bildes, und genau darauf reagiert
+ * das Auge am empfindlichsten. Jede Aenderung des Mittelwerts sieht aus wie
+ * eine Lampe, die flackert.
+ *
+ * Was Schnittleute stattdessen benutzen, laesst den Mittelwert stehen und
+ * bewegt nur die Verteilung darum herum:
+ *
+ *   Kontrast     Tiefen tiefer, Lichter heller, Mitte bleibt. Das Bild
+ *                "schnappt" an, ohne heller zu werden.
+ *   Saettigung   Farben werden kurz satter. Traegt hier besonders, weil auf
+ *                jedem Bild dieselben roten Herzen sitzen - die Brille pulst
+ *                mit, ohne dass jemand sie extra ansteuern muesste.
+ *   Zoomstoss    Ein winziges Aufziehen je Schlag. Hier bewusst *nicht*: Der
+ *                ganze Aufwand dieser Seite geht dahin, dass die Brille
+ *                stillsteht. Etwas, das sie im Takt bewegt, arbeitet dagegen.
+ *
+ * Kontrast und Saettigung zusammen, beide klein. Canvas kann das ohne zweiten
+ * Durchgang: `ctx.filter` nimmt dieselben Funktionen wie CSS und wird beim
+ * Zeichnen des Bildes mit angewandt.
+ */
+
+/*
+ * Wieviel Kontrast und Saettigung auf dem Schlag dazukommen - bei voll
+ * aufgedrehtem Regler. Der Regler selbst steht auf der Seite, und das ist
+ * Absicht: "dezent" ist kein messbarer Wert, sondern Geschmack, und zwei
+ * Runden Nachjustieren aus der Ferne sind eine Runde zu viel. Die
+ * Voreinstellung liegt bewusst tief.
+ */
+const PULS_KONTRAST_VOLL = 0.18;
+const PULS_SAETTIGUNG_VOLL = 0.18;
+
+/** Ab welchem Tempo nur noch jeder zweite Schlag gepulst wird. */
+const PULS_HALBIEREN_AB = 150;
+
+/**
+ * Der Verlauf innerhalb eines Pulses: sofort da, dann abfallend.
+ *
+ * Ein Sinus waere falsch - der schwillt an, und Angeschwollenes liest sich
+ * nicht als Schlag. Ein Schlag ist ein Anschlag mit Ausklang, also eine
+ * fallende Flanke.
+ */
+function pulsHuelle(anteil) {
+  return Math.exp(-anteil * 5.5);
+}
+
+/**
+ * Der Filter fuer diesen Zeitpunkt - oder 'none', wenn gerade nichts anliegt.
+ */
+function pulsFilter(drehbuch, t) {
+  if (!$('puls').checked) return 'none';
+  const anteil = pulsAnteil(drehbuch, t);
+  if (anteil === null) return 'none';
+  const staerke = zahl('pulsStaerke') / 100;
+  if (!(staerke > 0)) return 'none';
+  const h = pulsHuelle(anteil) * staerke;
+  if (h < 0.02) return 'none';
+  const k = (1 + PULS_KONTRAST_VOLL * h).toFixed(4);
+  const sa = (1 + PULS_SAETTIGUNG_VOLL * h).toFixed(4);
+  return `contrast(${k}) saturate(${sa})`;
+}
+
+/**
+ * Wo im Puls wir gerade sind: 0 am Schlag, gegen 1 kurz davor.
+ *
+ * Mit Musik kommt das aus dem gemessenen Raster - dieselbe Rechnung wie beim
+ * Schnitt, damit Puls und Schnitt nicht gegeneinander laufen. Ohne Musik aus
+ * dem eingestellten Tempo.
+ */
+function pulsAnteil(drehbuch, t) {
+  let proPuls;
+  let stelle;
+  if (musik && !musik.befund.ohneRaster && drehbuch.musikStart !== null) {
+    const spur = { abschnitte: musik.befund.abschnitte };
+    proPuls = musik.befund.bpm > PULS_HALBIEREN_AB ? 2 : 1;
+    stelle = beatBei(spur, drehbuch.musikStart + t) / proPuls;
+  } else {
+    const bpm = zahl('bpm');
+    if (!(bpm > 0)) return null;
+    proPuls = bpm > PULS_HALBIEREN_AB ? 2 : 1;
+    stelle = t / ((60 / bpm) * proPuls);
+  }
+  if (!Number.isFinite(stelle)) return null;
+  return stelle - Math.floor(stelle);
 }
 
 /* --- Abspielen und Aufnehmen ---------------------------------------------- */
