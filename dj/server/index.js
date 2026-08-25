@@ -36,6 +36,17 @@ const AUDIO_ENDUNGEN = new Set(['.mp3', '.m4a', '.aac', '.wav', '.flac', '.ogg',
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  /*
+   * `.mjs` und `.wasm` braucht die Gesichtserkennung auf der Brillenseite.
+   *
+   * Ein Modul-Skript laedt der Browser nur, wenn der Typ stimmt - bei
+   * `text/plain` verweigert er mit "Strict MIME type checking", und die
+   * Fehlermeldung nennt den MIME-Typ und nicht die Datei. Vercel macht das
+   * von sich aus richtig; dieser kleine Server muss es lernen.
+   */
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.wasm': 'application/wasm',
+  '.tflite': 'application/octet-stream',
   '.css': 'text/css; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
   '.svg': 'image/svg+xml',

@@ -64,3 +64,12 @@ dj/vortanz/
 # Der Pruef-Taenzer wird erzeugt, nicht versioniert.
 # npm run dj:prueftaenzer
 dj/pruefungen/proben/
+
+# Probefotos von Gaesten fuer die Brillen-Abnahme.
+#
+# Sie bleiben lokal. Dieses Verzeichnis wird zwar ohnehin nicht ausgeliefert
+# (NICHT_AUSLIEFERN in dj/werkzeuge/verteilen.mjs), aber dieses Repository ist
+# oeffentlich - "nicht ausgeliefert" heisst hier eben nicht "nicht im Netz".
+# Wer die Abnahme laufen lassen will, legt seine eigenen Fotos unter diesen
+# Namen ab; fehlen sie, ueberspringt die Abnahme den Teil.
+dj/public/brille/proben/gast-*.jpg

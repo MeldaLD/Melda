@@ -14,6 +14,7 @@
  * steht. Dieselbe Ueberlegung steht beim Messstand.
  */
 import { brilleFinden, ausrichtungLegen, helligkeitMessen } from '../gemeinsam/brille.js';
+import { fundBestimmen, gesichtssucherLaden } from './gesichtssucher.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -33,6 +34,18 @@ let bilder = [];
 let setzen = null;
 
 /* --- Laden ---------------------------------------------------------------- */
+
+/*
+ * Das Gesichtsmodell schon beim Oeffnen der Seite holen.
+ *
+ * Es sind 9,6 MB, und sie brauchen gemessen rund anderthalb Sekunden. Ohne
+ * diesen Vorlauf faellt die Wartezeit auf das erste Bild - man waehlt dreissig
+ * Fotos aus, und die Seite steht erst einmal still, ohne zu sagen warum.
+ *
+ * Fehlschlaege werden hier bewusst verschluckt: Ohne Modell laeuft die
+ * Brillensuche allein weiter, und das ist schlechter, aber nicht kaputt.
+ */
+gesichtssucherLaden().catch((grund) => console.warn(`Gesichtsmodell: ${grund.message}`));
 
 $('dateien').addEventListener('change', async (e) => {
   const dateien = [...(e.target.files ?? [])];
@@ -54,7 +67,7 @@ $('dateien').addEventListener('change', async (e) => {
       such.height = Math.max(1, Math.round(bild.naturalHeight * (SUCH_BREITE / bild.naturalWidth)));
       stift.drawImage(bild, 0, 0, such.width, such.height);
       const daten = stift.getImageData(0, 0, such.width, such.height);
-      const fund = brilleFinden(daten);
+      const fund = await fundBestimmen(such, daten, brilleFinden);
       bilder.push({
         name: datei.name, bild, fund,
         suchBreite: such.width,
@@ -66,11 +79,14 @@ $('dateien').addEventListener('change', async (e) => {
       console.warn(`${datei.name}: ${grund.message}`);
     }
   }
-  const sicher = bilder.filter((b) => b.fund && b.fund.guete >= GUETE_FRAGLICH).length;
-  const fraglich = bilder.filter((b) => b.fund && b.fund.guete < GUETE_FRAGLICH).length;
-  const fehlt = bilder.filter((b) => !b.fund).length;
-  $('ladeStand').textContent = `${bilder.length} Bilder · ${sicher} sicher`
-    + (fraglich ? ` · ${fraglich} fraglich (gelb, bitte ansehen)` : '')
+  const zaehle = (pruefe) => bilder.filter(pruefe).length;
+  const ueberBrille = zaehle((b) => b.fund?.quelle === 'brille');
+  const ueberAugen = zaehle((b) => b.fund?.quelle === 'augen');
+  const ohneGesicht = zaehle((b) => b.fund?.quelle === 'nurBrille');
+  const fehlt = zaehle((b) => !b.fund);
+  $('ladeStand').textContent = `${bilder.length} Bilder · ${ueberBrille} über die Brille`
+    + (ueberAugen ? ` · ${ueberAugen} über die Augen` : '')
+    + (ohneGesicht ? ` · ${ohneGesicht} ohne Gesicht (gelb, bitte ansehen)` : '')
     + (fehlt ? ` · ${fehlt} nicht gefunden (rot)` : '');
   reihenfolgeSchreiben(bilder.map((_, i) => i));
   galerieBauen();
@@ -178,8 +194,22 @@ function galerieBauen() {
   g.innerHTML = '';
   bilder.forEach((b, i) => {
     const kachel = document.createElement('div');
+    /*
+     * Was gelb wird, hat sich mit der Gesichtserkennung geaendert.
+     *
+     * Vorher entschied allein die Guete der Brillensuche - und die weiss
+     * nichts darueber, *wo* sie gesucht hat. Ein Wedel neben dem Kopf konnte
+     * eine glatte Eins bekommen. Jetzt entscheidet die Quelle:
+     *
+     *   'brille'     Augen und Brille sind sich einig - das Beste, was es gibt
+     *   'augen'      nur die Augen; richtig ausgerichtet, aber unbestaetigt
+     *   'nurBrille'  gar kein Gesicht gefunden - hier lohnt ein Blick
+     */
     const stand = !b.fund ? ' fehlt'
-      : b.fund.guete < GUETE_FRAGLICH && !b.fund.vonHand ? ' fraglich' : '';
+      : b.fund.vonHand ? ''
+      : b.fund.quelle === 'nurBrille' && b.fund.guete < GUETE_FRAGLICH ? ' fraglich'
+      : b.fund.quelle === 'nurBrille' ? ' ohneGesicht'
+      : '';
     kachel.className = `kachel${stand}`;
     kachel.dataset.nummer = String(i);
     const c = document.createElement('canvas');

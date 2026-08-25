@@ -83,6 +83,8 @@ input[type="number"] { width: 4.5rem; }
 .kachel.fehlt { border-color: var(--schlecht); }
 /* Gefunden, aber unsicher - der Fall, der im Video auffaellt. */
 .kachel.fraglich { border-color: #ffd479; }
+/* Kein Gesicht gefunden - die Brillensuche lief im ganzen Bild. */
+.kachel.ohneGesicht { border-color: #ffd479; }
 .kachel.setzen { border-color: #ffd479; box-shadow: 0 0 0 3px rgba(255, 212, 121, 0.3); }
 .kachel canvas { display: block; width: 100%; }
 .kachel .nummer {

@@ -93,9 +93,23 @@ const HELLIGKEIT_MINDESTENS = 15; // darunter ist es Schatten, kein Glas
  *
  * @returns {Uint8Array} 1 je Bildpunkt
  */
-export function rotMaske(daten, breite, hoehe) {
+export function rotMaske(daten, breite, hoehe, bereich = null) {
   const maske = new Uint8Array(breite * hoehe);
   for (let i = 0, q = 0; i < daten.length; i += 4, q++) {
+    /*
+     * Ausserhalb des Suchbereichs gar nicht erst hinsehen.
+     *
+     * Der Bereich kommt aus der Gesichtserkennung, und er ist der eigentliche
+     * Grund, warum die Suche auf Partyfotos wieder funktioniert: Ein roter
+     * Folienwedel in der Hand liegt ausserhalb des Gesichts und kann damit
+     * gar nicht mehr gewinnen - egal wie rot er ist.
+     */
+    if (bereich) {
+      const x = q % breite;
+      const y = (q - x) / breite;
+      if (x < bereich.links || x >= bereich.rechts
+        || y < bereich.oben || y >= bereich.unten) continue;
+    }
     const r = daten[i];
     const g = daten[i + 1];
     const b = daten[i + 2];
@@ -304,18 +318,39 @@ export function achseBestimmen(summen) {
  * @param {ImageData} bild
  * @returns {{mitte:number[], winkel:number, laenge:number, dicke:number, guete:number}|null}
  */
-export function brilleFinden(bild) {
+export function brilleFinden(bild, bereich = null) {
   const { width: breite, height: hoehe, data } = bild;
-  const roh = rotMaske(data, breite, hoehe);
+  const roh = rotMaske(data, breite, hoehe, bereich);
   /*
-   * Der Radius zum Schliessen: knapp zwei Prozent der Bildbreite. Er muss
-   * groesser sein als die Nasenbruecke breit ist und kleiner als der
-   * Abstand zu allem anderen Roten im Bild.
+   * Der Radius zum Schliessen. Er muss groesser sein als die Nasenbruecke
+   * breit ist und kleiner als der Abstand zu allem anderen Roten.
+   *
+   * Ohne Suchbereich bleibt nur die Bildbreite als Anhaltspunkt: knapp zwei
+   * Prozent davon. Mit Suchbereich ist der Bezug ein besserer, naemlich der
+   * Bereich selbst - und der Unterschied ist keine Feinheit. Gemessen an
+   * einem Foto mit 213 Punkten Bereichsbreite:
+   *
+   *   Radius 4    5500 Punkte Brille, Haare daneben getrennt
+   *   Radius 8    5790 Punkte Brille, Haare daneben getrennt
+   *   Radius 12  10217 Punkte - Brille und Haare zu einem Klumpen
+   *
+   * Zwoelf ist genau der Wert, den die Bildbreite vorgibt. Im ganzen Foto
+   * ist er richtig, im Gesichtskasten verschmilzt er, was getrennt gehoert.
    */
-  const maske = schliessen(roh, breite, hoehe, Math.max(2, Math.round(breite * 0.018)));
+  const bezug = bereich ? bereich.rechts - bereich.links : breite;
+  const maske = schliessen(roh, breite, hoehe,
+    Math.max(2, Math.round(bezug * (bereich ? 0.035 : 0.018))));
   // Mindestgroesse an der Bildflaeche festmachen und nicht an einer festen
   // Zahl: dasselbe Motiv kann als 800er oder als 4000er Foto kommen.
-  const mindestens = Math.max(12, Math.round(breite * hoehe * 0.00004));
+  /*
+   * Die Mindestgroesse bezieht sich auf den *Suchbereich*. Im Gesichtskasten
+   * ist die Brille ein grosser Teil der Flaeche, im ganzen Foto ein kleiner -
+   * eine Schwelle am Gesamtbild waere im Kasten viel zu grob.
+   */
+  const flaeche = bereich
+    ? (bereich.rechts - bereich.links) * (bereich.unten - bereich.oben)
+    : breite * hoehe;
+  const mindestens = Math.max(12, Math.round(flaeche * 0.0015));
   const flecken = fleckenFinden(maske, breite, hoehe, mindestens);
   if (!flecken.length) return null;
   const teile = brilleZusammensetzen(flecken);
@@ -341,8 +376,8 @@ export function brilleFinden(bild) {
    *   Form        sie ist deutlich breiter als hoch
    *   Lage        sie steht ungefaehr waagerecht, nicht senkrecht
    */
-  const anteil = g.anzahl / (breite * hoehe);
-  const grossGenug = Math.min(1, anteil / 0.004);
+  const anteil = g.anzahl / flaeche;
+  const grossGenug = Math.min(1, anteil / (bereich ? 0.05 : 0.004));
   const schlank = Math.min(1, Math.max(0, (0.75 - lage.schlankheit) / 0.45));
   const neigung = Math.abs(((lage.winkel + Math.PI / 2) % Math.PI) - Math.PI / 2);
   const waagerecht = Math.min(1, Math.max(0, (0.7 - neigung) / 0.5));
