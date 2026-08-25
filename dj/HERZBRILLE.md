@@ -485,6 +485,37 @@ Ein- und ausschaltbar über **Puls zum Beat**, dazu ein Stärkeregler von 0 bis
 100 %. „Dezent" ist kein messbarer Wert, sondern Geschmack — und zwei Runden
 Nachjustieren aus der Ferne sind eine Runde zu viel.
 
+### Eine Anzeige, die sich selbst widersprach
+
+Auf dem Telefon stand gleichzeitig:
+
+```
+48 Bilder × 1 Schläge = 16.0 s · … · 21.6 s Musik bleibt übrig
+8 Bild(er) weggelassen – die Musik reicht nicht weiter.
+```
+
+Weggelassen wurde **nichts**. Nachgestellt und im Schnittplan nachgesehen:
+`gekuerzt: 0`. Die zweite Zeile war von einer früheren Einstellung
+stehengeblieben, und nichts hat sie gelöscht.
+
+Dahinter lagen zwei Fehler:
+
+* Die Passungszeile rechnete *Bildzahl × Schläge*, während `drehbuchBauen` den
+  echten Plan baut und dabei Bilder weglässt, wenn die Musik nicht reicht.
+  Zwei Rechnungen für dieselbe Frage — die auseinanderlaufen konnten und es
+  taten. Die Zeile kommt jetzt aus dem fertigen Plan.
+* Der Stand des Videos wurde nie zurückgesetzt, so dass ausgerechnet die
+  alarmierendste Meldung jede Änderung überlebte. Ob Bilder wegfallen, steht
+  jetzt in der Passungszeile — der einzigen Stelle, die bei jeder Änderung neu
+  gerechnet wird.
+
+> Eine Anzeige, die sich selbst widerspricht, ist schlimmer als keine: Man
+> sucht den Fehler dann dort, wo keiner ist. Die Abnahme fährt jetzt beide
+> Zustände nacheinander — erst eine Einstellung, bei der Bilder wegfallen, dann
+> eine, bei der sie reichen — und prüft, dass die Anzeige dieselbe Bildzahl
+> nennt wie der Plan und keine Meldung aus dem ersten Lauf im zweiten
+> stehenbleibt.
+
 ### Auf dem iPhone
 
 Zwei Dinge, die Safari anders macht und die beide erst am Gerät auffielen:

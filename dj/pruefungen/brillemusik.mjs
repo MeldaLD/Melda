@@ -345,6 +345,63 @@ async function pulsMessen() {
   }
 }
 
+/**
+ * Erst eine Einstellung fahren, bei der Bilder wegfallen, dann eine, bei der
+ * sie reichen - und beide Zustaende ablesen.
+ *
+ * Die Reihenfolge ist der Kern: Nur so faellt eine Meldung auf, die aus dem
+ * ersten Lauf im zweiten stehenbleibt.
+ */
+async function anzeigePruefen() {
+  const seite = await browser.newPage({ viewport: { width: 900, height: 700 } });
+  try {
+    await seite.goto(`${ADRESSE}/brille/`, { waitUntil: 'networkidle' });
+    // Genug Bilder, dass eine spaete Startstelle sie nicht mehr alle traegt.
+    const viele = [];
+    while (viele.length < 24) viele.push(fotos[viele.length % fotos.length]);
+    await seite.setInputFiles('#dateien', viele);
+    await seite.waitForFunction(
+      () => /Bilder ·/.test(document.getElementById('ladeStand').textContent),
+      null, { timeout: 180000 },
+    );
+    await seite.setInputFiles('#musik', REFERENZ);
+    await seite.waitForFunction(
+      () => /BPM/.test(document.getElementById('musikStand').textContent),
+      null, { timeout: 300000 },
+    );
+    const stellen = await seite.$eval('#startStelle', (e) => [...e.options].map((o) => o.value));
+    const ablesen = async (name) => {
+      await seite.click('#vorschau');
+      await seite.waitForTimeout(250);
+      await seite.click('#vorschau');
+      const plan = await seite.evaluate(() => {
+        const d = window.brille?.drehbuch;
+        return d ? { bilder: d.folge.length, gekuerzt: d.gekuerzt } : null;
+      });
+      return {
+        name,
+        passung: (await seite.textContent('#passung')) ?? '',
+        meldung: (await seite.textContent('#videoStand')) ?? '',
+        ...(plan ?? { bilder: -1, gekuerzt: -1 }),
+      };
+    };
+    const zustaende = [];
+    // 1. Spaeteste Startstelle und lange Bilder: Die Musik reicht nicht.
+    await seite.selectOption('#startStelle', stellen.at(-1));
+    await seite.selectOption('#jeBild', '8');
+    zustaende.push(await ablesen('Musik zu kurz'));
+    // 2. Zurueck an den Anfang und kurze Bilder: Die Musik reicht.
+    await seite.selectOption('#startStelle', stellen[0]);
+    await seite.selectOption('#jeBild', '1');
+    zustaende.push(await ablesen('Musik reicht'));
+    return { zustaende };
+  } catch {
+    return null;
+  } finally {
+    await seite.close();
+  }
+}
+
 try {
   /* --- Fall 1: echte Musik mit sicherem Raster --------------------------- */
   console.log('\n=== Referenzmusik (vortanz/00-durchlauf.mp3, erzeugt mit 124 BPM)');
@@ -514,6 +571,50 @@ try {
      */
     pruefe('hoechstens zweieinhalb Pulse je Sekunde', puls.jeSekunde <= 2.5,
       `${puls.jeSekunde} je Sekunde bei ${puls.bpm} BPM`);
+  }
+
+  /* --- Fall 6: die Anzeige darf sich nicht selbst widersprechen ---------- */
+  console.log('\n=== Anzeige und Schnittplan');
+  /*
+   * Ein gemeldeter Fehler, der keiner war - und genau deshalb einer.
+   *
+   * Auf dem Telefon stand gleichzeitig "21,3 s Musik bleibt uebrig" und
+   * "8 Bild(er) weggelassen - die Musik reicht nicht weiter". Weggelassen
+   * wurde nichts: Die zweite Zeile war von einer frueheren Einstellung
+   * stehengeblieben, und nichts hat sie geloescht.
+   *
+   * Dahinter lagen zwei Fehler. Die Passungszeile rechnete Bildzahl mal
+   * Schlaege, waehrend der Schnittplan Bilder weglaesst, wenn die Musik nicht
+   * reicht - zwei Rechnungen fuer dieselbe Frage, die auseinanderlaufen
+   * konnten. Und der Stand des Videos wurde nie zurueckgesetzt, so dass
+   * ausgerechnet die alarmierendste Meldung jede Aenderung ueberlebte.
+   *
+   * Geprueft wird deshalb beides: Die Anzeige nennt dieselbe Bildzahl wie der
+   * Plan, und eine Meldung aus einem frueheren Lauf steht nicht mehr da.
+   */
+  const anzeige = await anzeigePruefen();
+  if (!anzeige) {
+    pruefe('Anzeige pruefbar', false, 'keine Werte zustande gekommen');
+  } else {
+    for (const z of anzeige.zustaende) {
+      console.log(`  [${z.name}]`);
+      console.log(`    Passung : ${z.passung}`);
+      console.log(`    Meldung : ${z.meldung || '(leer)'}`);
+      console.log(`    Plan    : ${z.bilder} Bilder, ${z.gekuerzt} weggelassen`);
+    }
+    console.log('');
+    for (const z of anzeige.zustaende) {
+      pruefe(`[${z.name}] die Anzeige nennt die Bildzahl des Plans`,
+        z.passung.startsWith(`${z.bilder} Bilder`), z.passung.slice(0, 40));
+      pruefe(`[${z.name}] die Anzeige widerspricht sich nicht`,
+        z.gekuerzt > 0
+          ? /passen nicht mehr/.test(z.passung)
+          : !/passen nicht mehr/.test(z.passung),
+        `gekuerzt=${z.gekuerzt}`);
+    }
+    const letzter = anzeige.zustaende.at(-1);
+    pruefe('keine Meldung aus einem frueheren Lauf bleibt stehen',
+      !/weggelassen|reicht nicht/.test(letzter.meldung), letzter.meldung);
   }
 
   /*

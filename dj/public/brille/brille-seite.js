@@ -479,29 +479,37 @@ function unterteilungenFuellen() {
   passungMelden();
 }
 
+/*
+ * Die Passungszeile kommt aus dem *fertigen Schnittplan* und nicht aus einer
+ * Nebenrechnung.
+ *
+ * Vorher standen hier zwei Rechnungen nebeneinander: Diese Zeile multiplizierte
+ * Bildzahl mal Schlaege, waehrend `drehbuchBauen` den echten Plan baut und dabei
+ * Bilder weglaesst, wenn die Musik nicht reicht. Beide konnten sich
+ * widersprechen, und sie haben es getan - gemeldet wurde gleichzeitig
+ * "21,3 s Musik bleibt uebrig" und "27 Bilder weggelassen, die Musik reicht
+ * nicht weiter".
+ *
+ * Eine Anzeige, die sich selbst widerspricht, ist schlimmer als keine: Man
+ * sucht dann den Fehler dort, wo keiner ist.
+ */
 function passungMelden() {
   if (!musik) { $('passung').textContent = ''; return; }
-  const anzahl = reihenfolgeLesen().length;
-  const uebrig = musik.puffer.duration - Number($('startStelle').value);
-  const laenge = videoLaenge();
-  const rest = uebrig - laenge;
+  const drehbuch = drehbuchBauen();
+  if (!drehbuch) { $('passung').textContent = 'Erst Bilder laden.'; return; }
+  const gesamt = reihenfolgeLesen().length;
+  const uebrig = musik.puffer.duration - (drehbuch.musikStart ?? 0);
+  const rest = uebrig - drehbuch.dauer;
   const wie = musik.befund.ohneRaster
-    ? `${anzahl} Bilder gleichmäßig`
-    : `${anzahl} Bilder × ${$('jeBild').value} Schläge`;
-  $('passung').textContent = `${wie} = `
-    + `${zeitText(laenge)} · Musik ab Start ${zeitText(uebrig)} · `
-    + (rest >= 0
-      ? `${zeitText(rest)} Musik bleibt übrig (wird ausgeblendet)`
-      : `${zeitText(-rest)} zu wenig Musik – das Video wird an der Musik gekürzt`);
-}
-
-/** Die Videolaenge, die sich aus Musik und Bildzahl ergibt. */
-function videoLaenge() {
-  const anzahl = reihenfolgeLesen().length;
-  if (musik.befund.ohneRaster) {
-    return anzahl * (60 / zahl('bpm') / Number($('proSchlag').value));
-  }
-  return anzahl * Number($('jeBild').value) * (60 / musik.befund.bpm);
+    ? `${drehbuch.folge.length} Bilder gleichmäßig`
+    : `${drehbuch.folge.length} Bilder × ${$('jeBild').value} Schläge`;
+  $('passung').textContent = `${wie} = ${zeitText(drehbuch.dauer)}`
+    + ` · Musik ab Start ${zeitText(uebrig)}`
+    + (drehbuch.gekuerzt
+      ? ` · ${drehbuch.gekuerzt} von ${gesamt} Bildern passen nicht mehr in die Musik`
+      : rest > 0.05
+        ? ` · ${zeitText(rest)} Musik bleibt übrig (wird ausgeblendet)`
+        : '');
 }
 
 $('startStelle').addEventListener('change', unterteilungenFuellen);
@@ -936,9 +944,18 @@ $('vorschau').addEventListener('click', () => {
   drehbuchMerken(drehbuch);
   if (laeuft) { laeuft = false; return; }
   laeuft = true;
-  if (drehbuch.gekuerzt) {
-    melden(`${drehbuch.gekuerzt} Bild(er) weggelassen – die Musik reicht nicht weiter.`);
-  }
+  /*
+   * Der Stand wird bei jedem Start geleert.
+   *
+   * Vorher blieb hier stehen, was ein frueherer Lauf gemeldet hatte - und
+   * ausgerechnet die alarmierendste Meldung ("Bilder weggelassen") ueberlebte
+   * so jede Aenderung der Einstellungen. Ein Stand, der nicht zum aktuellen
+   * Lauf gehoert, ist eine Falschmeldung.
+   *
+   * Ob Bilder wegfallen, steht jetzt in der Passungszeile - der einzigen
+   * Stelle, die bei jeder Aenderung neu gerechnet wird.
+   */
+  melden('');
   const stift = $('buehne').getContext('2d');
   const { width: B, height: H } = $('buehne');
   const ton = tonStarten(drehbuch, false);
@@ -1023,6 +1040,7 @@ $('rendern').addEventListener('click', async () => {
 
   $('rendern').disabled = true;
   $('vorschau').disabled = true;
+  $('ergebnis').innerHTML = '';
   laeuft = true;
   // Das erste Bild steht schon, bevor die Aufnahme laeuft - sonst faengt
   // das Video mit einer schwarzen Leinwand an.
