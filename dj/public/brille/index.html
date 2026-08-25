@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Herzbrille – Video aus Portraits</title>
+  <link rel="stylesheet" href="/brille/brille.css" />
+</head>
+<body>
+  <header>
+    <h1>Herzbrille</h1>
+    <p class="unterzeile">
+      Alle Bilder auf die Brille ausrichten und daraus ein Video schneiden.
+      Musik kommt hinterher dazu.
+    </p>
+  </header>
+
+  <section class="schritt">
+    <h2>1 · Bilder laden</h2>
+    <input type="file" id="dateien" accept="image/*" multiple />
+    <span class="stand" id="ladeStand"></span>
+    <p class="fussnote">
+      Bleibt alles auf diesem Rechner – die Bilder werden nirgendwo
+      hochgeladen, sondern nur im Browser gelesen.
+    </p>
+  </section>
+
+  <section class="schritt">
+    <h2>2 · Reihenfolge</h2>
+    <p class="fussnote">
+      Eine Zeile je Bild. Zeilen verschieben, löschen oder mit
+      <code>#</code> auskommentieren – das ist die Reihenfolge im Video.
+    </p>
+    <div class="knopfreihe">
+      <button id="mischen">Mischen</button>
+      <button id="umdrehen">Umdrehen</button>
+      <button id="nachGuete">Nach Trefferqualität</button>
+      <button id="nachHelligkeit">Nach Helligkeit</button>
+      <button id="nachNeigung">Nach Kopfneigung</button>
+      <button id="zurueck">Ursprung</button>
+    </div>
+    <textarea id="reihenfolge" rows="10" spellcheck="false"></textarea>
+  </section>
+
+  <section class="schritt">
+    <h2>3 · Prüfen</h2>
+    <p class="fussnote">
+      Grün = sicher gefunden. <b style="color:#ffd479">Gelb</b> = gefunden,
+      aber unsicher – kurz ansehen. <b style="color:#ff6b6b">Rot</b> = nicht
+      gefunden. Bei Gelb und Rot auf das Bild klicken und dann die
+      <b>linke</b> und die <b>rechte</b> Linsenmitte anklicken.
+    </p>
+    <div id="galerie" class="galerie"></div>
+  </section>
+
+  <section class="schritt">
+    <h2>4 · Video</h2>
+    <div class="regler">
+      <label>Tempo <input type="number" id="bpm" value="128" min="60" max="200" step="1" /> BPM</label>
+      <label>Bilder je Schlag
+        <select id="proSchlag">
+          <option value="0.25">alle 4 Schläge</option>
+          <option value="0.5">alle 2 Schläge</option>
+          <option value="1" selected>1 je Schlag</option>
+          <option value="2">2 je Schlag</option>
+          <option value="4">4 je Schlag</option>
+        </select>
+      </label>
+      <label>Überblendung <input type="range" id="blende" min="0" max="100" value="0" /> <span id="blendeWert">hart</span></label>
+      <label>Langsamer Zoom <input type="range" id="zoom" min="0" max="60" value="18" /> <span id="zoomWert">18 %</span></label>
+      <label class="schalter"><input type="checkbox" id="angleichen" checked /> Helligkeit angleichen</label>
+      <label class="schalter"><input type="checkbox" id="wackeln" /> Leichter Versatz je Bild</label>
+      <label>Auflösung
+        <select id="aufloesung">
+          <option value="1080x1920">1080 × 1920 (hochkant)</option>
+          <option value="1080x1080" selected>1080 × 1080 (quadratisch)</option>
+          <option value="1920x1080">1920 × 1080 (quer)</option>
+        </select>
+      </label>
+    </div>
+    <div class="knopfreihe">
+      <button id="vorschau" class="gross">Vorschau abspielen</button>
+      <button id="rendern" class="gross">Video aufnehmen</button>
+      <span class="stand" id="videoStand"></span>
+    </div>
+    <canvas id="buehne" width="1080" height="1080"></canvas>
+    <p class="fussnote" id="ergebnis"></p>
+  </section>
+
+  <script type="module" src="/brille/brille-seite.js"></script>
+</body>
+</html>

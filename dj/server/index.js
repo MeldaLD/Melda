@@ -127,6 +127,17 @@ async function behandeln(anfrage, antwort) {
    * Messstand: Ohne ihn haelt der Browser "/kalibrieren" fuer eine Datei und
    * sucht das Stilblatt danebenliegend unter "/kalibrieren.css".
    */
+  /*
+   * Die Brillenseite - mit Schraegstrich, aus demselben Grund wie beim
+   * Messstand: Ohne ihn haelt der Browser "/brille" fuer eine Datei.
+   */
+  if (weg === '/brille') {
+    antwort.writeHead(302, { Location: '/brille/' });
+    return antwort.end();
+  }
+  if (weg === '/brille/') {
+    return datei(antwort, path.join(OEFFENTLICH, 'brille/index.html'));
+  }
   if (weg === '/kalibrieren') {
     antwort.writeHead(302, { Location: '/kalibrieren/' });
     return antwort.end();
