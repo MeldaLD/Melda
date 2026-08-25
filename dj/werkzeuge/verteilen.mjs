@@ -24,8 +24,22 @@ const DJ = path.join(HIER, '..');
 const PROJEKT = path.join(DJ, '..');
 const ZIEL = path.join(PROJEKT, 'public', 'dj');
 
+/*
+ * Was nicht mit ausgeliefert wird.
+ *
+ * `brille/proben/` enthaelt ein Beispielfoto mit einer erkennbaren Person.
+ * Es ist zum Entwickeln und Pruefen da und wird von der Seite selbst nicht
+ * gebraucht - auf einer oeffentlich erreichbaren Adresse hat es nichts zu
+ * suchen. Der Unterschied zwischen "liegt im Arbeitsordner" und "steht im
+ * Netz" ist genau diese Zeile.
+ */
+const NICHT_AUSLIEFERN = ['brille/proben'];
+
 await fs.rm(ZIEL, { recursive: true, force: true });
 await fs.cp(path.join(DJ, 'public'), ZIEL, { recursive: true });
+for (const weg of NICHT_AUSLIEFERN) {
+  await fs.rm(path.join(ZIEL, ...weg.split('/')), { recursive: true, force: true });
+}
 
 // Die Startseite des DJ-Servers zeigt auf /buehne und /p - das sind Adressen,
 // die es nur im Serverbetrieb gibt. Unter /dj waere sie irrefuehrend.

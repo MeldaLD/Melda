@@ -4,8 +4,26 @@ Aus den Partyfotos ein Video schneiden: alle Gesichter so ausgerichtet, dass
 die Brille immer an derselben Stelle sitzt, und dann hart auf den Beat
 durchgeschnitten.
 
-Aufrufen unter `http://localhost:3000/brille` – die Fotos verlassen den
-Rechner nicht, alles läuft im Browser.
+Zwei Adressen, dieselbe Seite:
+
+| | |
+|---|---|
+| **Lokal**, mit laufendem Server | `http://localhost:3000/brille` |
+| **Vercel**, ohne Server | `…/dj/brille/index.html` |
+
+Die Fotos verlassen den Rechner in beiden Fällen nicht – die Seite lädt sie
+nur im Browser, es gibt keinen Upload. Deshalb funktioniert sie auf Vercel
+genauso gut wie lokal, obwohl dort kein Server mitrechnet.
+
+> Damit das gilt, sind alle Pfade in dieser Seite **relativ**. Ein absolutes
+> `/gemeinsam/brille.js` trifft auf Vercel ins Leere, weil die Datei dort
+> unter `/dj/gemeinsam/` liegt – und der Fehler fällt beim Entwickeln nicht
+> auf, weil der eigene Server genau die Adresse bedient, die im Code steht.
+>
+> Das Beispielfoto in `brille/proben/` wird **nicht** mit ausgeliefert. Es
+> zeigt eine erkennbare Person, wird von der Seite nicht gebraucht und hat
+> auf einer öffentlich erreichbaren Adresse nichts zu suchen (siehe
+> `NICHT_AUSLIEFERN` in `werkzeuge/verteilen.mjs`).
 
 ---
 

@@ -3,7 +3,17 @@
 // Ablauf: Bilder laden, Brille suchen, Reihenfolge festlegen, Video
 // aufnehmen. Alles im Browser - die Fotos verlassen den Rechner nicht.
 
-import { brilleFinden, ausrichtungLegen, helligkeitMessen } from '/gemeinsam/brille.js';
+/*
+ * Relativer Pfad und kein absoluter.
+ *
+ * Diese Seite laeuft unter zwei Adressen: beim Serverbetrieb unter
+ * `/brille/`, in der gebauten Fassung auf Vercel unter `/dj/brille/`. Ein
+ * absolutes `/gemeinsam/brille.js` trifft dort ins Leere, weil dort
+ * `/dj/gemeinsam/brille.js` liegt - und der Fehler faellt beim Entwickeln
+ * nicht auf, weil der eigene Server genau die Adresse bedient, die im Code
+ * steht. Dieselbe Ueberlegung steht beim Messstand.
+ */
+import { brilleFinden, ausrichtungLegen, helligkeitMessen } from '../gemeinsam/brille.js';
 
 const $ = (id) => document.getElementById(id);
 
